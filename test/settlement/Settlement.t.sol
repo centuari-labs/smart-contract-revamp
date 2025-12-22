@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Settlement} from "../../src/settlement/Settlement.sol";
 import {ISettlement} from "../../src/interfaces/ISettlement.sol";
 import {ICentuari} from "../../src/interfaces/ICentuari.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title MockCentuari
 /// @notice Mock contract for testing Settlement
@@ -55,17 +57,44 @@ contract MockCentuari is ICentuari {
     }
 }
 
+/// @title SettlementV2
+/// @notice Mock V2 contract for testing upgrades
+/// @dev Adds a new function and storage variable to test upgrade compatibility
+contract SettlementV2 is Settlement {
+    // New storage variable - appended to the end (safe for upgrades)
+    uint256 private _version;
+
+    /// @notice Returns the version of the contract
+    function version() external view returns (uint256) {
+        return _version;
+    }
+
+    /// @notice Initialize V2 specific storage
+    /// @dev This would be called via upgradeAndCall if needed
+    function initializeV2() external reinitializer(2) {
+        _version = 2;
+    }
+
+    /// @notice New function added in V2
+    function getContractInfo() external view returns (address op, address cent, bool isPaused) {
+        return (this.operator(), this.centuari(), this.paused());
+    }
+}
+
 /// @title SettlementTest
 /// @notice Test suite for Settlement contract
 contract SettlementTest is Test {
     Settlement public implementation;
     Settlement public settlement;
     MockCentuari public mockCentuari;
+    ProxyAdmin public proxyAdmin;
+    TransparentUpgradeableProxy public proxy;
 
     address public owner;
     address public operator;
     address public user;
     address public loanToken;
+    address public proxyAdminOwner;
 
     // Events to test
     event MatchSettled(
@@ -91,6 +120,7 @@ contract SettlementTest is Test {
         operator = makeAddr("operator");
         user = makeAddr("user");
         loanToken = makeAddr("loanToken");
+        proxyAdminOwner = makeAddr("proxyAdminOwner");
 
         // Deploy mock Centuari
         mockCentuari = new MockCentuari();
@@ -98,13 +128,33 @@ contract SettlementTest is Test {
         // Deploy implementation
         implementation = new Settlement();
 
-        // Deploy proxy
+        // Prepare initialization data
         bytes memory initData = abi.encodeCall(
             Settlement.initialize,
             (owner, operator, address(mockCentuari))
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        // Deploy TransparentUpgradeableProxy
+        // Note: TransparentUpgradeableProxy creates its own ProxyAdmin internally
+        proxy = new TransparentUpgradeableProxy(
+            address(implementation),
+            proxyAdminOwner,
+            initData
+        );
+
+        // Get the ProxyAdmin address from the proxy's admin slot
+        proxyAdmin = ProxyAdmin(_getProxyAdmin(address(proxy)));
+
+        // Cast proxy to Settlement for easier testing
         settlement = Settlement(address(proxy));
+    }
+
+    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
+    function _getProxyAdmin(address _proxy) internal view returns (address) {
+        // ERC1967 admin slot: bytes32(uint256(keccak256('eip1967.proxy.admin')) - 1)
+        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+        bytes32 adminValue = vm.load(_proxy, adminSlot);
+        return address(uint160(uint256(adminValue)));
     }
 
     // ============ Helper Functions ============
@@ -144,7 +194,7 @@ contract SettlementTest is Test {
             (address(0), operator, address(mockCentuari))
         );
         vm.expectRevert(ISettlement.ZeroAddress.selector);
-        new ERC1967Proxy(address(newImpl), initData);
+        new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
 
     function test_Initialize_RevertZeroOperator() public {
@@ -154,7 +204,7 @@ contract SettlementTest is Test {
             (owner, address(0), address(mockCentuari))
         );
         vm.expectRevert(ISettlement.ZeroAddress.selector);
-        new ERC1967Proxy(address(newImpl), initData);
+        new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
 
     function test_Initialize_RevertZeroCentuari() public {
@@ -164,7 +214,7 @@ contract SettlementTest is Test {
             (owner, operator, address(0))
         );
         vm.expectRevert(ISettlement.ZeroAddress.selector);
-        new ERC1967Proxy(address(newImpl), initData);
+        new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
 
     // ============ settleMatch Tests ============
@@ -483,5 +533,201 @@ contract SettlementTest is Test {
         settlement.settleMatch(matchData);
 
         assertTrue(settlement.isSettled(matchId));
+    }
+
+    // ============ Proxy Admin Tests ============
+
+    function test_ProxyAdmin_Ownership() public view {
+        assertEq(proxyAdmin.owner(), proxyAdminOwner);
+    }
+
+    // ============ Upgrade Tests ============
+
+    function test_Upgrade_NonAdminCannotUpgrade() public {
+        SettlementV2 newImpl = new SettlementV2();
+
+        // User (non-admin) cannot upgrade
+        vm.prank(user);
+        vm.expectRevert();
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+
+        // Owner (Settlement owner, not ProxyAdmin owner) cannot upgrade
+        vm.prank(owner);
+        vm.expectRevert();
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+    }
+
+    function test_Upgrade_AdminCanUpgrade() public {
+        SettlementV2 newImpl = new SettlementV2();
+
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+
+        // Verify upgrade succeeded by calling V2 function
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+        (address op, address cent, bool isPaused) = settlementV2.getContractInfo();
+        assertEq(op, operator);
+        assertEq(cent, address(mockCentuari));
+        assertEq(isPaused, false);
+    }
+
+    function test_Upgrade_PreservesStorage() public {
+        // Setup: Settle some matches first
+        ISettlement.MatchData memory matchData1 = _createMatchData(
+            bytes32(uint256(100)),
+            makeAddr("lender100"),
+            makeAddr("borrower100"),
+            1000 ether
+        );
+        ISettlement.MatchData memory matchData2 = _createMatchData(
+            bytes32(uint256(200)),
+            makeAddr("lender200"),
+            makeAddr("borrower200"),
+            2000 ether
+        );
+
+        vm.startPrank(operator);
+        settlement.settleMatch(matchData1);
+        settlement.settleMatch(matchData2);
+        vm.stopPrank();
+
+        // Pause the contract
+        vm.prank(owner);
+        settlement.pause();
+
+        // Record state before upgrade
+        bool settledBefore1 = settlement.isSettled(matchData1.matchId);
+        bool settledBefore2 = settlement.isSettled(matchData2.matchId);
+        address operatorBefore = settlement.operator();
+        address centuariBefore = settlement.centuari();
+        address ownerBefore = settlement.owner();
+        bool pausedBefore = settlement.paused();
+
+        // Upgrade to V2
+        SettlementV2 newImpl = new SettlementV2();
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+
+        // Verify state is preserved after upgrade
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+        assertEq(settlementV2.isSettled(matchData1.matchId), settledBefore1);
+        assertEq(settlementV2.isSettled(matchData2.matchId), settledBefore2);
+        assertEq(settlementV2.operator(), operatorBefore);
+        assertEq(settlementV2.centuari(), centuariBefore);
+        assertEq(settlementV2.owner(), ownerBefore);
+        assertEq(settlementV2.paused(), pausedBefore);
+    }
+
+    function test_Upgrade_NewFunctionalityWorks() public {
+        // Upgrade to V2
+        SettlementV2 newImpl = new SettlementV2();
+        
+        // Upgrade and call initializeV2
+        bytes memory initV2Data = abi.encodeCall(SettlementV2.initializeV2, ());
+        
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            initV2Data
+        );
+
+        // Verify new functionality works
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+        
+        // Check version was set
+        assertEq(settlementV2.version(), 2);
+        
+        // Check new getContractInfo function works
+        (address op, address cent, bool isPaused) = settlementV2.getContractInfo();
+        assertEq(op, operator);
+        assertEq(cent, address(mockCentuari));
+        assertEq(isPaused, false);
+    }
+
+    function test_Upgrade_ExistingFunctionalityStillWorks() public {
+        // Upgrade to V2
+        SettlementV2 newImpl = new SettlementV2();
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+
+        // Cast to V2 but test V1 functionality
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+
+        // Test settleMatch still works
+        ISettlement.MatchData memory matchData = _createMatchData(
+            bytes32(uint256(999)),
+            makeAddr("lenderNew"),
+            makeAddr("borrowerNew"),
+            5000 ether
+        );
+
+        vm.prank(operator);
+        settlementV2.settleMatch(matchData);
+
+        assertTrue(settlementV2.isSettled(matchData.matchId));
+        assertEq(mockCentuari.settleMatchCallCount(), 1);
+
+        // Test admin functions still work
+        address newCentuari = makeAddr("newCentuariV2");
+        vm.prank(owner);
+        settlementV2.setCentuari(newCentuari);
+        assertEq(settlementV2.centuari(), newCentuari);
+    }
+
+    function test_Upgrade_CannotReinitializeV1() public {
+        // Upgrade to V2
+        SettlementV2 newImpl = new SettlementV2();
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            ""
+        );
+
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+
+        // Try to call initialize again (should fail)
+        vm.expectRevert();
+        settlementV2.initialize(user, user, user);
+    }
+
+    function test_Upgrade_CannotReinitializeV2Twice() public {
+        // Upgrade to V2 with initialization
+        SettlementV2 newImpl = new SettlementV2();
+        bytes memory initV2Data = abi.encodeCall(SettlementV2.initializeV2, ());
+        
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(proxy)),
+            address(newImpl),
+            initV2Data
+        );
+
+        SettlementV2 settlementV2 = SettlementV2(address(proxy));
+
+        // Try to call initializeV2 again (should fail)
+        vm.expectRevert();
+        settlementV2.initializeV2();
     }
 }

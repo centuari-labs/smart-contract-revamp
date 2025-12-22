@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.sol";
 
 import {ISettlement} from "../interfaces/ISettlement.sol";
 import {ICentuari} from "../interfaces/ICentuari.sol";
@@ -16,7 +16,7 @@ import {SettlementStorage} from "./SettlementStorage.sol";
 contract Settlement is
     Initializable,
     OwnableUpgradeable,
-    ReentrancyGuard,
+    ReentrancyGuardUpgradeable,
     SettlementStorage,
     ISettlement
 {
@@ -44,6 +44,7 @@ contract Settlement is
         if (centuari_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(owner_);
+        __ReentrancyGuard_init();
 
         _operator = operator_;
         _centuari = centuari_;
