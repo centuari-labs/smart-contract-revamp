@@ -55,6 +55,36 @@ contract MockCentuari is ICentuari {
         lastMatchedAmount = 0;
         shouldRevert = false;
     }
+
+    // ============ View Functions (stubs for interface compliance) ============
+
+    function getMarketId(address loanToken, uint256 maturity) external pure returns (bytes32) {
+        return keccak256(abi.encode(loanToken, maturity));
+    }
+
+    function getMarket(bytes32) external pure returns (Market memory) {
+        return Market(0, 0, 0, 0);
+    }
+
+    function getLendPosition(bytes32, address) external pure returns (LendPosition memory) {
+        return LendPosition(0, 0);
+    }
+
+    function getBorrowPosition(bytes32, address) external pure returns (BorrowPosition memory) {
+        return BorrowPosition(0, 0);
+    }
+
+    function settlement() external pure returns (address) {
+        return address(0);
+    }
+
+    function treasury() external pure returns (address) {
+        return address(0);
+    }
+
+    function paused() external pure returns (bool) {
+        return false;
+    }
 }
 
 /// @title SettlementV2
