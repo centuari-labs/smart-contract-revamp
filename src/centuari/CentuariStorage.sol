@@ -43,11 +43,15 @@ abstract contract CentuariStorage {
     /// @dev marketId => user => BorrowPosition
     mapping(bytes32 => mapping(address => ICentuari.BorrowPosition)) internal _borrowPositions;
 
+    /// @notice The address of the Bond Token Factory contract
+    /// @dev Factory deploys ERC20 bond tokens for each market
+    address internal _bondTokenFactory;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 44 slots for future storage variables.
+    /// @dev Provides 43 slots for future storage variables.
     ///      When adding new variables, reduce this gap accordingly.
-    ///      Current usage: 3 slots (settlement, treasury, paused) + 3 mappings
-    uint256[44] private __gap;
+    ///      Current usage: 4 slots (settlement, treasury, paused, bondTokenFactory) + 3 mappings
+    uint256[43] private __gap;
 }

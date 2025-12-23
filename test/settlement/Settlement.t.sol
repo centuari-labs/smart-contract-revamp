@@ -85,6 +85,10 @@ contract MockCentuari is ICentuari {
     function paused() external pure returns (bool) {
         return false;
     }
+
+    function bondTokenFactory() external pure returns (address) {
+        return address(0);
+    }
 }
 
 /// @title SettlementV2

@@ -88,6 +88,11 @@ interface ICentuari {
     /// @param newTreasury The new Treasury address
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
 
+    /// @notice Emitted when the Bond Token Factory contract address is updated
+    /// @param oldFactory The previous factory address
+    /// @param newFactory The new factory address
+    event BondTokenFactoryUpdated(address indexed oldFactory, address indexed newFactory);
+
     /// @notice Emitted when the contract is paused
     /// @param account The account that paused the contract
     event Paused(address account);
@@ -117,7 +122,7 @@ interface ICentuari {
 
     /// @notice Settle a matched order - handles positions, token transfers, and fees atomically
     /// @dev This function should:
-    ///      1. Record lend position and mint bond tokens to lender (TODO: bond tokens later)
+    ///      1. Record lend position and mint bond tokens to lender
     ///      2. Record borrow position (debt) for borrower
     ///      3. Call Treasury.settle() to transfer tokens to borrower and fees to FeeVault
     /// @param matchId The unique match identifier
@@ -177,4 +182,8 @@ interface ICentuari {
     /// @notice Check if the contract is paused
     /// @return True if the contract is paused
     function paused() external view returns (bool);
+
+    /// @notice Get the Bond Token Factory contract address
+    /// @return The Bond Token Factory contract address
+    function bondTokenFactory() external view returns (address);
 }

@@ -8,6 +8,8 @@ import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.so
 import {ICentuari} from "../interfaces/ICentuari.sol";
 import {ITreasury} from "../interfaces/ITreasury.sol";
 import {CentuariStorage} from "./CentuariStorage.sol";
+import {CentuariBondERC20Factory} from "./CentuariBondERC20Factory.sol";
+import {CentuariBondERC20} from "./CentuariBondERC20.sol";
 
 /// @title Centuari
 /// @notice Manages lending and borrowing positions for fixed-rate markets
@@ -97,7 +99,7 @@ contract Centuari is
         }
 
         // Process lender position
-        _processLendPosition(marketId, lender, matchedAmount, rate);
+        uint256 shares = _processLendPosition(marketId, lender, matchedAmount, rate);
 
         // Process borrower position (calculate debt inline)
         _processBorrowPosition(
@@ -112,8 +114,14 @@ contract Centuari is
         // TODO: Calculate and pass fee (currently 0)
         ITreasury(_treasury).settle(loanToken, lender, borrower, matchedAmount, 0);
 
-        // TODO: Mint bond tokens to lender
-        // This will be implemented later when bond token contract is ready
+        // Mint bond tokens to lender (if factory is set)
+        if (_bondTokenFactory != address(0)) {
+            address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
+                loanToken,
+                maturity
+            );
+            CentuariBondERC20(bondToken).mint(lender, shares);
+        }
     }
 
     // ============ Internal Functions ============
@@ -240,6 +248,18 @@ contract Centuari is
         emit TreasuryUpdated(oldTreasury, newTreasury);
     }
 
+    /// @notice Update the Bond Token Factory contract address
+    /// @dev Only callable by owner
+    /// @param newFactory The new Bond Token Factory contract address
+    function setBondTokenFactory(address newFactory) external onlyOwner {
+        if (newFactory == address(0)) revert ZeroAddress();
+
+        address oldFactory = _bondTokenFactory;
+        _bondTokenFactory = newFactory;
+
+        emit BondTokenFactoryUpdated(oldFactory, newFactory);
+    }
+
     /// @notice Pause the contract
     /// @dev Only callable by owner. Prevents settlement functions from executing.
     function pause() external onlyOwner {
@@ -289,5 +309,10 @@ contract Centuari is
     /// @inheritdoc ICentuari
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @inheritdoc ICentuari
+    function bondTokenFactory() external view returns (address) {
+        return _bondTokenFactory;
     }
 }
