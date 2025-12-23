@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /// @title CentuariBondERC20
 /// @notice ERC20 token representing a lender's bond position in a specific market
@@ -26,9 +25,6 @@ contract CentuariBondERC20 is ERC20 {
     /// @notice The maturity timestamp for this bond
     uint256 public immutable maturity;
 
-    /// @notice The decimals of the underlying loan token
-    uint8 private immutable _decimals;
-
     // ============ Constructor ============
 
     /// @notice Creates a new bond token
@@ -47,13 +43,6 @@ contract CentuariBondERC20 is ERC20 {
         minter = minter_;
         loanToken = loanToken_;
         maturity = maturity_;
-
-        // Try to get decimals from loan token, default to 18 if not available
-        try IERC20Metadata(loanToken_).decimals() returns (uint8 dec) {
-            _decimals = dec;
-        } catch {
-            _decimals = 18;
-        }
     }
 
     // ============ Modifiers ============
@@ -91,12 +80,5 @@ contract CentuariBondERC20 is ERC20 {
     }
 
     // ============ View Functions ============
-
-    /// @notice Returns the number of decimals
-    /// @dev Matches the decimals of the underlying loan token
-    /// @return The number of decimals
-    function decimals() public view override returns (uint8) {
-        return _decimals;
-    }
 }
 

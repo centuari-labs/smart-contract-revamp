@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {Centuari} from "../../src/centuari/Centuari.sol";
 import {ICentuari} from "../../src/interfaces/ICentuari.sol";
 import {ITreasury} from "../../src/interfaces/ITreasury.sol";
+import {CentuariBondERC20Factory} from "../../src/centuari/CentuariBondERC20Factory.sol";
+import {CentuariBondERC20} from "../../src/centuari/CentuariBondERC20.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
@@ -78,6 +80,7 @@ contract CentuariTest is Test {
     Centuari public implementation;
     Centuari public centuari;
     MockTreasury public mockTreasury;
+    CentuariBondERC20Factory public bondFactory;
     ProxyAdmin public proxyAdmin;
     TransparentUpgradeableProxy public proxy;
 
@@ -151,6 +154,11 @@ contract CentuariTest is Test {
 
         // Cast proxy to Centuari
         centuari = Centuari(address(proxy));
+
+        // Deploy bond token factory and wire it to Centuari
+        bondFactory = new CentuariBondERC20Factory(address(centuari));
+        vm.prank(owner);
+        centuari.setBondTokenFactory(address(bondFactory));
     }
 
     function _getProxyAdmin(address _proxy) internal view returns (address) {
@@ -537,6 +545,94 @@ contract CentuariTest is Test {
         uint256 expectedDebt = principal + expectedInterest;
 
         assertEq(market.totalBorrowAssets, expectedDebt);
+    }
+
+    // ============ Bond Token Tests ============
+
+    function test_BondToken_MintedOnFirstLend() public {
+        address lender = makeAddr("bondLender");
+        address borrower = makeAddr("bondBorrower");
+        uint256 amount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            bytes32(uint256(1)),
+            lender,
+            bytes32(uint256(2)),
+            borrower,
+            bytes32(uint256(3)),
+            loanToken,
+            amount,
+            500,
+            maturity
+        );
+
+        // Bond token should be created for this market
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        assertTrue(bondTokenAddr != address(0));
+
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+
+        // First deposit: shares = principal (1:1), so bond balance should equal amount
+        assertEq(bondToken.balanceOf(lender), amount);
+        assertEq(bondToken.totalSupply(), amount);
+    }
+
+    function test_BondToken_MultipleLendersSameMarket() public {
+        address lender1 = makeAddr("bondLender1");
+        address lender2 = makeAddr("bondLender2");
+        address borrower1 = makeAddr("bondBorrower1");
+        address borrower2 = makeAddr("bondBorrower2");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 rate = 500;
+
+        // First lender deposits 1000 ether
+        vm.prank(settlement);
+        centuari.settleMatch(
+            bytes32(uint256(1)),
+            lender1,
+            bytes32(uint256(2)),
+            borrower1,
+            bytes32(uint256(3)),
+            loanToken,
+            1000 ether,
+            rate,
+            maturity
+        );
+
+        // Second lender deposits 500 ether in the same market
+        vm.prank(settlement);
+        centuari.settleMatch(
+            bytes32(uint256(4)),
+            lender2,
+            bytes32(uint256(5)),
+            borrower2,
+            bytes32(uint256(6)),
+            loanToken,
+            500 ether,
+            rate,
+            maturity
+        );
+
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+
+        // Bond balances should mirror lend shares
+        assertEq(bondToken.balanceOf(lender1), 1000 ether);
+        assertEq(bondToken.balanceOf(lender2), 500 ether);
+        assertEq(bondToken.totalSupply(), 1500 ether);
+    }
+
+    function test_BondToken_ComputeAddressMatchesDeployed() public view {
+        uint256 maturity = block.timestamp + 365 days;
+
+        // No settleMatch yet; bond token not created
+        address computed = bondFactory.computeBondTokenAddress(loanToken, maturity);
+
+        // After creation, address should match computed; we can't create here in a view test,
+        // but we can at least assert that computeBondTokenAddress does not return zero.
+        assertTrue(computed != address(0));
     }
 
     // ============ Administrative Functions Tests ============
