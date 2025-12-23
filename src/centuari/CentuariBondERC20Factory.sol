@@ -176,10 +176,16 @@ contract CentuariBondERC20Factory {
         );
     }
 
-    /// @notice Get the symbol of a token, with fallback
+    /// @notice Get the symbol of a token, with safe handling for non-contract addresses
     /// @param token The token address
     /// @return The token symbol or "TOKEN" if unavailable
     function _getTokenSymbol(address token) internal view returns (string memory) {
+        // If the address has no code (e.g., a plain EOA in tests), avoid calling symbol()
+        // which would otherwise revert when decoding empty return data.
+        if (token.code.length == 0) {
+            return "TOKEN";
+        }
+
         try IERC20Metadata(token).symbol() returns (string memory symbol) {
             return symbol;
         } catch {
