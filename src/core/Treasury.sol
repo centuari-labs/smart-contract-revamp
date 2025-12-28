@@ -56,6 +56,10 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         bytes32 ref
     );
 
+    constructor() {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
     function setSupportedToken(
         address token,
         bool supported
@@ -115,7 +119,10 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
     ) external nonReentrant whenNotPaused {
         require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
 
-        require(balances[user][token] >= amount, "INSUFFICIENT_BALANCE");
+        require(
+            balances[address(this)][token] >= amount,
+            "INSUFFICIENT_BALANCE"
+        );
 
         balances[user][token] = balances[user][token] + amount;
         balances[address(this)][token] =
@@ -147,5 +154,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address token
     ) external view returns (uint256) {
         return balances[user][token];
+    }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
     }
 }
