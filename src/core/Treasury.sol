@@ -21,7 +21,10 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
 
     mapping(address => bool) public supportedToken;
 
+    address public centauriContract;
+
     event TokenSupportUpdated(address indexed token, bool supported);
+    event CentauriContractUpdated(address indexed centauriContract);
 
     event Deposited(
         address indexed user,
@@ -56,6 +59,21 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         bytes32 ref
     );
 
+    modifier onlySupportedToken(address token) {
+        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
+        _;
+    }
+
+    modifier nonZeroAmount(uint256 amount) {
+        require(amount > 0, "AMOUNT_ZERO");
+        _;
+    }
+
+    modifier onlyCentauri() {
+        require(msg.sender == centauriContract, "ONLY_CENTAURI");
+        _;
+    }
+
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
@@ -68,13 +86,24 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         emit TokenSupportUpdated(token, supported);
     }
 
+    function setCentauriContract(
+        address _centauriContract
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_centauriContract != address(0), "INVALID_ADDRESS");
+        centauriContract = _centauriContract;
+        emit CentauriContractUpdated(_centauriContract);
+    }
+
     function deposit(
         address token,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
-        require(amount > 0, "AMOUNT_ZERO");
-
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(token)
+        nonZeroAmount(amount)
+    {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         balances[msg.sender][token] += amount;
@@ -84,9 +113,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
     function withdraw(
         address token,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
-        require(amount > 0, "AMOUNT_ZERO");
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(token)
+        nonZeroAmount(amount)
+    {
         require(balances[msg.sender][token] >= amount, "INSUFFICIENT_BALANCE");
 
         balances[msg.sender][token] -= amount;
@@ -99,9 +132,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address user,
         address token,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
-
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(token)
+        onlyCentauri
+    {
         require(balances[user][token] >= amount, "INSUFFICIENT_BALANCE");
 
         balances[user][token] = balances[user][token] - amount;
@@ -116,9 +153,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address user,
         address token,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
-
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(token)
+        onlyCentauri
+    {
         require(
             balances[address(this)][token] >= amount,
             "INSUFFICIENT_BALANCE"
@@ -137,9 +178,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address borrower,
         address token,
         uint256 amount
-    ) external nonReentrant whenNotPaused {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
-
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(token)
+        onlyCentauri
+    {
         require(balances[lender][token] >= amount, "INSUFFICIENT_BALANCE");
         require(balances[borrower][token] >= amount, "INSUFFICIENT_BALANCE");
 
