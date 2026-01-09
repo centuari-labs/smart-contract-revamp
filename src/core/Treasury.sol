@@ -173,7 +173,6 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address lender,
         address borrower,
         address token,
-        uint256 amount,
         uint256 transferAmount,
         uint256 feeAmount
     )
@@ -183,13 +182,18 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         onlySupportedToken(token)
         onlyCentauri
     {
-        require(balances[lender][token] >= amount, "INSUFFICIENT_BALANCE");
-        require(balances[borrower][token] >= amount, "INSUFFICIENT_BALANCE");
+        // TODO: implement fee logic
 
-        balances[lender][token] -= amount;
-        balances[borrower][token] += amount;
+        require(
+            balances[borrower][token] >= transferAmount,
+            "INSUFFICIENT_BALANCE"
+        );
 
-        emit Settlement(lender, borrower, token, amount);
+        balances[borrower][token] += transferAmount;
+
+        balances[lender][token] -= transferAmount;
+
+        emit Settlement(lender, borrower, token, transferAmount);
     }
 
     function balanceOf(
