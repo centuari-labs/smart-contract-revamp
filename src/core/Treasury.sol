@@ -141,10 +141,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
     {
         require(balances[user][token] >= amount, "INSUFFICIENT_BALANCE");
 
-        balances[user][token] = balances[user][token] - amount;
-        balances[address(this)][token] =
-            balances[address(this)][token] +
-            amount;
+        balances[user][token] -= amount;
+        balances[address(this)][token] += amount;
 
         emit Repay(user, token, amount);
     }
@@ -165,10 +163,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
             "INSUFFICIENT_BALANCE"
         );
 
-        balances[user][token] = balances[user][token] + amount;
-        balances[address(this)][token] =
-            balances[address(this)][token] -
-            amount;
+        balances[user][token] += amount;
+        balances[address(this)][token] -= amount;
 
         emit WithdrawLendPosition(user, token, amount);
     }
@@ -188,8 +184,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         require(balances[lender][token] >= amount, "INSUFFICIENT_BALANCE");
         require(balances[borrower][token] >= amount, "INSUFFICIENT_BALANCE");
 
-        balances[lender][token] = balances[lender][token] - amount;
-        balances[borrower][token] = balances[borrower][token] + amount;
+        balances[lender][token] -= amount;
+        balances[borrower][token] += amount;
 
         emit Settlement(lender, borrower, token, amount);
     }
