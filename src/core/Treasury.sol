@@ -173,7 +173,9 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         address lender,
         address borrower,
         address token,
-        uint256 amount
+        uint256 amount,
+        uint256 transferAmount,
+        uint256 feeAmount
     )
         external
         nonReentrant
