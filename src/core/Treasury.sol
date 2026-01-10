@@ -21,10 +21,10 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
 
     mapping(address => bool) public supportedToken;
 
-    address public centauriContract;
+    address public centuariContract;
 
     event TokenSupportUpdated(address indexed token, bool supported);
-    event CentauriContractUpdated(address indexed centauriContract);
+    event CentuariContractUpdated(address indexed centuariContract);
 
     event Deposited(
         address indexed user,
@@ -69,8 +69,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         _;
     }
 
-    modifier onlyCentauri() {
-        require(msg.sender == centauriContract, "ONLY_CENTAURI");
+    modifier onlyCentuari() {
+        require(msg.sender == centuariContract, "ONLY_CENTUARI");
         _;
     }
 
@@ -86,12 +86,12 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         emit TokenSupportUpdated(token, supported);
     }
 
-    function setCentauriContract(
-        address _centauriContract
+    function setCentuariContract(
+        address _centuariContract
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_centauriContract != address(0), "INVALID_ADDRESS");
-        centauriContract = _centauriContract;
-        emit CentauriContractUpdated(_centauriContract);
+        require(_centuariContract != address(0), "INVALID_ADDRESS");
+        centuariContract = _centuariContract;
+        emit CentuariContractUpdated(_centuariContract);
     }
 
     function deposit(
@@ -137,7 +137,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
-        onlyCentauri
+        onlyCentuari
     {
         require(balances[user][token] >= amount, "INSUFFICIENT_BALANCE");
 
@@ -156,7 +156,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
-        onlyCentauri
+        onlyCentuari
     {
         require(
             balances[address(this)][token] >= amount,
@@ -180,7 +180,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
-        onlyCentauri
+        onlyCentuari
     {
         // TODO: implement fee logic
 
