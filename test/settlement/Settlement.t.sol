@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {Settlement} from "../../src/settlement/Settlement.sol";
+import {Settlement} from "../../src/core/settlement/Settlement.sol";
 import {ISettlement} from "../../src/interfaces/ISettlement.sol";
 import {ICentuari} from "../../src/interfaces/ICentuari.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";

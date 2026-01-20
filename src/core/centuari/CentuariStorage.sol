@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ICentuari} from "../interfaces/ICentuari.sol";
+import {ICentuari} from "../../interfaces/ICentuari.sol";
 
 /// @title CentuariStorage
 /// @notice Storage layout for the upgradeable Centuari contract

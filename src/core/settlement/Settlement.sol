@@ -3,10 +3,10 @@ pragma solidity ^0.8.20;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
-import {ISettlement} from "../interfaces/ISettlement.sol";
-import {ICentuari} from "../interfaces/ICentuari.sol";
+import {ISettlement} from "../../interfaces/ISettlement.sol";
+import {ICentuari} from "../../interfaces/ICentuari.sol";
 import {SettlementStorage} from "./SettlementStorage.sol";
 
 /// @title Settlement

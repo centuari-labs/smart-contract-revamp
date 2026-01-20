@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {Centuari} from "../../src/centuari/Centuari.sol";
+import {Centuari} from "../../src/core/centuari/Centuari.sol";
 import {ICentuari} from "../../src/interfaces/ICentuari.sol";
 import {ITreasury} from "../../src/interfaces/ITreasury.sol";
-import {CentuariBondERC20Factory} from "../../src/centuari/CentuariBondERC20Factory.sol";
-import {CentuariBondERC20} from "../../src/centuari/CentuariBondERC20.sol";
+import {CentuariBondERC20Factory} from "../../src/core/centuari/CentuariBondERC20Factory.sol";
+import {CentuariBondERC20} from "../../src/core/centuari/CentuariBondERC20.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
