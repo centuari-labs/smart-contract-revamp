@@ -10,23 +10,35 @@ interface ISettlement {
     /// @notice Data structure representing a matched order from the matching engine
     /// @param matchId Unique match identifier provided by the settlement engine
     /// @param lendOrderId The unique identifier of the lend order
-    /// @param lender The address of the lender
     /// @param borrowOrderId The unique identifier of the borrow order
+    /// @param lender The address of the lender
     /// @param borrower The address of the borrower
     /// @param matchedAmount The matched principal amount in loanToken units
     /// @param rate Interest rate in basis points (e.g., 500 = 5%)
     /// @param loanToken The address of the loan token
     /// @param maturity Unix timestamp when the loan matures
+    /// @param timestamp Unix timestamp when the match was created by the matching engine
+    /// @param borrowerIsTaker True if the borrower was the taker in this match
+    /// @param lenderSettlementFee Settlement fee charged to the lender
+    /// @param borrowerSettlementFee Settlement fee charged to the borrower
+    /// @param makerFeeAmount Trade fee charged to the maker
+    /// @param takerFeeAmount Trade fee charged to the taker
     struct MatchData {
         bytes32 matchId;
         bytes32 lendOrderId;
-        address lender;
         bytes32 borrowOrderId;
+        address lender;
         address borrower;
         uint256 matchedAmount;
         uint256 rate;
         address loanToken;
         uint256 maturity;
+        uint256 timestamp;
+        bool borrowerIsTaker;
+        uint256 lenderSettlementFee;
+        uint256 borrowerSettlementFee;
+        uint256 makerFeeAmount;
+        uint256 takerFeeAmount;
     }
 
     // ============ Events ============
@@ -41,6 +53,8 @@ interface ISettlement {
     /// @param matchedAmount The matched principal amount
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
+    /// @param lenderSettlementFee Settlement fee charged to the lender (pre-split off-chain)
+    /// @param borrowerSettlementFee Settlement fee charged to the borrower (pre-split off-chain)
     event MatchSettled(
         bytes32 indexed matchId,
         bytes32 indexed lendOrderId,
@@ -50,7 +64,9 @@ interface ISettlement {
         address loanToken,
         uint256 matchedAmount,
         uint256 rate,
-        uint256 maturity
+        uint256 maturity,
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     );
 
     /// @notice Emitted when a batch settlement is completed

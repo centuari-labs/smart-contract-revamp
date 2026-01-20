@@ -124,26 +124,30 @@ interface ICentuari {
     /// @dev This function should:
     ///      1. Record lend position and mint bond tokens to lender
     ///      2. Record borrow position (debt) for borrower
-    ///      3. Call Treasury.settle() to transfer tokens to borrower and fees to FeeVault
-    /// @param matchId The unique match identifier
+    ///      3. Call Treasury.settle() to transfer tokens to borrower and settlement fees to Treasury
     /// @param lender The lender address
-    /// @param lendOrderId The lend order ID
     /// @param borrower The borrower address
-    /// @param borrowOrderId The borrow order ID
     /// @param loanToken The loan token address
     /// @param matchedAmount The matched principal amount
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
+    /// @param borrowerIsTaker True if the borrower was the taker in this match
+    /// @param lenderSettlementFee Settlement fee charged to the lender (pre-split off-chain)
+    /// @param borrowerSettlementFee Settlement fee charged to the borrower (pre-split off-chain)
+    /// @param makerFeeAmount Trade fee charged to the maker (for Centuari internal accounting)
+    /// @param takerFeeAmount Trade fee charged to the taker (for Centuari internal accounting)
     function settleMatch(
-        bytes32 matchId,
         address lender,
-        bytes32 lendOrderId,
         address borrower,
-        bytes32 borrowOrderId,
         address loanToken,
         uint256 matchedAmount,
         uint256 rate,
-        uint256 maturity
+        uint256 maturity,
+        bool borrowerIsTaker,
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee,
+        uint256 makerFeeAmount,
+        uint256 takerFeeAmount
     ) external;
 
     // ============ View Functions ============

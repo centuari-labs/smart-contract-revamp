@@ -13,13 +13,15 @@ interface ITreasury {
     /// @param from The address funds are transferred from (lender's deposit)
     /// @param to The address funds are transferred to (borrower)
     /// @param amount The principal amount transferred
-    /// @param fee The fee amount collected
+    /// @param lenderSettlementFee The settlement fee amount charged to the lender
+    /// @param borrowerSettlementFee The settlement fee amount charged to the borrower
     event SettlementExecuted(
         address indexed loanToken,
         address indexed from,
         address indexed to,
         uint256 amount,
-        uint256 fee
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     );
 
     // ============ Errors ============
@@ -45,12 +47,14 @@ interface ITreasury {
     /// @param from The lender address (funds come from their deposit)
     /// @param to The borrower address (receives the loan)
     /// @param amount The principal amount to transfer
-    /// @param fee The fee amount to collect
+    /// @param lenderSettlementFee The settlement fee amount charged to the lender
+    /// @param borrowerSettlementFee The settlement fee amount charged to the borrower
     function settle(
         address loanToken,
         address from,
         address to,
         uint256 amount,
-        uint256 fee
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     ) external;
 }

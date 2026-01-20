@@ -135,15 +135,17 @@ contract Settlement is
 
         // Call Centuari to handle positions and token transfers
         ICentuari(centuariAddr).settleMatch(
-            matchData.matchId,
             matchData.lender,
-            matchData.lendOrderId,
             matchData.borrower,
-            matchData.borrowOrderId,
             matchData.loanToken,
             matchData.matchedAmount,
             matchData.rate,
-            matchData.maturity
+            matchData.maturity,
+            matchData.borrowerIsTaker,
+            matchData.lenderSettlementFee,
+            matchData.borrowerSettlementFee,
+            matchData.makerFeeAmount,
+            matchData.takerFeeAmount
         );
 
         // Emit individual match event
@@ -156,7 +158,9 @@ contract Settlement is
             matchData.loanToken,
             matchData.matchedAmount,
             matchData.rate,
-            matchData.maturity
+            matchData.maturity,
+            matchData.lenderSettlementFee,
+            matchData.borrowerSettlementFee
         );
     }
 
@@ -169,6 +173,7 @@ contract Settlement is
         if (matchData.loanToken == address(0)) revert InvalidMatchData();
         if (matchData.matchedAmount == 0) revert InvalidMatchData();
         if (matchData.maturity == 0) revert InvalidMatchData();
+        if (matchData.timestamp == 0) revert InvalidMatchData();
         if (matchData.lender == matchData.borrower) revert InvalidMatchData();
     }
 

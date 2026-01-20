@@ -75,15 +75,17 @@ contract Centuari is
 
     /// @inheritdoc ICentuari
     function settleMatch(
-        bytes32, // matchId - unused, for future use
         address lender,
-        bytes32, // lendOrderId - unused, for future use
         address borrower,
-        bytes32, // borrowOrderId - unused, for future use
         address loanToken,
         uint256 matchedAmount,
         uint256 rate,
-        uint256 maturity
+        uint256 maturity,
+        bool, // borrowerIsTaker - unused, for future use
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee,
+        uint256, // makerFeeAmount - unused, for future use
+        uint256 // takerFeeAmount - unused, for future use
     ) external onlySettlement whenNotPaused nonReentrant {
         // Validate inputs
         if (matchedAmount == 0) revert InvalidAmount();
@@ -110,9 +112,15 @@ contract Centuari is
             rate
         );
 
-        // Call Treasury to execute the token transfer
-        // TODO: Calculate and pass fee (currently 0)
-        ITreasury(_treasury).settle(loanToken, lender, borrower, matchedAmount, 0);
+        // Call Treasury to execute the token transfer with pre-split settlement fees
+        ITreasury(_treasury).settle(
+            loanToken,
+            lender,
+            borrower,
+            matchedAmount,
+            lenderSettlementFee,
+            borrowerSettlementFee
+        );
 
         // Mint bond tokens to lender (if factory is set)
         if (_bondTokenFactory != address(0)) {

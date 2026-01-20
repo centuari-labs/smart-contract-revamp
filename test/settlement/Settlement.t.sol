@@ -26,22 +26,23 @@ contract MockCentuari is ICentuari {
     }
 
     function settleMatch(
-        bytes32 matchId,
         address lender,
-        bytes32, // lendOrderId
         address borrower,
-        bytes32, // borrowOrderId
-        address, // loanToken
+        address, // loanToken - unused in mock
         uint256 matchedAmount,
-        uint256, // rate
-        uint256 // maturity
+        uint256, // rate - unused in mock
+        uint256, // maturity - unused in mock
+        bool, // borrowerIsTaker - unused in mock
+        uint256, // lenderSettlementFee - unused in mock
+        uint256, // borrowerSettlementFee - unused in mock
+        uint256, // makerFeeAmount - unused in mock
+        uint256 // takerFeeAmount - unused in mock
     ) external override {
         if (shouldRevert) {
             revert("MockCentuari: forced revert");
         }
 
         settleMatchCallCount++;
-        lastMatchId = matchId;
         lastLender = lender;
         lastBorrower = borrower;
         lastMatchedAmount = matchedAmount;
@@ -130,7 +131,7 @@ contract SettlementTest is Test {
     address public loanToken;
     address public proxyAdminOwner;
 
-    // Events to test
+    // Events to test (must match ISettlement.MatchSettled)
     event MatchSettled(
         bytes32 indexed matchId,
         bytes32 indexed lendOrderId,
@@ -140,7 +141,9 @@ contract SettlementTest is Test {
         address loanToken,
         uint256 matchedAmount,
         uint256 rate,
-        uint256 maturity
+        uint256 maturity,
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     );
 
     event BatchSettlementCompleted(uint256 matchCount, uint256 totalVolume);
@@ -202,13 +205,19 @@ contract SettlementTest is Test {
         return ISettlement.MatchData({
             matchId: matchId,
             lendOrderId: keccak256(abi.encodePacked("lend", matchId)),
-            lender: lender,
             borrowOrderId: keccak256(abi.encodePacked("borrow", matchId)),
+            lender: lender,
             borrower: borrower,
             matchedAmount: amount,
             rate: 500, // 5%
             loanToken: loanToken,
-            maturity: block.timestamp + 30 days
+            maturity: block.timestamp + 30 days,
+            timestamp: block.timestamp,
+            borrowerIsTaker: true,
+            lenderSettlementFee: 0,
+            borrowerSettlementFee: 0,
+            makerFeeAmount: 0,
+            takerFeeAmount: 0
         });
     }
 
@@ -272,13 +281,14 @@ contract SettlementTest is Test {
             matchData.loanToken,
             matchData.matchedAmount,
             matchData.rate,
-            matchData.maturity
+            matchData.maturity,
+            matchData.lenderSettlementFee,
+            matchData.borrowerSettlementFee
         );
         settlement.settleMatch(matchData);
 
         assertTrue(settlement.isSettled(matchData.matchId));
         assertEq(mockCentuari.settleMatchCallCount(), 1);
-        assertEq(mockCentuari.lastMatchId(), matchData.matchId);
     }
 
     function test_SettleMatch_RevertUnauthorized() public {
@@ -554,13 +564,19 @@ contract SettlementTest is Test {
         ISettlement.MatchData memory matchData = ISettlement.MatchData({
             matchId: matchId,
             lendOrderId: keccak256(abi.encodePacked("lend", matchId)),
-            lender: lender,
             borrowOrderId: keccak256(abi.encodePacked("borrow", matchId)),
+            lender: lender,
             borrower: borrower,
             matchedAmount: amount,
             rate: 500,
             loanToken: loanToken,
-            maturity: block.timestamp + 30 days
+            maturity: block.timestamp + 30 days,
+            timestamp: block.timestamp,
+            borrowerIsTaker: true,
+            lenderSettlementFee: 0,
+            borrowerSettlementFee: 0,
+            makerFeeAmount: 0,
+            takerFeeAmount: 0
         });
 
         vm.prank(operator);

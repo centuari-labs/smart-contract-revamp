@@ -20,7 +20,8 @@ contract MockTreasury is ITreasury {
     address public lastFrom;
     address public lastTo;
     uint256 public lastAmount;
-    uint256 public lastFee;
+    uint256 public lastLenderSettlementFee;
+    uint256 public lastBorrowerSettlementFee;
 
     bool public shouldRevert;
 
@@ -33,7 +34,8 @@ contract MockTreasury is ITreasury {
         address from,
         address to,
         uint256 amount,
-        uint256 fee
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     ) external override {
         if (shouldRevert) {
             revert("MockTreasury: forced revert");
@@ -44,9 +46,10 @@ contract MockTreasury is ITreasury {
         lastFrom = from;
         lastTo = to;
         lastAmount = amount;
-        lastFee = fee;
+        lastLenderSettlementFee = lenderSettlementFee;
+        lastBorrowerSettlementFee = borrowerSettlementFee;
 
-        emit SettlementExecuted(loanToken, from, to, amount, fee);
+        emit SettlementExecuted(loanToken, from, to, amount, lenderSettlementFee, borrowerSettlementFee);
     }
 
     function reset() external {
@@ -55,7 +58,8 @@ contract MockTreasury is ITreasury {
         lastFrom = address(0);
         lastTo = address(0);
         lastAmount = 0;
-        lastFee = 0;
+        lastLenderSettlementFee = 0;
+        lastBorrowerSettlementFee = 0;
         shouldRevert = false;
     }
 }
@@ -246,15 +250,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)), // matchId
             lender,
-            bytes32(uint256(2)), // lendOrderId
             borrower,
-            bytes32(uint256(3)), // borrowOrderId
             loanToken,
             matchedAmount,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         // Verify market state
@@ -293,29 +299,33 @@ contract CentuariTest is Test {
         // First match
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender1,
-            bytes32(uint256(2)),
             borrower1,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         // Second match in same market
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(4)),
             lender2,
-            bytes32(uint256(5)),
             borrower2,
-            bytes32(uint256(6)),
             loanToken,
             500 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -330,15 +340,17 @@ contract CentuariTest is Test {
         vm.prank(user);
         vm.expectRevert(ICentuari.Unauthorized.selector);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             makeAddr("lender"),
-            bytes32(uint256(2)),
             makeAddr("borrower"),
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            block.timestamp + 30 days
+            block.timestamp + 30 days,
+            true,
+            0,
+            0,
+            0,
+            0
         );
     }
 
@@ -349,15 +361,17 @@ contract CentuariTest is Test {
         vm.prank(settlement);
         vm.expectRevert(ICentuari.ContractPaused.selector);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             makeAddr("lender"),
-            bytes32(uint256(2)),
             makeAddr("borrower"),
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            block.timestamp + 30 days
+            block.timestamp + 30 days,
+            true,
+            0,
+            0,
+            0,
+            0
         );
     }
 
@@ -365,15 +379,17 @@ contract CentuariTest is Test {
         vm.prank(settlement);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             makeAddr("lender"),
-            bytes32(uint256(2)),
             makeAddr("borrower"),
-            bytes32(uint256(3)),
             loanToken,
             0, // zero amount
             500,
-            block.timestamp + 30 days
+            block.timestamp + 30 days,
+            true,
+            0,
+            0,
+            0,
+            0
         );
     }
 
@@ -381,15 +397,17 @@ contract CentuariTest is Test {
         vm.prank(settlement);
         vm.expectRevert(ICentuari.InvalidMaturity.selector);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             makeAddr("lender"),
-            bytes32(uint256(2)),
             makeAddr("borrower"),
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            block.timestamp - 1 // past maturity
+            block.timestamp - 1, // past maturity
+            true,
+            0,
+            0,
+            0,
+            0
         );
     }
 
@@ -397,15 +415,17 @@ contract CentuariTest is Test {
         vm.prank(settlement);
         vm.expectRevert(ICentuari.InvalidMaturity.selector);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             makeAddr("lender"),
-            bytes32(uint256(2)),
             makeAddr("borrower"),
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            block.timestamp // maturity at current timestamp
+            block.timestamp, // maturity at current timestamp
+            true,
+            0,
+            0,
+            0,
+            0
         );
     }
 
@@ -419,15 +439,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             amount,
             500,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -448,29 +470,33 @@ contract CentuariTest is Test {
         // First lender deposits 1000 ether
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender1,
-            bytes32(uint256(2)),
             borrower1,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         // Second lender deposits 500 ether
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(4)),
             lender2,
-            bytes32(uint256(5)),
             borrower2,
-            bytes32(uint256(6)),
             loanToken,
             500 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -495,15 +521,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             principal,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -526,15 +554,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             principal,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -557,15 +587,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             amount,
             500,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         // Bond token should be created for this market
@@ -590,29 +622,33 @@ contract CentuariTest is Test {
         // First lender deposits 1000 ether
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender1,
-            bytes32(uint256(2)),
             borrower1,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         // Second lender deposits 500 ether in the same market
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(4)),
             lender2,
-            bytes32(uint256(5)),
             borrower2,
-            bytes32(uint256(6)),
             loanToken,
             500 ether,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
@@ -771,15 +807,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             matchedAmount,
             rate,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -822,15 +860,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -890,28 +930,32 @@ contract CentuariTest is Test {
         // Same lender, two matches
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower1,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(4)),
             lender,
-            bytes32(uint256(5)),
             borrower2,
-            bytes32(uint256(6)),
             loanToken,
             500 ether,
             500,
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -930,28 +974,32 @@ contract CentuariTest is Test {
         // Two different markets (different maturities)
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             500,
-            maturity1
+            maturity1,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(4)),
             lender,
-            bytes32(uint256(5)),
             borrower,
-            bytes32(uint256(6)),
             loanToken,
             2000 ether,
             500,
-            maturity2
+            maturity2,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId1 = _getMarketId(loanToken, maturity1);
@@ -972,15 +1020,17 @@ contract CentuariTest is Test {
 
         vm.prank(settlement);
         centuari.settleMatch(
-            bytes32(uint256(1)),
             lender,
-            bytes32(uint256(2)),
             borrower,
-            bytes32(uint256(3)),
             loanToken,
             1000 ether,
             0, // 0% interest
-            maturity
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
