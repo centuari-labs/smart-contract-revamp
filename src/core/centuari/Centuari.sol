@@ -81,11 +81,11 @@ contract Centuari is
         uint256 matchedAmount,
         uint256 rate,
         uint256 maturity,
-        bool, // borrowerIsTaker - unused, for future use
+        bool borrowerIsTaker,
         uint256 lenderSettlementFee,
         uint256 borrowerSettlementFee,
-        uint256, // makerFeeAmount - unused, for future use
-        uint256 // takerFeeAmount - unused, for future use
+        uint256 makerFeeAmount,
+        uint256 takerFeeAmount
     ) external onlySettlement whenNotPaused nonReentrant {
         // Validate inputs
         if (matchedAmount == 0) revert InvalidAmount();
@@ -100,7 +100,20 @@ contract Centuari is
             emit MarketCreated(marketId, loanToken, maturity);
         }
 
-        // Process lender position
+        // Determine lender and borrower fees based on maker/taker roles
+        // If borrower is taker: borrower pays takerFeeAmount, lender pays makerFeeAmount
+        // If borrower is NOT taker (lender is taker): lender pays takerFeeAmount, borrower pays makerFeeAmount
+        uint256 lenderFee;
+        uint256 borrowerFee;
+        if (borrowerIsTaker) {
+            lenderFee = makerFeeAmount;
+            borrowerFee = takerFeeAmount;
+        } else {
+            lenderFee = takerFeeAmount;
+            borrowerFee = makerFeeAmount;
+        }
+
+        // Process lender position (with full matchedAmount for proper market accounting)
         uint256 shares = _processLendPosition(marketId, lender, matchedAmount, rate);
 
         // Process borrower position (calculate debt inline)
@@ -112,23 +125,39 @@ contract Centuari is
             rate
         );
 
+        // Calculate net amounts after fees
+        // Convert lenderFee from token amount to shares using the same ratio as position calculation
+        uint256 feeShares;
+        if (lenderFee > 0 && shares > 0) {
+            // Use the same ratio: feeShares / lenderFee = shares / matchedAmount
+            feeShares = (lenderFee * shares) / matchedAmount;
+        }
+        
+        // Calculate net loan amount for borrower (matchedAmount - borrowerFee)
+        uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
+
         // Call Treasury to execute the token transfer with pre-split settlement fees
+        // Transfer net loan amount (after borrower fee deduction) to borrower
         ITreasury(_treasury).settle(
             loanToken,
             lender,
             borrower,
-            matchedAmount,
+            netLoanAmountForBorrower,
             lenderSettlementFee,
             borrowerSettlementFee
         );
 
         // Mint bond tokens to lender (if factory is set)
+        // Mint shares minus feeShares to account for lender fee
         if (_bondTokenFactory != address(0)) {
             address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
                 loanToken,
                 maturity
             );
-            CentuariBondERC20(bondToken).mint(lender, shares);
+            // Ensure we don't mint negative or zero shares
+            if (shares > feeShares) {
+                CentuariBondERC20(bondToken).mint(lender, shares - feeShares);
+            }
         }
     }
 

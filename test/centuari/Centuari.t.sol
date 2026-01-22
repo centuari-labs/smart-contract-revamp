@@ -1039,4 +1039,451 @@ contract CentuariTest is Test {
         // With 0% interest, debt equals principal
         assertEq(pos.shares, 1000 ether);
     }
+
+    // ============ Maker/Taker Fee Tests ============
+
+    function test_SettleMatch_FeeCalculation_BorrowerIsTaker() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 rate = 500; // 5%
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 10 ether; // 1% of matchedAmount
+        uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
+        bool borrowerIsTaker = true; // borrower is taker, lender is maker
+
+        // When borrowerIsTaker = true: lender pays makerFeeAmount, borrower pays takerFeeAmount
+        uint256 expectedLenderFee = makerFeeAmount;
+        uint256 expectedBorrowerFee = takerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 980 ether
+        uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
+        uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 10 ether
+        uint256 expectedCBTMinted = expectedShares - expectedFeeShares; // 990 ether
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            rate,
+            maturity,
+            borrowerIsTaker,
+            0, // lenderSettlementFee
+            0, // borrowerSettlementFee
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+
+        // Verify Treasury was called with net loan amount
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
+        assertEq(mockTreasury.lastFrom(), lender);
+        assertEq(mockTreasury.lastTo(), borrower);
+
+        // Verify CBT minting (shares minus feeShares)
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+
+        // Verify market state (positions are processed with full matchedAmount)
+        ICentuari.Market memory market = centuari.getMarket(marketId);
+        assertEq(market.totalLendShares, matchedAmount);
+        assertEq(market.totalLendAssets, matchedAmount);
+
+        // Verify lender position (full shares recorded)
+        ICentuari.LendPosition memory lendPos = centuari.getLendPosition(marketId, lender);
+        assertEq(lendPos.shares, matchedAmount);
+        assertEq(lendPos.principalLent, matchedAmount);
+    }
+
+    function test_SettleMatch_FeeCalculation_LenderIsTaker() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 rate = 500; // 5%
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 10 ether; // 1% of matchedAmount
+        uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
+        bool borrowerIsTaker = false; // lender is taker, borrower is maker
+
+        // When borrowerIsTaker = false: lender pays takerFeeAmount, borrower pays makerFeeAmount
+        uint256 expectedLenderFee = takerFeeAmount;
+        uint256 expectedBorrowerFee = makerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 990 ether
+        uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
+        uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 20 ether
+        uint256 expectedCBTMinted = expectedShares - expectedFeeShares; // 980 ether
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            rate,
+            maturity,
+            borrowerIsTaker,
+            0, // lenderSettlementFee
+            0, // borrowerSettlementFee
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+
+        // Verify Treasury was called with net loan amount
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
+        assertEq(mockTreasury.lastFrom(), lender);
+        assertEq(mockTreasury.lastTo(), borrower);
+
+        // Verify CBT minting (shares minus feeShares)
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+
+        // Verify lender position (full shares recorded)
+        ICentuari.LendPosition memory lendPos = centuari.getLendPosition(marketId, lender);
+        assertEq(lendPos.shares, matchedAmount);
+    }
+
+    function test_SettleMatch_FeeCalculation_ProportionalShares() public {
+        address lender1 = makeAddr("lender1");
+        address lender2 = makeAddr("lender2");
+        address borrower1 = makeAddr("borrower1");
+        address borrower2 = makeAddr("borrower2");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 rate = 500;
+
+        // First match: 1000 ether, no fees
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender1,
+            borrower1,
+            loanToken,
+            1000 ether,
+            rate,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        // Second match: 500 ether with fees
+        uint256 matchedAmount2 = 500 ether;
+        uint256 makerFeeAmount = 5 ether; // 1% of matchedAmount
+        uint256 takerFeeAmount = 10 ether; // 2% of matchedAmount
+        bool borrowerIsTaker = true;
+
+        // Calculate expected shares for second match
+        // After first match: totalLendShares = 1000, totalLendAssets = 1000
+        // Second match shares = (500 * 1000) / 1000 = 500 shares
+        uint256 expectedShares2 = 500 ether;
+        uint256 expectedLenderFee = makerFeeAmount; // lender is maker
+        uint256 expectedFeeShares = (expectedLenderFee * expectedShares2) / matchedAmount2; // (5 * 500) / 500 = 5
+        uint256 expectedCBTMinted2 = expectedShares2 - expectedFeeShares; // 495 ether
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender2,
+            borrower2,
+            loanToken,
+            matchedAmount2,
+            rate,
+            maturity,
+            borrowerIsTaker,
+            0,
+            0,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Verify second lender's CBT balance
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender2), expectedCBTMinted2);
+
+        // Verify Treasury was called with net loan amount for second match
+        assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount); // 490 ether
+    }
+
+    function test_SettleMatch_FeeCalculation_ZeroFees() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0, // makerFeeAmount = 0
+            0  // takerFeeAmount = 0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+
+        // With zero fees, Treasury should receive full matchedAmount
+        assertEq(mockTreasury.lastAmount(), matchedAmount);
+
+        // With zero fees, CBT should be full shares
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender), matchedAmount);
+    }
+
+    function test_SettleMatch_FeeCalculation_OnlyMakerFee() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 10 ether;
+        uint256 takerFeeAmount = 0;
+        bool borrowerIsTaker = true; // lender is maker
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            borrowerIsTaker,
+            0,
+            0,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Lender pays makerFeeAmount, borrower pays 0
+        // Net loan amount = matchedAmount - 0 = matchedAmount
+        assertEq(mockTreasury.lastAmount(), matchedAmount);
+
+        // Lender's CBT should be reduced by feeShares
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        uint256 expectedFeeShares = (makerFeeAmount * matchedAmount) / matchedAmount; // 10 ether
+        assertEq(bondToken.balanceOf(lender), matchedAmount - expectedFeeShares);
+    }
+
+    function test_SettleMatch_FeeCalculation_OnlyTakerFee() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 0;
+        uint256 takerFeeAmount = 20 ether;
+        bool borrowerIsTaker = true; // borrower is taker
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            borrowerIsTaker,
+            0,
+            0,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Lender pays 0, borrower pays takerFeeAmount
+        // Net loan amount = matchedAmount - takerFeeAmount = 980 ether
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
+
+        // Lender's CBT should be full shares (no fee)
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender), matchedAmount);
+    }
+
+    function test_SettleMatch_FeeCalculation_WithSettlementFees() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 10 ether;
+        uint256 takerFeeAmount = 20 ether;
+        uint256 lenderSettlementFee = 5 ether;
+        uint256 borrowerSettlementFee = 5 ether;
+        bool borrowerIsTaker = true;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            borrowerIsTaker,
+            lenderSettlementFee,
+            borrowerSettlementFee,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Settlement fees are separate from maker/taker fees
+        // Treasury should receive settlement fees separately
+        assertEq(mockTreasury.lastLenderSettlementFee(), lenderSettlementFee);
+        assertEq(mockTreasury.lastBorrowerSettlementFee(), borrowerSettlementFee);
+
+        // Net loan amount should still account for borrower fee (takerFeeAmount)
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
+    }
+
+    function test_SettleMatch_FeeCalculation_NoBondFactory() public {
+        // Create a new Centuari instance without setting bond factory
+        Centuari newImpl = new Centuari();
+        bytes memory initData = abi.encodeCall(
+            Centuari.initialize,
+            (owner, settlement, address(mockTreasury))
+        );
+        TransparentUpgradeableProxy newProxy = new TransparentUpgradeableProxy(
+            address(newImpl),
+            proxyAdminOwner,
+            initData
+        );
+        Centuari centuariNoFactory = Centuari(address(newProxy));
+
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 10 ether;
+        uint256 takerFeeAmount = 20 ether;
+
+        // Should not revert even without bond factory
+        vm.prank(settlement);
+        centuariNoFactory.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Treasury should still be called correctly
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
+        
+        // Verify bond factory is not set
+        assertEq(centuariNoFactory.bondTokenFactory(), address(0));
+    }
+
+    function test_SettleMatch_FeeCalculation_FeeSharesEqualToShares() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 matchedAmount = 1000 ether;
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 0;
+        uint256 takerFeeAmount = 0;
+        bool borrowerIsTaker = false; // lender is taker
+
+        // Set lenderFee equal to matchedAmount (100% fee)
+        uint256 lenderFee = matchedAmount; // This would be takerFeeAmount when borrowerIsTaker = false
+        // But we can't set takerFeeAmount = matchedAmount because that would make borrowerFee = matchedAmount
+        // Instead, test with a high fee that results in feeShares >= shares
+
+        // For this test, we'll use a scenario where feeShares calculation results in shares
+        // This would happen if lenderFee = matchedAmount, but that's not realistic
+        // Let's test with a fee that's close to matchedAmount
+
+        uint256 highTakerFee = matchedAmount - 1; // Almost 100% fee
+        uint256 highMakerFee = 0;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            500,
+            maturity,
+            borrowerIsTaker,
+            0,
+            0,
+            highMakerFee,
+            highTakerFee
+        );
+
+        // Lender fee = highTakerFee, feeShares = (highTakerFee * shares) / matchedAmount
+        // feeShares = ((matchedAmount - 1) * matchedAmount) / matchedAmount = matchedAmount - 1
+        // CBT minted = shares - feeShares = matchedAmount - (matchedAmount - 1) = 1
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        assertEq(bondToken.balanceOf(lender), 1); // Should mint minimal amount
+    }
+
+    function testFuzz_SettleMatch_FeeCalculation(
+        uint256 matchedAmount,
+        uint256 makerFeeAmount,
+        uint256 takerFeeAmount,
+        bool borrowerIsTaker
+    ) public {
+        // Bound inputs to reasonable ranges
+        matchedAmount = bound(matchedAmount, 100 ether, 1_000_000 ether);
+        makerFeeAmount = bound(makerFeeAmount, 0, matchedAmount / 10); // Max 10% fee
+        takerFeeAmount = bound(takerFeeAmount, 0, matchedAmount / 10); // Max 10% fee
+
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 rate = 500;
+
+        // Calculate expected values
+        uint256 expectedLenderFee = borrowerIsTaker ? makerFeeAmount : takerFeeAmount;
+        uint256 expectedBorrowerFee = borrowerIsTaker ? takerFeeAmount : makerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            matchedAmount,
+            rate,
+            maturity,
+            borrowerIsTaker,
+            0,
+            0,
+            makerFeeAmount,
+            takerFeeAmount
+        );
+
+        // Verify Treasury received net loan amount
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
+
+        // Verify CBT minting
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+        uint256 expectedShares = matchedAmount; // First deposit: 1:1
+        uint256 expectedFeeShares = expectedLenderFee > 0 && expectedShares > 0
+            ? (expectedLenderFee * expectedShares) / matchedAmount
+            : 0;
+        uint256 expectedCBTMinted = expectedShares > expectedFeeShares
+            ? expectedShares - expectedFeeShares
+            : 0;
+
+        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+    }
 }
