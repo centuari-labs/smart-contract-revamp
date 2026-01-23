@@ -6,3 +6,8 @@ via_ir = true
 optimizer = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+[lint]
+# Exclude lints for OpenZeppelin upgradeable pattern functions (intentional naming)
+# and keccak256 optimization suggestions (performance optimizations, not errors)
+exclude_lints = ["mixed-case-function", "asm-keccak256"]

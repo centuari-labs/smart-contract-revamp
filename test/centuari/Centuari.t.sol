@@ -62,6 +62,17 @@ contract MockTreasury is ITreasury {
         lastBorrowerSettlementFee = 0;
         shouldRevert = false;
     }
+
+    // Stub implementations for ITreasury interface
+    function setSupportedToken(address, bool) external pure override {}
+    function setCentuariContract(address) external pure override {}
+    function deposit(address, uint256) external pure override {}
+    function withdraw(address, uint256) external pure override {}
+    function repay(address, address, uint256) external pure override {}
+    function withdrawLendPosition(address, address, uint256) external pure override {}
+    function balanceOf(address, address) external pure override returns (uint256) { return 0; }
+    function pause() external pure override {}
+    function unpause() external pure override {}
 }
 
 /// @title CentuariV2
@@ -1058,7 +1069,7 @@ contract CentuariTest is Test {
         uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 980 ether
         uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
         uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 10 ether
-        uint256 expectedCBTMinted = expectedShares - expectedFeeShares; // 990 ether
+        uint256 expectedCbtMinted = expectedShares - expectedFeeShares; // 990 ether
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1085,7 +1096,7 @@ contract CentuariTest is Test {
         // Verify CBT minting (shares minus feeShares)
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+        assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
 
         // Verify market state (positions are processed with full matchedAmount)
         ICentuari.Market memory market = centuari.getMarket(marketId);
@@ -1114,7 +1125,7 @@ contract CentuariTest is Test {
         uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 990 ether
         uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
         uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 20 ether
-        uint256 expectedCBTMinted = expectedShares - expectedFeeShares; // 980 ether
+        uint256 expectedCbtMinted = expectedShares - expectedFeeShares; // 980 ether
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1141,7 +1152,7 @@ contract CentuariTest is Test {
         // Verify CBT minting (shares minus feeShares)
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+        assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
 
         // Verify lender position (full shares recorded)
         ICentuari.LendPosition memory lendPos = centuari.getLendPosition(marketId, lender);
@@ -1184,7 +1195,7 @@ contract CentuariTest is Test {
         uint256 expectedShares2 = 500 ether;
         uint256 expectedLenderFee = makerFeeAmount; // lender is maker
         uint256 expectedFeeShares = (expectedLenderFee * expectedShares2) / matchedAmount2; // (5 * 500) / 500 = 5
-        uint256 expectedCBTMinted2 = expectedShares2 - expectedFeeShares; // 495 ether
+        uint256 expectedCbtMinted2 = expectedShares2 - expectedFeeShares; // 495 ether
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1204,7 +1215,7 @@ contract CentuariTest is Test {
         // Verify second lender's CBT balance
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender2), expectedCBTMinted2);
+        assertEq(bondToken.balanceOf(lender2), expectedCbtMinted2);
 
         // Verify Treasury was called with net loan amount for second match
         assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount); // 490 ether
@@ -1480,10 +1491,10 @@ contract CentuariTest is Test {
         uint256 expectedFeeShares = expectedLenderFee > 0 && expectedShares > 0
             ? (expectedLenderFee * expectedShares) / matchedAmount
             : 0;
-        uint256 expectedCBTMinted = expectedShares > expectedFeeShares
+        uint256 expectedCbtMinted = expectedShares > expectedFeeShares
             ? expectedShares - expectedFeeShares
             : 0;
 
-        assertEq(bondToken.balanceOf(lender), expectedCBTMinted);
+        assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
     }
 }

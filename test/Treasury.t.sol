@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/core/Treasury.sol";
+import {ITreasury} from "../src/interfaces/ITreasury.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 contract TreasuryTest is Test {
@@ -40,11 +41,13 @@ contract TreasuryTest is Test {
         address indexed token,
         uint256 amount
     );
-    event Settlement(
-        address indexed lender,
-        address indexed borrower,
-        address indexed token,
-        uint256 amount
+    event SettlementExecuted(
+        address indexed loanToken,
+        address indexed from,
+        address indexed to,
+        uint256 amount,
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     );
     event InternalTransfer(
         address indexed from,
@@ -128,7 +131,7 @@ contract TreasuryTest is Test {
 
     function test_SetCentuariContract_Revert_ZeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert("INVALID_ADDRESS");
+        vm.expectRevert(ITreasury.ZeroAddress.selector);
         treasury.setCentuariContract(address(0));
     }
 
@@ -158,7 +161,7 @@ contract TreasuryTest is Test {
         vm.startPrank(user1);
         unsupportedToken.approve(address(treasury), 100 ether);
 
-        vm.expectRevert("TOKEN_NOT_SUPPORTED");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.deposit(address(unsupportedToken), 100 ether);
         vm.stopPrank();
     }
@@ -168,7 +171,7 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(user1);
-        vm.expectRevert("AMOUNT_ZERO");
+        vm.expectRevert(ITreasury.InvalidAmount.selector);
         treasury.deposit(address(token), 0);
     }
 
@@ -229,13 +232,13 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(user1);
-        vm.expectRevert("INSUFFICIENT_BALANCE");
+        vm.expectRevert(ITreasury.InsufficientFunds.selector);
         treasury.withdraw(address(token), 100 ether);
     }
 
     function test_Withdraw_Revert_TokenNotSupported() public {
         vm.prank(user1);
-        vm.expectRevert("TOKEN_NOT_SUPPORTED");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.withdraw(address(unsupportedToken), 100 ether);
     }
 
@@ -244,7 +247,7 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(user1);
-        vm.expectRevert("AMOUNT_ZERO");
+        vm.expectRevert(ITreasury.InvalidAmount.selector);
         treasury.withdraw(address(token), 0);
     }
 
@@ -310,13 +313,13 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(centuariContract);
-        vm.expectRevert("INSUFFICIENT_BALANCE");
+        vm.expectRevert(ITreasury.InsufficientFunds.selector);
         treasury.repay(user1, address(token), 100 ether);
     }
 
     function test_Repay_Revert_TokenNotSupported() public {
         vm.prank(centuariContract);
-        vm.expectRevert("TOKEN_NOT_SUPPORTED");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.repay(user1, address(unsupportedToken), 100 ether);
     }
 
@@ -346,7 +349,7 @@ contract TreasuryTest is Test {
         vm.startPrank(user1);
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
-        vm.expectRevert("ONLY_CENTUARI");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.repay(user1, address(token), 50 ether);
         vm.stopPrank();
     }
@@ -385,13 +388,13 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(centuariContract);
-        vm.expectRevert("INSUFFICIENT_BALANCE");
+        vm.expectRevert(ITreasury.InsufficientFunds.selector);
         treasury.withdrawLendPosition(user1, address(token), 100 ether);
     }
 
     function test_WithdrawLendPosition_Revert_TokenNotSupported() public {
         vm.prank(centuariContract);
-        vm.expectRevert("TOKEN_NOT_SUPPORTED");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.withdrawLendPosition(
             user1,
             address(unsupportedToken),
@@ -404,7 +407,7 @@ contract TreasuryTest is Test {
         treasury.setSupportedToken(address(token), true);
 
         vm.prank(user1);
-        vm.expectRevert("ONLY_CENTUARI");
+        vm.expectRevert(ITreasury.Unauthorized.selector);
         treasury.withdrawLendPosition(user1, address(token), 50 ether);
     }
 
@@ -428,10 +431,11 @@ contract TreasuryTest is Test {
         // Settlement
         vm.prank(centuariContract);
         vm.expectEmit(true, true, true, true);
-        emit Settlement(lender, borrower, address(token), 50 ether);
-        treasury.settlement(lender, borrower, address(token), 50 ether, 0);
+        emit SettlementExecuted(address(token), lender, borrower, 50 ether, 0, 0);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
 
-        // Verify balances - Note: There's a bug in the contract, both add the transferAmount
+        // Verify balances
+        // Lender loses 50 ether (amount), borrower gains 50 ether (no fees)
         assertEq(treasury.balanceOf(lender, address(token)), 50 ether);
         assertEq(treasury.balanceOf(borrower, address(token)), 250 ether);
     }
@@ -446,32 +450,44 @@ contract TreasuryTest is Test {
         vm.stopPrank();
 
         vm.prank(centuariContract);
-        vm.expectRevert("INSUFFICIENT_BALANCE");
-        treasury.settlement(lender, borrower, address(token), 50 ether, 0);
+        vm.expectRevert(ITreasury.InsufficientFunds.selector);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
     }
 
-    function test_Settlement_Revert_InsufficientBorrowerBalance() public {
+    function test_Settlement_WithFees() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
+        // Setup: Give lender balance
         vm.startPrank(lender);
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
         vm.stopPrank();
 
+        // Settlement with fees: 50 ether amount, 5 ether lender fee, 3 ether borrower fee
         vm.prank(centuariContract);
-        vm.expectRevert("INSUFFICIENT_BALANCE");
-        treasury.settlement(lender, borrower, address(token), 50 ether, 0);
+        vm.expectEmit(true, true, true, true);
+        emit SettlementExecuted(address(token), lender, borrower, 50 ether, 5 ether, 3 ether);
+        treasury.settle(address(token), lender, borrower, 50 ether, 5 ether, 3 ether);
+
+        // Verify balances
+        // Lender loses: 50 ether (amount) + 5 ether (lender fee) = 55 ether
+        assertEq(treasury.balanceOf(lender, address(token)), 45 ether);
+        // Borrower gains: 50 ether (amount) - 3 ether (borrower fee) = 47 ether
+        assertEq(treasury.balanceOf(borrower, address(token)), 47 ether);
+        // Treasury gains: 5 ether (lender fee) + 3 ether (borrower fee) = 8 ether
+        assertEq(treasury.balanceOf(address(treasury), address(token)), 8 ether);
     }
 
     function test_Settlement_Revert_TokenNotSupported() public {
         vm.prank(centuariContract);
-        vm.expectRevert("TOKEN_NOT_SUPPORTED");
-        treasury.settlement(
+        vm.expectRevert(ITreasury.Unauthorized.selector);
+        treasury.settle(
+            address(unsupportedToken),
             lender,
             borrower,
-            address(unsupportedToken),
             50 ether,
+            0,
             0
         );
     }
@@ -491,8 +507,9 @@ contract TreasuryTest is Test {
         vm.stopPrank();
 
         vm.prank(centuariContract);
-        treasury.settlement(lender, borrower, address(token), 100 ether, 0);
+        treasury.settle(address(token), lender, borrower, 100 ether, 0, 0);
 
+        // Lender loses 100 ether, borrower gains 100 ether (no fees)
         assertEq(treasury.balanceOf(lender, address(token)), 0);
         assertEq(treasury.balanceOf(borrower, address(token)), 200 ether);
     }
@@ -512,8 +529,8 @@ contract TreasuryTest is Test {
         vm.stopPrank();
 
         vm.prank(user1);
-        vm.expectRevert("ONLY_CENTUARI");
-        treasury.settlement(lender, borrower, address(token), 50 ether, 0);
+        vm.expectRevert(ITreasury.Unauthorized.selector);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
     }
 
     // ========== balanceOf Tests ==========
@@ -596,16 +613,10 @@ contract TreasuryTest is Test {
 
     function testFuzz_Settlement(
         uint256 lenderAmount,
-        uint256 borrowerAmount,
         uint256 settlementAmount
     ) public {
         vm.assume(lenderAmount >= 1 ether && lenderAmount <= 1000 ether);
-        vm.assume(borrowerAmount >= 1 ether && borrowerAmount <= 1000 ether);
-        vm.assume(
-            settlementAmount > 0 &&
-                settlementAmount <= lenderAmount &&
-                settlementAmount <= borrowerAmount
-        );
+        vm.assume(settlementAmount > 0 && settlementAmount <= lenderAmount);
 
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
@@ -615,27 +626,24 @@ contract TreasuryTest is Test {
         treasury.deposit(address(token), lenderAmount);
         vm.stopPrank();
 
-        vm.startPrank(borrower);
-        token.approve(address(treasury), borrowerAmount);
-        treasury.deposit(address(token), borrowerAmount);
-        vm.stopPrank();
-
         vm.prank(centuariContract);
-        treasury.settlement(
+        treasury.settle(
+            address(token),
             lender,
             borrower,
-            address(token),
             settlementAmount,
+            0,
             0
         );
 
+        // Lender loses settlementAmount, borrower gains settlementAmount (no fees)
         assertEq(
             treasury.balanceOf(lender, address(token)),
             lenderAmount - settlementAmount
         );
         assertEq(
             treasury.balanceOf(borrower, address(token)),
-            borrowerAmount + settlementAmount
+            settlementAmount
         );
     }
 

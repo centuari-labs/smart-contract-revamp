@@ -17,13 +17,13 @@ contract CentuariBondERC20 is ERC20 {
     // ============ Immutable Storage ============
 
     /// @notice The address authorized to mint tokens (Centuari contract)
-    address public immutable minter;
+    address public immutable MINTER;
 
     /// @notice The underlying loan token address
-    address public immutable loanToken;
+    address public immutable LOAN_TOKEN;
 
     /// @notice The maturity timestamp for this bond
-    uint256 public immutable maturity;
+    uint256 public immutable MATURITY;
 
     // ============ Constructor ============
 
@@ -40,16 +40,16 @@ contract CentuariBondERC20 is ERC20 {
         address loanToken_,
         uint256 maturity_
     ) ERC20(name_, symbol_) {
-        minter = minter_;
-        loanToken = loanToken_;
-        maturity = maturity_;
+        MINTER = minter_;
+        LOAN_TOKEN = loanToken_;
+        MATURITY = maturity_;
     }
 
     // ============ Modifiers ============
 
     /// @notice Restricts function access to the minter
     modifier onlyMinter() {
-        if (msg.sender != minter) revert OnlyMinter();
+        if (msg.sender != MINTER) revert OnlyMinter();
         _;
     }
 

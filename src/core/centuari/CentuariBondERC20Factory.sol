@@ -37,7 +37,7 @@ contract CentuariBondERC20Factory {
     // ============ Immutable Storage ============
 
     /// @notice The Centuari contract address (authorized to create bond tokens and mint)
-    address public immutable centuari;
+    address public immutable CENTUARI;
 
     // ============ Storage ============
 
@@ -50,14 +50,14 @@ contract CentuariBondERC20Factory {
     /// @notice Creates the factory with the Centuari contract as the authorized creator
     /// @param centuari_ The Centuari contract address
     constructor(address centuari_) {
-        centuari = centuari_;
+        CENTUARI = centuari_;
     }
 
     // ============ Modifiers ============
 
     /// @notice Restricts function access to the Centuari contract
     modifier onlyCentuari() {
-        if (msg.sender != centuari) revert OnlyCentuari();
+        if (msg.sender != CENTUARI) revert OnlyCentuari();
         _;
     }
 
@@ -137,7 +137,7 @@ contract CentuariBondERC20Factory {
         CentuariBondERC20 token = new CentuariBondERC20{salt: salt}(
             name,
             symbol,
-            centuari,
+            CENTUARI,
             loanToken,
             maturity
         );
@@ -216,7 +216,7 @@ contract CentuariBondERC20Factory {
 
         return abi.encodePacked(
             type(CentuariBondERC20).creationCode,
-            abi.encode(name, symbol, centuari, loanToken, maturity)
+            abi.encode(name, symbol, CENTUARI, loanToken, maturity)
         );
     }
 }
