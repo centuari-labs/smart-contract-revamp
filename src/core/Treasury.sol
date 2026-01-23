@@ -11,7 +11,9 @@ import {
     SafeERC20
 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract Treasury is AccessControl, Pausable, ReentrancyGuard {
+import {ITreasury} from "../interfaces/ITreasury.sol";
+
+contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     using SafeERC20 for IERC20;
 
     bytes32 public constant TOKEN_MANAGER_ROLE =
@@ -23,54 +25,19 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
 
     address public centuariContract;
 
-    event TokenSupportUpdated(address indexed token, bool supported);
-    event CentuariContractUpdated(address indexed centuariContract);
-
-    event Deposited(
-        address indexed user,
-        address indexed token,
-        uint256 amount
-    );
-
-    event Withdrawn(
-        address indexed user,
-        address indexed token,
-        uint256 amount
-    );
-
-    event Repay(address indexed user, address indexed token, uint256 amount);
-    event WithdrawLendPosition(
-        address indexed user,
-        address indexed token,
-        uint256 amount
-    );
-    event Settlement(
-        address indexed lender,
-        address indexed borrower,
-        address indexed token,
-        uint256 amount
-    );
-
-    event InternalTransfer(
-        address indexed from,
-        address indexed to,
-        address indexed token,
-        uint256 amount,
-        bytes32 ref
-    );
-
     modifier onlySupportedToken(address token) {
-        require(supportedToken[token], "TOKEN_NOT_SUPPORTED");
+        if (!supportedToken[token]) revert Unauthorized();
         _;
     }
 
     modifier nonZeroAmount(uint256 amount) {
-        require(amount > 0, "AMOUNT_ZERO");
+        if (amount == 0) revert InvalidAmount();
         _;
     }
 
     modifier onlyCentuari() {
-        require(msg.sender == centuariContract, "ONLY_CENTUARI");
+        if (centuariContract == address(0)) revert Unauthorized();
+        if (msg.sender != centuariContract) revert Unauthorized();
         _;
     }
 
@@ -81,24 +48,27 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
     function setSupportedToken(
         address token,
         bool supported
-    ) external onlyRole(TOKEN_MANAGER_ROLE) {
+    ) external override onlyRole(TOKEN_MANAGER_ROLE) {
+        if (token == address(0)) revert ZeroAddress();
         supportedToken[token] = supported;
         emit TokenSupportUpdated(token, supported);
     }
 
     function setCentuariContract(
         address _centuariContract
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_centuariContract != address(0), "INVALID_ADDRESS");
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_centuariContract == address(0)) revert ZeroAddress();
         centuariContract = _centuariContract;
         emit CentuariContractUpdated(_centuariContract);
     }
 
+    /// @notice Deposit tokens to treasury
     function deposit(
         address token,
         uint256 amount
     )
         external
+        override
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
@@ -115,12 +85,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         uint256 amount
     )
         external
+        override
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
         nonZeroAmount(amount)
     {
-        require(balances[msg.sender][token] >= amount, "INSUFFICIENT_BALANCE");
+        if (balances[msg.sender][token] < amount) revert InsufficientFunds();
 
         balances[msg.sender][token] -= amount;
         IERC20(token).safeTransfer(msg.sender, amount);
@@ -134,12 +105,15 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         uint256 amount
     )
         external
+        override
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
         onlyCentuari
+        nonZeroAmount(amount)
     {
-        require(balances[user][token] >= amount, "INSUFFICIENT_BALANCE");
+        if (user == address(0)) revert ZeroAddress();
+        if (balances[user][token] < amount) revert InsufficientFunds();
 
         balances[user][token] -= amount;
         balances[address(this)][token] += amount;
@@ -153,15 +127,15 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         uint256 amount
     )
         external
+        override
         nonReentrant
         whenNotPaused
         onlySupportedToken(token)
         onlyCentuari
+        nonZeroAmount(amount)
     {
-        require(
-            balances[address(this)][token] >= amount,
-            "INSUFFICIENT_BALANCE"
-        );
+        if (user == address(0)) revert ZeroAddress();
+        if (balances[address(this)][token] < amount) revert InsufficientFunds();
 
         balances[user][token] += amount;
         balances[address(this)][token] -= amount;
@@ -169,45 +143,78 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard {
         emit WithdrawLendPosition(user, token, amount);
     }
 
-    function settlement(
-        address lender,
-        address borrower,
-        address token,
-        uint256 transferAmount,
-        uint256 feeAmount
+    /// @inheritdoc ITreasury
+    function settle(
+        address loanToken,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 lenderSettlementFee,
+        uint256 borrowerSettlementFee
     )
         external
+        override
         nonReentrant
         whenNotPaused
-        onlySupportedToken(token)
+        onlySupportedToken(loanToken)
         onlyCentuari
     {
-        // TODO: implement fee logic
+        // Validate inputs
+        if (from == address(0)) revert ZeroAddress();
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
 
-        require(
-            balances[borrower][token] >= transferAmount,
-            "INSUFFICIENT_BALANCE"
+        // Calculate total amount needed from lender (principal + lender fee)
+        uint256 totalFromLender = amount + lenderSettlementFee;
+
+        // Check lender has sufficient balance
+        if (balances[from][loanToken] < totalFromLender) revert InsufficientFunds();
+
+        // Calculate net amount borrower receives (after borrower settlement fee)
+        uint256 netAmountToBorrower = amount;
+        if (borrowerSettlementFee > 0) {
+            if (amount < borrowerSettlementFee) revert InvalidAmount();
+            netAmountToBorrower = amount - borrowerSettlementFee;
+        }
+
+        // Transfer net principal amount from lender to borrower
+        balances[from][loanToken] -= amount;
+        balances[to][loanToken] += netAmountToBorrower;
+
+        // Deduct lender settlement fee from lender and add to Treasury
+        if (lenderSettlementFee > 0) {
+            balances[from][loanToken] -= lenderSettlementFee;
+            balances[address(this)][loanToken] += lenderSettlementFee;
+        }
+
+        // Add borrower settlement fee to Treasury (deducted from amount)
+        if (borrowerSettlementFee > 0) {
+            balances[address(this)][loanToken] += borrowerSettlementFee;
+        }
+
+        // Emit settlement event
+        emit SettlementExecuted(
+            loanToken,
+            from,
+            to,
+            amount,
+            lenderSettlementFee,
+            borrowerSettlementFee
         );
-
-        balances[borrower][token] += transferAmount;
-
-        balances[lender][token] -= transferAmount;
-
-        emit Settlement(lender, borrower, token, transferAmount);
     }
 
     function balanceOf(
         address user,
         address token
-    ) external view returns (uint256) {
+    ) external view override returns (uint256) {
         return balances[user][token];
     }
 
-    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function pause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
-    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function unpause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 }

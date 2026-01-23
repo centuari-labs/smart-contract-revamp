@@ -24,6 +24,65 @@ interface ITreasury {
         uint256 borrowerSettlementFee
     );
 
+    /// @notice Emitted when token support is updated
+    /// @param token The token address
+    /// @param supported Whether the token is now supported
+    event TokenSupportUpdated(address indexed token, bool supported);
+
+    /// @notice Emitted when Centuari contract address is updated
+    /// @param centuariContract The new Centuari contract address
+    event CentuariContractUpdated(address indexed centuariContract);
+
+    /// @notice Emitted when a user deposits tokens
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount deposited
+    event Deposited(
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    /// @notice Emitted when a user withdraws tokens
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount withdrawn
+    event Withdrawn(
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    /// @notice Emitted when a user repays a loan
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount repaid
+    event Repay(address indexed user, address indexed token, uint256 amount);
+
+    /// @notice Emitted when a lender withdraws their position
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount withdrawn
+    event WithdrawLendPosition(
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    /// @notice Emitted for internal transfers
+    /// @param from The source address
+    /// @param to The destination address
+    /// @param token The token address
+    /// @param amount The amount transferred
+    /// @param ref The reference identifier
+    event InternalTransfer(
+        address indexed from,
+        address indexed to,
+        address indexed token,
+        uint256 amount,
+        bytes32 ref
+    );
+
     // ============ Errors ============
 
     /// @notice Thrown when caller is not authorized
@@ -57,4 +116,54 @@ interface ITreasury {
         uint256 lenderSettlementFee,
         uint256 borrowerSettlementFee
     ) external;
+
+    /// @notice Set token support status
+    /// @param token The token address
+    /// @param supported Whether the token should be supported
+    function setSupportedToken(address token, bool supported) external;
+
+    /// @notice Set Centuari contract address
+    /// @param _centuariContract The new Centuari contract address
+    function setCentuariContract(address _centuariContract) external;
+
+    /// @notice Deposit tokens to treasury
+    /// @param token The token address
+    /// @param amount The amount to deposit
+    function deposit(address token, uint256 amount) external;
+
+    /// @notice Withdraw tokens from treasury
+    /// @param token The token address
+    /// @param amount The amount to withdraw
+    function withdraw(address token, uint256 amount) external;
+
+    /// @notice Repay loan position
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount to repay
+    function repay(address user, address token, uint256 amount) external;
+
+    /// @notice Withdraw lender position
+    /// @param user The user address
+    /// @param token The token address
+    /// @param amount The amount to withdraw
+    function withdrawLendPosition(
+        address user,
+        address token,
+        uint256 amount
+    ) external;
+
+    /// @notice Get user balance for a token
+    /// @param user The user address
+    /// @param token The token address
+    /// @return The user's balance for the token
+    function balanceOf(
+        address user,
+        address token
+    ) external view returns (uint256);
+
+    /// @notice Pause contract operations
+    function pause() external;
+
+    /// @notice Unpause contract operations
+    function unpause() external;
 }
