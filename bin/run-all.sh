@@ -4,8 +4,8 @@
 # Parameters are supplied via environment variables; optional flags are forwarded to forge script.
 #
 # Usage:
-#   ./script/run-all.sh [FORGE_SCRIPT_FLAGS...]
-#   e.g. ./script/run-all.sh --broadcast
+#   ./bin/run-all.sh [FORGE_SCRIPT_FLAGS...]
+#   e.g. ./bin/run-all.sh --broadcast
 #
 # Environment variables:
 #   RPC_URL              - RPC URL for the target chain (used by forge script when set)
