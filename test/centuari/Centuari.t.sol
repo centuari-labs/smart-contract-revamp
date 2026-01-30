@@ -23,6 +23,11 @@ contract MockTreasury is ITreasury {
     uint256 public lastLenderSettlementFee;
     uint256 public lastBorrowerSettlementFee;
 
+    uint256 public repayCallCount;
+    address public lastRepayUser;
+    address public lastRepayToken;
+    uint256 public lastRepayAmount;
+
     bool public shouldRevert;
 
     function setRevert(bool _shouldRevert) external {
@@ -52,6 +57,14 @@ contract MockTreasury is ITreasury {
         emit SettlementExecuted(loanToken, from, to, amount, lenderSettlementFee, borrowerSettlementFee);
     }
 
+    function repay(address user, address token, uint256 amount) external override {
+        repayCallCount++;
+        lastRepayUser = user;
+        lastRepayToken = token;
+        lastRepayAmount = amount;
+        emit Repay(user, token, amount);
+    }
+
     function reset() external {
         settleCallCount = 0;
         lastLoanToken = address(0);
@@ -60,6 +73,10 @@ contract MockTreasury is ITreasury {
         lastAmount = 0;
         lastLenderSettlementFee = 0;
         lastBorrowerSettlementFee = 0;
+        repayCallCount = 0;
+        lastRepayUser = address(0);
+        lastRepayToken = address(0);
+        lastRepayAmount = 0;
         shouldRevert = false;
     }
 
@@ -68,7 +85,6 @@ contract MockTreasury is ITreasury {
     function setCentuariContract(address) external pure override {}
     function deposit(address, uint256) external pure override {}
     function withdraw(address, uint256) external pure override {}
-    function repay(address, address, uint256) external pure override {}
     function withdrawLendPosition(address, address, uint256) external pure override {}
     function balanceOf(address, address) external pure override returns (uint256) { return 0; }
     function pause() external pure override {}
@@ -101,6 +117,7 @@ contract CentuariTest is Test {
 
     address public owner;
     address public settlement;
+    address public operator;
     address public user;
     address public loanToken;
     address public proxyAdminOwner;
@@ -137,10 +154,13 @@ contract CentuariTest is Test {
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event Paused(address account);
     event Unpaused(address account);
+    event Repaid(bytes32 indexed marketId, address indexed borrower, uint256 amount, uint256 sharesBurned);
+    event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
     function setUp() public {
         owner = makeAddr("owner");
         settlement = makeAddr("settlement");
+        operator = makeAddr("operator");
         user = makeAddr("user");
         loanToken = makeAddr("loanToken");
         proxyAdminOwner = makeAddr("proxyAdminOwner");
@@ -728,6 +748,261 @@ contract CentuariTest is Test {
         vm.prank(owner);
         vm.expectRevert(ICentuari.ZeroAddress.selector);
         centuari.setTreasury(address(0));
+    }
+
+    function test_SetOperator() public {
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit OperatorUpdated(address(0), operator);
+        centuari.setOperator(operator);
+
+        assertEq(centuari.operator(), operator);
+    }
+
+    function test_SetOperator_RevertNotOwner() public {
+        vm.prank(user);
+        vm.expectRevert();
+        centuari.setOperator(operator);
+    }
+
+    function test_SetOperator_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ICentuari.ZeroAddress.selector);
+        centuari.setOperator(address(0));
+    }
+
+    // ============ Repay Tests ============
+
+    function test_Repay_Success() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 principal = 1000 ether;
+        uint256 rate = 500;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            principal,
+            rate,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        ICentuari.BorrowPosition memory posBefore = centuari.getBorrowPosition(marketId, borrower);
+        ICentuari.Market memory marketBefore = centuari.getMarket(marketId);
+
+        uint256 repayAmount = 500 ether;
+        uint256 expectedSharesToBurn = (repayAmount * marketBefore.totalBorrowShares) / marketBefore.totalBorrowAssets;
+
+        vm.expectEmit(true, true, false, true);
+        emit Repaid(marketId, borrower, repayAmount, expectedSharesToBurn);
+
+        vm.prank(operator);
+        centuari.repay(borrower, loanToken, maturity, repayAmount);
+
+        ICentuari.BorrowPosition memory posAfter = centuari.getBorrowPosition(marketId, borrower);
+        ICentuari.Market memory marketAfter = centuari.getMarket(marketId);
+
+        assertEq(posAfter.shares, posBefore.shares - expectedSharesToBurn);
+        assertEq(marketAfter.totalBorrowShares, marketBefore.totalBorrowShares - expectedSharesToBurn);
+        assertEq(marketAfter.totalBorrowAssets, marketBefore.totalBorrowAssets - repayAmount);
+        assertEq(mockTreasury.repayCallCount(), 1);
+        assertEq(mockTreasury.lastRepayUser(), borrower);
+        assertEq(mockTreasury.lastRepayToken(), loanToken);
+        assertEq(mockTreasury.lastRepayAmount(), repayAmount);
+    }
+
+    function test_Repay_RevertOnlyOperator() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.prank(user);
+        vm.expectRevert(ICentuari.Unauthorized.selector);
+        centuari.repay(borrower, loanToken, maturity, 100 ether);
+    }
+
+    function test_Repay_MoreThanDebt_Capped() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 principal = 1000 ether;
+        uint256 rate = 500;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            principal,
+            rate,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        ICentuari.BorrowPosition memory posBefore = centuari.getBorrowPosition(marketId, borrower);
+        uint256 debtInAssets = (posBefore.shares * centuari.getMarket(marketId).totalBorrowAssets) / centuari.getMarket(marketId).totalBorrowShares;
+
+        // Repay more than debt; should cap to full debt
+        uint256 repayAmountRequested = debtInAssets + 1000 ether;
+
+        vm.prank(operator);
+        centuari.repay(borrower, loanToken, maturity, repayAmountRequested);
+
+        ICentuari.BorrowPosition memory posAfter = centuari.getBorrowPosition(marketId, borrower);
+        assertEq(posAfter.shares, 0);
+        assertEq(posAfter.principalBorrowed, 0);
+        assertEq(mockTreasury.lastRepayAmount(), debtInAssets);
+    }
+
+    function test_Repay_FullDebt() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 principal = 1000 ether;
+        uint256 rate = 500;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            principal,
+            rate,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        ICentuari.Market memory market = centuari.getMarket(marketId);
+        uint256 debtInAssets = (centuari.getBorrowPosition(marketId, borrower).shares * market.totalBorrowAssets) / market.totalBorrowShares;
+
+        vm.prank(operator);
+        centuari.repay(borrower, loanToken, maturity, debtInAssets);
+
+        ICentuari.BorrowPosition memory posAfter = centuari.getBorrowPosition(marketId, borrower);
+        assertEq(posAfter.shares, 0);
+        assertEq(posAfter.principalBorrowed, 0);
+    }
+
+    function test_Repay_RevertZeroPosition() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.InvalidAmount.selector);
+        centuari.repay(borrower, loanToken, maturity, 100 ether);
+    }
+
+    function test_Repay_RevertZeroAmount() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.InvalidAmount.selector);
+        centuari.repay(borrower, loanToken, maturity, 0);
+    }
+
+    function test_Repay_RevertZeroBorrower() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.ZeroAddress.selector);
+        centuari.repay(address(0), loanToken, block.timestamp + 365 days, 100 ether);
+    }
+
+    function test_Repay_RevertWhenPaused() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+
+        // Create loan while unpaused
+        vm.prank(settlement);
+        centuari.settleMatch(
+            makeAddr("lender"),
+            borrower,
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        // Now pause and expect repay to revert
+        vm.prank(owner);
+        centuari.pause();
+
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.ContractPaused.selector);
+        centuari.repay(borrower, loanToken, maturity, 100 ether);
     }
 
     function test_Pause() public {

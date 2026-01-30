@@ -47,11 +47,15 @@ abstract contract CentuariStorage {
     /// @dev Factory deploys ERC20 bond tokens for each market
     address internal _bondTokenFactory;
 
+    /// @notice The address of the operator (backend)
+    /// @dev Only the operator can call repay
+    address internal _operator;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 43 slots for future storage variables.
+    /// @dev Provides 42 slots for future storage variables.
     ///      When adding new variables, reduce this gap accordingly.
-    ///      Current usage: 4 slots (settlement, treasury, paused, bondTokenFactory) + 3 mappings
-    uint256[43] private __gap;
+    ///      Current usage: 5 slots (settlement, treasury, paused, bondTokenFactory, operator) + 3 mappings
+    uint256[42] private __gap;
 }

@@ -90,6 +90,14 @@ contract MockCentuari is ICentuari {
     function bondTokenFactory() external pure returns (address) {
         return address(0);
     }
+
+    function repay(address, address, uint256, uint256) external pure override {}
+
+    function operator() external pure returns (address) {
+        return address(0);
+    }
+
+    function setOperator(address) external pure override {}
 }
 
 /// @title SettlementV2

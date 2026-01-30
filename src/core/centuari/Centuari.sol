@@ -71,6 +71,12 @@ contract Centuari is
         _;
     }
 
+    /// @notice Restricts function access to the operator (backend)
+    modifier onlyOperator() {
+        if (msg.sender != _operator) revert Unauthorized();
+        _;
+    }
+
     // ============ Core Settlement Function ============
 
     /// @inheritdoc ICentuari
@@ -233,6 +239,51 @@ contract Centuari is
         emit BorrowPositionCreated(marketId, borrower, shares, principal, debt, rate);
     }
 
+    // ============ Repay Function ============
+
+    /// @inheritdoc ICentuari
+    function repay(
+        address borrower,
+        address loanToken,
+        uint256 maturity,
+        uint256 amount
+    ) external onlyOperator whenNotPaused nonReentrant {
+        if (borrower == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        Market storage market = _markets[marketId];
+        BorrowPosition storage position = _borrowPositions[marketId][borrower];
+
+        if (position.shares == 0) revert InvalidAmount();
+        if (market.totalBorrowShares == 0) revert InvalidAmount();
+
+        uint256 debtInAssets = (position.shares * market.totalBorrowAssets) / market.totalBorrowShares;
+        uint256 repayAmount = amount > debtInAssets ? debtInAssets : amount;
+        if (repayAmount == 0) revert InvalidAmount();
+
+        uint256 sharesToBurn = (repayAmount * market.totalBorrowShares) / market.totalBorrowAssets;
+
+        position.shares -= sharesToBurn;
+        uint256 principalRepaid = (repayAmount * position.principalBorrowed) / debtInAssets;
+        if (principalRepaid > position.principalBorrowed) {
+            principalRepaid = position.principalBorrowed;
+        }
+        position.principalBorrowed -= principalRepaid;
+        if (position.shares == 0) {
+            position.principalBorrowed = 0;
+        }
+
+        market.totalBorrowShares -= sharesToBurn;
+        market.totalBorrowAssets -= repayAmount;
+
+        ITreasury(_treasury).repay(borrower, loanToken, repayAmount);
+
+        emit Repaid(marketId, borrower, repayAmount, sharesToBurn);
+    }
+
+    //@todo : withdrawLendPosition
+
     /// @notice Calculate interest for a loan
     /// @param principal The principal amount
     /// @param rate The interest rate in basis points (e.g., 500 = 5%)
@@ -311,6 +362,18 @@ contract Centuari is
         emit Unpaused(msg.sender);
     }
 
+    /// @notice Update the operator (backend) address
+    /// @dev Only callable by owner
+    /// @param newOperator The new operator address
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) revert ZeroAddress();
+
+        address oldOperator = _operator;
+        _operator = newOperator;
+
+        emit OperatorUpdated(oldOperator, newOperator);
+    }
+
     // ============ View Functions ============
 
     /// @inheritdoc ICentuari
@@ -351,5 +414,10 @@ contract Centuari is
     /// @inheritdoc ICentuari
     function bondTokenFactory() external view returns (address) {
         return _bondTokenFactory;
+    }
+
+    /// @inheritdoc ICentuari
+    function operator() external view returns (address) {
+        return _operator;
     }
 }

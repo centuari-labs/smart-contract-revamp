@@ -101,6 +101,23 @@ interface ICentuari {
     /// @param account The account that unpaused the contract
     event Unpaused(address account);
 
+    /// @notice Emitted when a borrow position is repaid
+    /// @param marketId The market identifier
+    /// @param borrower The borrower address
+    /// @param amount The amount repaid (in token terms)
+    /// @param sharesBurned The debt shares burned
+    event Repaid(
+        bytes32 indexed marketId,
+        address indexed borrower,
+        uint256 amount,
+        uint256 sharesBurned
+    );
+
+    /// @notice Emitted when the operator address is updated
+    /// @param oldOperator The previous operator address
+    /// @param newOperator The new operator address
+    event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
+
     // ============ Errors ============
 
     /// @notice Thrown when caller is not authorized
@@ -150,6 +167,18 @@ interface ICentuari {
         uint256 takerFeeAmount
     ) external;
 
+    /// @notice Repay debt for a borrower in a given market. Only callable by operator (backend).
+    /// @param borrower The borrower address
+    /// @param loanToken The loan token address
+    /// @param maturity The maturity timestamp (identifies the market)
+    /// @param amount The amount to repay (capped to current debt)
+    function repay(
+        address borrower,
+        address loanToken,
+        uint256 maturity,
+        uint256 amount
+    ) external;
+
     // ============ View Functions ============
 
     /// @notice Get the market ID for a given loan token and maturity
@@ -190,4 +219,12 @@ interface ICentuari {
     /// @notice Get the Bond Token Factory contract address
     /// @return The Bond Token Factory contract address
     function bondTokenFactory() external view returns (address);
+
+    /// @notice Get the operator (backend) address
+    /// @return The operator address
+    function operator() external view returns (address);
+
+    /// @notice Set the operator address. Only owner.
+    /// @param newOperator The new operator address
+    function setOperator(address newOperator) external;
 }
