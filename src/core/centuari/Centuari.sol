@@ -282,7 +282,39 @@ contract Centuari is
         emit Repaid(marketId, borrower, repayAmount, sharesToBurn);
     }
 
-    //@todo : withdrawLendPosition
+    /// @inheritdoc ICentuari
+    function withdrawLendPosition(
+        address loanToken,
+        uint256 maturity,
+        uint256 cbtAmount
+    ) external whenNotPaused nonReentrant {
+        if (cbtAmount == 0) revert InvalidAmount();
+        if (_bondTokenFactory == address(0)) revert BondTokenNotFound();
+
+        address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getBondToken(loanToken, maturity);
+        if (bondToken == address(0)) revert BondTokenNotFound();
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        Market storage market = _markets[marketId];
+        LendPosition storage position = _lendPositions[marketId][msg.sender];
+
+        if (position.shares < cbtAmount) revert InvalidAmount();
+        if (market.totalLendShares == 0) revert InvalidAmount();
+
+        uint256 assetsOut = (cbtAmount * market.totalLendAssets) / market.totalLendShares;
+
+        CentuariBondERC20(bondToken).burnFrom(msg.sender, cbtAmount);
+
+        position.shares -= cbtAmount;
+        position.principalLent -= assetsOut;
+
+        market.totalLendShares -= cbtAmount;
+        market.totalLendAssets -= assetsOut;
+
+        ITreasury(_treasury).withdrawLendPosition(msg.sender, loanToken, assetsOut);
+
+        emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, assetsOut);
+    }
 
     /// @notice Calculate interest for a loan
     /// @param principal The principal amount

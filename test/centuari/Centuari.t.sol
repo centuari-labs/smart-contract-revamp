@@ -28,6 +28,11 @@ contract MockTreasury is ITreasury {
     address public lastRepayToken;
     uint256 public lastRepayAmount;
 
+    uint256 public withdrawLendPositionCallCount;
+    address public lastWithdrawLendUser;
+    address public lastWithdrawLendToken;
+    uint256 public lastWithdrawLendAmount;
+
     bool public shouldRevert;
 
     function setRevert(bool _shouldRevert) external {
@@ -77,6 +82,10 @@ contract MockTreasury is ITreasury {
         lastRepayUser = address(0);
         lastRepayToken = address(0);
         lastRepayAmount = 0;
+        withdrawLendPositionCallCount = 0;
+        lastWithdrawLendUser = address(0);
+        lastWithdrawLendToken = address(0);
+        lastWithdrawLendAmount = 0;
         shouldRevert = false;
     }
 
@@ -85,7 +94,13 @@ contract MockTreasury is ITreasury {
     function setCentuariContract(address) external pure override {}
     function deposit(address, uint256) external pure override {}
     function withdraw(address, uint256) external pure override {}
-    function withdrawLendPosition(address, address, uint256) external pure override {}
+    function withdrawLendPosition(address user, address token, uint256 amount) external override {
+        withdrawLendPositionCallCount++;
+        lastWithdrawLendUser = user;
+        lastWithdrawLendToken = token;
+        lastWithdrawLendAmount = amount;
+        emit WithdrawLendPosition(user, token, amount);
+    }
     function balanceOf(address, address) external pure override returns (uint256) { return 0; }
     function pause() external pure override {}
     function unpause() external pure override {}
@@ -155,6 +170,12 @@ contract CentuariTest is Test {
     event Paused(address account);
     event Unpaused(address account);
     event Repaid(bytes32 indexed marketId, address indexed borrower, uint256 amount, uint256 sharesBurned);
+    event LendPositionWithdrawn(
+        bytes32 indexed marketId,
+        address indexed lender,
+        uint256 sharesBurned,
+        uint256 assetsWithdrawn
+    );
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
     function setUp() public {
@@ -1003,6 +1024,184 @@ contract CentuariTest is Test {
         vm.prank(operator);
         vm.expectRevert(ICentuari.ContractPaused.selector);
         centuari.repay(borrower, loanToken, maturity, 100 ether);
+    }
+
+    // ============ WithdrawLendPosition Tests ============
+
+    function test_WithdrawLendPosition_Success() public {
+        address lender = makeAddr("lender");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 principal = 1000 ether;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            makeAddr("borrower"),
+            loanToken,
+            principal,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
+
+        uint256 cbtBalance = bondToken.balanceOf(lender);
+        uint256 cbtToRedeem = cbtBalance / 2;
+
+        vm.prank(lender);
+        bondToken.approve(address(centuari), cbtToRedeem);
+
+        ICentuari.LendPosition memory posBefore = centuari.getLendPosition(marketId, lender);
+        ICentuari.Market memory marketBefore = centuari.getMarket(marketId);
+
+        uint256 expectedAssetsOut = (cbtToRedeem * marketBefore.totalLendAssets) / marketBefore.totalLendShares;
+
+        vm.expectEmit(true, true, false, true);
+        emit LendPositionWithdrawn(marketId, lender, cbtToRedeem, expectedAssetsOut);
+
+        vm.prank(lender);
+        centuari.withdrawLendPosition(loanToken, maturity, cbtToRedeem);
+
+        ICentuari.LendPosition memory posAfter = centuari.getLendPosition(marketId, lender);
+        ICentuari.Market memory marketAfter = centuari.getMarket(marketId);
+
+        assertEq(posAfter.shares, posBefore.shares - cbtToRedeem);
+        assertEq(posAfter.principalLent, posBefore.principalLent - expectedAssetsOut);
+        assertEq(marketAfter.totalLendShares, marketBefore.totalLendShares - cbtToRedeem);
+        assertEq(marketAfter.totalLendAssets, marketBefore.totalLendAssets - expectedAssetsOut);
+        assertEq(bondToken.balanceOf(lender), cbtBalance - cbtToRedeem);
+        assertEq(mockTreasury.withdrawLendPositionCallCount(), 1);
+        assertEq(mockTreasury.lastWithdrawLendUser(), lender);
+        assertEq(mockTreasury.lastWithdrawLendToken(), loanToken);
+        assertEq(mockTreasury.lastWithdrawLendAmount(), expectedAssetsOut);
+    }
+
+    function test_WithdrawLendPosition_RevertZeroAmount() public {
+        address lender = makeAddr("lender");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            makeAddr("borrower"),
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.prank(lender);
+        vm.expectRevert(ICentuari.InvalidAmount.selector);
+        centuari.withdrawLendPosition(loanToken, maturity, 0);
+    }
+
+    function test_WithdrawLendPosition_RevertBondTokenNotFound_NoFactory() public {
+        Centuari centuariNoFactory = _deployCentuariWithoutBondFactory();
+        vm.prank(settlement);
+        centuariNoFactory.settleMatch(
+            makeAddr("lender"),
+            makeAddr("borrower"),
+            loanToken,
+            1000 ether,
+            500,
+            block.timestamp + 365 days,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        vm.prank(makeAddr("lender"));
+        vm.expectRevert(ICentuari.BondTokenNotFound.selector);
+        centuariNoFactory.withdrawLendPosition(loanToken, block.timestamp + 365 days, 100 ether);
+    }
+
+    function test_WithdrawLendPosition_RevertInsufficientShares() public {
+        address lender = makeAddr("lender");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            makeAddr("borrower"),
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        uint256 cbtBalance = CentuariBondERC20(bondTokenAddr).balanceOf(lender);
+
+        vm.prank(lender);
+        CentuariBondERC20(bondTokenAddr).approve(address(centuari), cbtBalance);
+
+        vm.prank(lender);
+        vm.expectRevert(ICentuari.InvalidAmount.selector);
+        centuari.withdrawLendPosition(loanToken, maturity, cbtBalance + 1 ether);
+    }
+
+    function test_WithdrawLendPosition_RevertWhenPaused() public {
+        address lender = makeAddr("lender");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            makeAddr("borrower"),
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        vm.prank(lender);
+        CentuariBondERC20(bondTokenAddr).approve(address(centuari), 100 ether);
+
+        vm.prank(owner);
+        centuari.pause();
+
+        vm.prank(lender);
+        vm.expectRevert(ICentuari.ContractPaused.selector);
+        centuari.withdrawLendPosition(loanToken, maturity, 100 ether);
+    }
+
+    function _deployCentuariWithoutBondFactory() internal returns (Centuari) {
+        Centuari impl = new Centuari();
+        bytes memory initData = abi.encodeCall(
+            Centuari.initialize,
+            (owner, settlement, address(mockTreasury))
+        );
+        TransparentUpgradeableProxy p = new TransparentUpgradeableProxy(
+            address(impl),
+            proxyAdminOwner,
+            initData
+        );
+        return Centuari(address(p));
     }
 
     function test_Pause() public {

@@ -93,6 +93,8 @@ contract MockCentuari is ICentuari {
 
     function repay(address, address, uint256, uint256) external pure override {}
 
+    function withdrawLendPosition(address, uint256, uint256) external pure override {}
+
     function operator() external pure returns (address) {
         return address(0);
     }

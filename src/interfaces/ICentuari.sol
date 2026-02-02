@@ -118,6 +118,18 @@ interface ICentuari {
     /// @param newOperator The new operator address
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
+    /// @notice Emitted when a lender withdraws (redeems) part or all of their lend position
+    /// @param marketId The market identifier
+    /// @param lender The lender address
+    /// @param sharesBurned The CBT (bond token) shares burned
+    /// @param assetsWithdrawn The loan token amount credited to the lender
+    event LendPositionWithdrawn(
+        bytes32 indexed marketId,
+        address indexed lender,
+        uint256 sharesBurned,
+        uint256 assetsWithdrawn
+    );
+
     // ============ Errors ============
 
     /// @notice Thrown when caller is not authorized
@@ -134,6 +146,9 @@ interface ICentuari {
 
     /// @notice Thrown when maturity is in the past
     error InvalidMaturity();
+
+    /// @notice Thrown when bond token does not exist for the market (factory not set or market not settled)
+    error BondTokenNotFound();
 
     // ============ Core Functions ============
 
@@ -177,6 +192,18 @@ interface ICentuari {
         address loanToken,
         uint256 maturity,
         uint256 amount
+    ) external;
+
+    /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from caller and credits loan tokens to caller's Treasury balance.
+    /// @dev Caller must have approved Centuari to spend at least cbtAmount of the market's bond token.
+    ///      Withdrawable amount is limited by Treasury's available balance (from repayments).
+    /// @param loanToken The loan token address
+    /// @param maturity The maturity timestamp (identifies the market)
+    /// @param cbtAmount The amount of CBT (bond token) to redeem
+    function withdrawLendPosition(
+        address loanToken,
+        uint256 maturity,
+        uint256 cbtAmount
     ) external;
 
     // ============ View Functions ============
