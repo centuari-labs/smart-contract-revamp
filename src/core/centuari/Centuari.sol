@@ -81,9 +81,9 @@ contract Centuari is
 
     /// @inheritdoc ICentuari
     function settleMatch(
-        address lender,
-        address borrower,
-        address loanToken,
+        address lender, //@todo : change this into account id
+        address borrower, //@todo : change this into account id
+        address loanToken, //@todo : change this into asset id
         uint256 matchedAmount,
         uint256 rate,
         uint256 maturity,
@@ -119,6 +119,8 @@ contract Centuari is
             borrowerFee = makerFeeAmount;
         }
 
+
+        //@todo : use CBT concept (ZCB)
         // Process lender position (with full matchedAmount for proper market accounting)
         uint256 shares = _processLendPosition(marketId, lender, matchedAmount, rate);
 
