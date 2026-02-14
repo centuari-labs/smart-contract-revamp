@@ -102,7 +102,7 @@ contract Centuari is
         Market storage market = _markets[marketId];
 
         // Emit MarketCreated if this is a new market
-        if (market.totalLendShares == 0 && market.totalBorrowShares == 0) {
+        if (market.totalLendShares == 0) {
             emit MarketCreated(marketId, loanToken, maturity);
         }
 
@@ -124,14 +124,8 @@ contract Centuari is
         // Process lender position (with full matchedAmount for proper market accounting)
         uint256 shares = _processLendPosition(marketId, lender, matchedAmount, rate);
 
-        // Process borrower position (calculate debt inline)
-        _processBorrowPosition(
-            marketId,
-            borrower,
-            matchedAmount,
-            matchedAmount + _calculateInterest(matchedAmount, rate, maturity),
-            rate
-        );
+        // Process borrower position
+        _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
         // Calculate net amounts after fees
         // Convert lenderFee from token amount to shares using the same ratio as position calculation
@@ -184,7 +178,8 @@ contract Centuari is
         uint256 rate
     ) internal returns (uint256 shares) {
         Market storage market = _markets[marketId];
-
+        //@todo : use ZCB
+        //@todo : need to calculate the yield from the maturity
         // Calculate shares using assets-to-shares conversion
         // For first deposit, shares = assets (1:1)
         if (market.totalLendShares == 0) {
@@ -209,36 +204,19 @@ contract Centuari is
     /// @param marketId The market identifier
     /// @param borrower The borrower address
     /// @param principal The principal amount being borrowed
-    /// @param debt The total debt (principal + interest)
     /// @param rate The interest rate in basis points
-    /// @return shares The debt shares assigned to the borrower
+    /// @param maturity The maturity timestamp
     function _processBorrowPosition(
         bytes32 marketId,
         address borrower,
         uint256 principal,
-        uint256 debt,
-        uint256 rate
-    ) internal returns (uint256 shares) {
-        Market storage market = _markets[marketId];
+        uint256 rate,
+        uint256 maturity
+    ) internal {
+        uint256 debt = principal + _calculateInterest(principal, rate, maturity);
+        _borrowDebt[marketId][borrower] += debt;
 
-        // Calculate shares using debt-to-shares conversion
-        // For first borrow, shares = debt (1:1)
-        if (market.totalBorrowShares == 0) {
-            shares = debt;
-        } else {
-            shares = (debt * market.totalBorrowShares) / market.totalBorrowAssets;
-        }
-
-        // Update market totals
-        market.totalBorrowShares += shares;
-        market.totalBorrowAssets += debt;
-
-        // Update borrower's position
-        BorrowPosition storage position = _borrowPositions[marketId][borrower];
-        position.shares += shares;
-        position.principalBorrowed += principal;
-
-        emit BorrowPositionCreated(marketId, borrower, shares, principal, debt, rate);
+        emit BorrowPositionCreated(marketId, borrower, principal, debt, rate);
     }
 
     // ============ Repay Function ============
@@ -254,34 +232,18 @@ contract Centuari is
         if (amount == 0) revert InvalidAmount();
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        Market storage market = _markets[marketId];
-        BorrowPosition storage position = _borrowPositions[marketId][borrower];
+        uint256 debt = _borrowDebt[marketId][borrower];
 
-        if (position.shares == 0) revert InvalidAmount();
-        if (market.totalBorrowShares == 0) revert InvalidAmount();
+        if (debt == 0) revert InvalidAmount();
 
-        uint256 debtInAssets = (position.shares * market.totalBorrowAssets) / market.totalBorrowShares;
-        uint256 repayAmount = amount > debtInAssets ? debtInAssets : amount;
+        uint256 repayAmount = amount > debt ? debt : amount;
         if (repayAmount == 0) revert InvalidAmount();
 
-        uint256 sharesToBurn = (repayAmount * market.totalBorrowShares) / market.totalBorrowAssets;
-
-        position.shares -= sharesToBurn;
-        uint256 principalRepaid = (repayAmount * position.principalBorrowed) / debtInAssets;
-        if (principalRepaid > position.principalBorrowed) {
-            principalRepaid = position.principalBorrowed;
-        }
-        position.principalBorrowed -= principalRepaid;
-        if (position.shares == 0) {
-            position.principalBorrowed = 0;
-        }
-
-        market.totalBorrowShares -= sharesToBurn;
-        market.totalBorrowAssets -= repayAmount;
+        _borrowDebt[marketId][borrower] = debt - repayAmount;
 
         ITreasury(_treasury).repay(borrower, loanToken, repayAmount);
 
-        emit Repaid(marketId, borrower, repayAmount, sharesToBurn);
+        emit Repaid(marketId, borrower, repayAmount);
     }
 
     /// @inheritdoc ICentuari
@@ -426,8 +388,8 @@ contract Centuari is
     }
 
     /// @inheritdoc ICentuari
-    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (BorrowPosition memory) {
-        return _borrowPositions[marketId][borrower];
+    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (uint256) {
+        return _borrowDebt[marketId][borrower];
     }
 
     /// @inheritdoc ICentuari

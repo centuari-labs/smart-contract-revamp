@@ -39,9 +39,9 @@ abstract contract CentuariStorage {
     /// @dev marketId => user => LendPosition
     mapping(bytes32 => mapping(address => ICentuari.LendPosition)) internal _lendPositions;
 
-    /// @notice Borrow positions by market ID and user address
-    /// @dev marketId => user => BorrowPosition
-    mapping(bytes32 => mapping(address => ICentuari.BorrowPosition)) internal _borrowPositions;
+    /// @notice Borrow debt by market ID and user address
+    /// @dev marketId => user => debt (principal + interest)
+    mapping(bytes32 => mapping(address => uint256)) internal _borrowDebt;
 
     /// @notice The address of the Bond Token Factory contract
     /// @dev Factory deploys ERC20 bond tokens for each market

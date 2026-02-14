@@ -64,15 +64,15 @@ contract MockCentuari is ICentuari {
     }
 
     function getMarket(bytes32) external pure returns (Market memory) {
-        return Market(0, 0, 0, 0);
+        return Market(0, 0);
     }
 
     function getLendPosition(bytes32, address) external pure returns (LendPosition memory) {
         return LendPosition(0, 0);
     }
 
-    function getBorrowPosition(bytes32, address) external pure returns (BorrowPosition memory) {
-        return BorrowPosition(0, 0);
+    function getBorrowPosition(bytes32, address) external pure returns (uint256) {
+        return 0;
     }
 
     function settlement() external pure returns (address) {

@@ -11,13 +11,9 @@ interface ICentuari {
     /// @notice Market state for a (loanToken, maturity) pair
     /// @param totalLendShares Total lend shares issued in this market
     /// @param totalLendAssets Total principal lent (used for share calculation)
-    /// @param totalBorrowShares Total borrow shares issued in this market
-    /// @param totalBorrowAssets Total debt (principal + interest) in this market
     struct Market {
         uint256 totalLendShares;
         uint256 totalLendAssets;
-        uint256 totalBorrowShares;
-        uint256 totalBorrowAssets;
     }
 
     /// @notice Lend position for a user in a specific market
@@ -26,14 +22,6 @@ interface ICentuari {
     struct LendPosition {
         uint256 shares;
         uint256 principalLent;
-    }
-
-    /// @notice Borrow position for a user in a specific market
-    /// @param shares User's borrow/debt shares in the market
-    /// @param principalBorrowed Original principal amount borrowed (for reference)
-    struct BorrowPosition {
-        uint256 shares;
-        uint256 principalBorrowed;
     }
 
     // ============ Events ============
@@ -65,14 +53,12 @@ interface ICentuari {
     /// @notice Emitted when a borrow position is created or updated
     /// @param marketId The market identifier
     /// @param borrower The borrower address
-    /// @param shares The shares added to the position
     /// @param principal The principal amount borrowed
     /// @param debt The total debt (principal + interest)
     /// @param rate The interest rate in basis points
     event BorrowPositionCreated(
         bytes32 indexed marketId,
         address indexed borrower,
-        uint256 shares,
         uint256 principal,
         uint256 debt,
         uint256 rate
@@ -105,12 +91,10 @@ interface ICentuari {
     /// @param marketId The market identifier
     /// @param borrower The borrower address
     /// @param amount The amount repaid (in token terms)
-    /// @param sharesBurned The debt shares burned
     event Repaid(
         bytes32 indexed marketId,
         address indexed borrower,
-        uint256 amount,
-        uint256 sharesBurned
+        uint256 amount
     );
 
     /// @notice Emitted when the operator address is updated
@@ -225,11 +209,11 @@ interface ICentuari {
     /// @return The lend position struct
     function getLendPosition(bytes32 marketId, address lender) external view returns (LendPosition memory);
 
-    /// @notice Get the borrow position for a user in a specific market
+    /// @notice Get the borrow debt for a user in a specific market
     /// @param marketId The market identifier
     /// @param borrower The borrower address
-    /// @return The borrow position struct
-    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (BorrowPosition memory);
+    /// @return The total debt (principal + interest) for this position
+    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (uint256);
 
     /// @notice Get the Settlement contract address
     /// @return The Settlement contract address
