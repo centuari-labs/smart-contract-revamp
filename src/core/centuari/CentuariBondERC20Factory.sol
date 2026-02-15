@@ -16,11 +16,15 @@ contract CentuariBondERC20Factory {
     /// @param bondToken The deployed bond token address
     /// @param loanToken The underlying loan token
     /// @param maturity The maturity timestamp
+    /// @param name The bond token name (e.g., "CBT USDC 1 Jan 2025")
+    /// @param symbol The bond token symbol (e.g., "CBT-USDC-1JAN25")
     event BondTokenCreated(
         bytes32 indexed marketId,
         address indexed bondToken,
         address indexed loanToken,
-        uint256 maturity
+        uint256 maturity,
+        string name,
+        string symbol
     );
 
     // ============ Errors ============
@@ -145,8 +149,7 @@ contract CentuariBondERC20Factory {
         bondToken = address(token);
         bondTokens[marketId] = bondToken;
 
-        //@todo : add CBT symbol and name to the event
-        emit BondTokenCreated(marketId, bondToken, loanToken, maturity);
+        emit BondTokenCreated(marketId, bondToken, loanToken, maturity, name, symbol);
     }
 
     /// @notice Generate token name (e.g., "CBT USDC 1 Jan 2025")
