@@ -158,6 +158,7 @@ contract Centuari is
             );
             // Ensure we don't mint negative or zero shares
             if (shares > feeShares) {
+                //@todo : we should mint cbt to treasury first so user need to withdraw from the treasury to use the CBT
                 CentuariBondERC20(bondToken).mint(lender, shares - feeShares);
             }
         }
@@ -257,6 +258,8 @@ contract Centuari is
 
         address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getBondToken(loanToken, maturity);
         if (bondToken == address(0)) revert BondTokenNotFound();
+
+        //@todo : need to check if we already pass maturity or not yet
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
         Market storage market = _markets[marketId];
