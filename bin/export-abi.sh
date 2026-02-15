@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Export ABI JSON from built contract artifacts into abi/<Contract>.json.
-# Contracts: Centuari, Treasury, Settlement, Faucet.
+# Contracts: Centuari, Treasury, Settlement, Faucet, CentuariBondERC20Factory.
 #
 # Usage:
 #   ./bin/export-abi.sh
@@ -25,6 +25,7 @@ CONTRACTS=(
   "Treasury.sol:Treasury"
   "Settlement.sol:Settlement"
   "Faucet.sol:Faucet"
+  "CentuariBondERC20Factory.sol:CentuariBondERC20Factory"
 )
 
 # Ensure artifacts exist
