@@ -226,7 +226,7 @@ contract Centuari is
         address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getBondToken(loanToken, maturity);
         if (bondToken == address(0)) revert BondTokenNotFound();
 
-        //@todo : need to check if we already pass maturity or not yet
+        if (block.timestamp < maturity) revert NotYetMatured();
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 

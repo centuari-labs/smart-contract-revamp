@@ -113,6 +113,9 @@ interface ICentuari {
     /// @notice Thrown when maturity is in the past
     error InvalidMaturity();
 
+    /// @notice Thrown when withdrawal is attempted before maturity has passed
+    error NotYetMatured();
+
     /// @notice Thrown when bond token does not exist for the market (factory not set or market not settled)
     error BondTokenNotFound();
 

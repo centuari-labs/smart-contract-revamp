@@ -1065,6 +1065,8 @@ contract CentuariTest is Test {
         uint256 posBefore = centuari.getLendPositionCbtAmount(marketId, lender);
         uint256 marketBefore = centuari.getMarketTotalCbt(marketId);
 
+        vm.warp(maturity);
+
         vm.expectEmit(true, true, false, true);
         emit LendPositionWithdrawn(marketId, lender, cbtToRedeem, cbtToRedeem);
 
@@ -1099,6 +1101,7 @@ contract CentuariTest is Test {
             0
         );
 
+        vm.warp(maturity);
         vm.prank(lender);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
         centuari.withdrawLendPosition(loanToken, maturity, 0);
@@ -1151,9 +1154,38 @@ contract CentuariTest is Test {
         vm.prank(lender);
         CentuariBondERC20(bondTokenAddr).approve(address(centuari), cbtBalance);
 
+        vm.warp(maturity);
         vm.prank(lender);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
         centuari.withdrawLendPosition(loanToken, maturity, cbtBalance + 1 ether);
+    }
+
+    function test_WithdrawLendPosition_RevertNotYetMatured() public {
+        address lender = makeAddr("lender");
+        uint256 maturity = block.timestamp + 365 days;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            makeAddr("borrower"),
+            loanToken,
+            1000 ether,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        vm.prank(lender);
+        CentuariBondERC20(bondTokenAddr).approve(address(centuari), 100 ether);
+
+        vm.prank(lender);
+        vm.expectRevert(ICentuari.NotYetMatured.selector);
+        centuari.withdrawLendPosition(loanToken, maturity, 100 ether);
     }
 
     function test_WithdrawLendPosition_RevertWhenPaused() public {
@@ -1182,6 +1214,7 @@ contract CentuariTest is Test {
         vm.prank(owner);
         centuari.pause();
 
+        vm.warp(maturity);
         vm.prank(lender);
         vm.expectRevert(ICentuari.ContractPaused.selector);
         centuari.withdrawLendPosition(loanToken, maturity, 100 ether);
