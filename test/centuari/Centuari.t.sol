@@ -151,7 +151,7 @@ contract CentuariTest is Test {
     event LendPositionCreated(
         bytes32 indexed marketId,
         address indexed lender,
-        uint256 shares,
+        uint256 cbtAmount,
         uint256 principal,
         uint256 rate
     );
@@ -172,8 +172,8 @@ contract CentuariTest is Test {
     event LendPositionWithdrawn(
         bytes32 indexed marketId,
         address indexed lender,
-        uint256 sharesBurned,
-        uint256 assetsWithdrawn
+        uint256 cbtBurned,
+        uint256 amountWithdrawn
     );
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
@@ -228,13 +228,24 @@ contract CentuariTest is Test {
         return keccak256(abi.encode(_loanToken, _maturity));
     }
 
-    function _calculateExpectedInterest(
+    /// @dev Day-count convention: start+1 = day 1, maturity-1 = last day (matches Centuari._interestWithDayCount)
+    function _interestWithDayCount(
         uint256 principal,
         uint256 rate,
+        uint256 start,
         uint256 maturity
-    ) internal view returns (uint256) {
-        uint256 duration = maturity - block.timestamp;
-        return (principal * rate * duration) / (RATE_PRECISION * SECONDS_PER_YEAR);
+    ) internal pure returns (uint256) {
+        uint256 rawDays = (maturity - start) / 1 days;
+        uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
+        return (principal * rate * days_) / (RATE_PRECISION * 365);
+    }
+
+    function _expectedCbt(uint256 principal, uint256 rate, uint256 maturity) internal view returns (uint256) {
+        return principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
+    }
+
+    function _expectedDebt(uint256 principal, uint256 rate, uint256 maturity) internal view returns (uint256) {
+        return principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
     }
 
     // ============ Initialization Tests ============
@@ -286,15 +297,14 @@ contract CentuariTest is Test {
         uint256 maturity = block.timestamp + 365 days;
 
         bytes32 expectedMarketId = _getMarketId(loanToken, maturity);
-        uint256 expectedInterest = _calculateExpectedInterest(matchedAmount, rate, maturity);
-        uint256 expectedDebt = matchedAmount + expectedInterest;
+        uint256 expectedCbt = _expectedCbt(matchedAmount, rate, maturity);
+        uint256 expectedDebt = _expectedDebt(matchedAmount, rate, maturity);
 
-        // Expect events
         vm.expectEmit(true, true, true, true);
         emit MarketCreated(expectedMarketId, loanToken, maturity);
 
         vm.expectEmit(true, true, false, true);
-        emit LendPositionCreated(expectedMarketId, lender, matchedAmount, matchedAmount, rate);
+        emit LendPositionCreated(expectedMarketId, lender, expectedCbt, matchedAmount, rate);
 
         vm.expectEmit(true, true, false, true);
         emit BorrowPositionCreated(expectedMarketId, borrower, matchedAmount, expectedDebt, rate);
@@ -314,15 +324,8 @@ contract CentuariTest is Test {
             0
         );
 
-        // Verify market state
-        ICentuari.Market memory market = centuari.getMarket(expectedMarketId);
-        assertEq(market.totalLendShares, matchedAmount);
-        assertEq(market.totalLendAssets, matchedAmount);
-
-        // Verify lender position
-        ICentuari.LendPosition memory lendPos = centuari.getLendPosition(expectedMarketId, lender);
-        assertEq(lendPos.shares, matchedAmount);
-        assertEq(lendPos.principalLent, matchedAmount);
+        assertEq(centuari.getMarketTotalCbt(expectedMarketId), expectedCbt);
+        assertEq(centuari.getLendPositionCbtAmount(expectedMarketId, lender), expectedCbt);
 
         // Verify borrower position
         assertEq(centuari.getBorrowPosition(expectedMarketId, borrower), expectedDebt);
@@ -376,10 +379,9 @@ contract CentuariTest is Test {
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        ICentuari.Market memory market = centuari.getMarket(marketId);
-
-        // Verify accumulated totals
-        assertEq(market.totalLendAssets, 1500 ether);
+        uint256 expectedCbt1 = _expectedCbt(1000 ether, rate, maturity);
+        uint256 expectedCbt2 = _expectedCbt(500 ether, rate, maturity);
+        assertEq(centuari.getMarketTotalCbt(marketId), expectedCbt1 + expectedCbt2);
         assertEq(mockTreasury.settleCallCount(), 2);
     }
 
@@ -500,10 +502,8 @@ contract CentuariTest is Test {
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        ICentuari.LendPosition memory pos = centuari.getLendPosition(marketId, lender);
-
-        // First deposit: shares = principal (1:1)
-        assertEq(pos.shares, amount);
+        uint256 expectedCbt = _expectedCbt(amount, 500, maturity);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), expectedCbt);
     }
 
     function test_ShareCalculation_ProportionalShares() public {
@@ -547,14 +547,10 @@ contract CentuariTest is Test {
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-
-        // Lender1 should have 1000 shares (first deposit 1:1)
-        ICentuari.LendPosition memory pos1 = centuari.getLendPosition(marketId, lender1);
-        assertEq(pos1.shares, 1000 ether);
-
-        // Lender2: shares = (500 * 1000) / 1000 = 500 shares
-        ICentuari.LendPosition memory pos2 = centuari.getLendPosition(marketId, lender2);
-        assertEq(pos2.shares, 500 ether);
+        uint256 expectedCbt1 = _expectedCbt(1000 ether, rate, maturity);
+        uint256 expectedCbt2 = _expectedCbt(500 ether, rate, maturity);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender1), expectedCbt1);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender2), expectedCbt2);
     }
 
     // ============ Interest Calculation Tests ============
@@ -583,12 +579,9 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Expected interest for 1 year at 5%: 1000 * 0.05 = 50 ether
-        uint256 expectedInterest = (principal * rate * 365 days) / (RATE_PRECISION * SECONDS_PER_YEAR);
-        uint256 expectedDebt = principal + expectedInterest;
-
+        // Day-count: 365 days -> 364 effective days. Interest = principal * rate * 364 / (RATE_PRECISION * 365)
+        uint256 expectedDebt = _expectedDebt(principal, rate, maturity);
         assertEq(centuari.getBorrowPosition(marketId, borrower), expectedDebt);
-        assertEq(expectedInterest, 50 ether);
     }
 
     function test_InterestCalculation_HalfYear() public {
@@ -615,11 +608,43 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Expected interest for ~6 months at 10%: approximately 50 ether
-        uint256 expectedInterest = _calculateExpectedInterest(principal, rate, maturity);
-        uint256 expectedDebt = principal + expectedInterest;
-
+        uint256 expectedDebt = _expectedDebt(principal, rate, maturity);
         assertEq(centuari.getBorrowPosition(marketId, borrower), expectedDebt);
+    }
+
+    /// @dev Day-count example: 1 Jan -> 1 Feb = 30 days (2 Jan = day 1, 31 Jan = last day). 1000 USDC at 10% => CBT ≈ 1008
+    function test_DayCount_Jan1ToFeb1_ThirtyDays() public {
+        // Jan 1 00:00 UTC and Feb 1 00:00 UTC (use fixed timestamps)
+        uint256 start = 1704067200; // 2024-01-01 00:00:00 UTC
+        uint256 maturity = start + 31 days; // 2024-02-01 00:00:00 UTC
+        vm.warp(start);
+
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 principal = 1000 ether;
+        uint256 rate = 1000; // 10%
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            lender,
+            borrower,
+            loanToken,
+            principal,
+            rate,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0
+        );
+
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        uint256 expectedCbt = _expectedCbt(principal, rate, maturity);
+        // 1000 + (1000 * 10% / 365 * 30) = 1000 + 8.219... ≈ 1008
+        assertEq(expectedCbt / 1 ether, 1008);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), expectedCbt);
+        assertEq(centuari.getBorrowPosition(marketId, borrower), expectedCbt);
     }
 
     // ============ Bond Token Tests ============
@@ -645,15 +670,13 @@ contract CentuariTest is Test {
             0
         );
 
-        // Bond token should be created for this market
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         assertTrue(bondTokenAddr != address(0));
 
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-
-        // First deposit: shares = principal (1:1), so bond balance should equal amount
-        assertEq(bondToken.balanceOf(lender), amount);
-        assertEq(bondToken.totalSupply(), amount);
+        uint256 expectedCbt = _expectedCbt(amount, 500, maturity);
+        assertEq(bondToken.balanceOf(lender), expectedCbt);
+        assertEq(bondToken.totalSupply(), expectedCbt);
     }
 
     function test_BondToken_MultipleLendersSameMarket() public {
@@ -699,10 +722,11 @@ contract CentuariTest is Test {
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
 
-        // Bond balances should mirror lend shares
-        assertEq(bondToken.balanceOf(lender1), 1000 ether);
-        assertEq(bondToken.balanceOf(lender2), 500 ether);
-        assertEq(bondToken.totalSupply(), 1500 ether);
+        uint256 expectedCbt1 = _expectedCbt(1000 ether, rate, maturity);
+        uint256 expectedCbt2 = _expectedCbt(500 ether, rate, maturity);
+        assertEq(bondToken.balanceOf(lender1), expectedCbt1);
+        assertEq(bondToken.balanceOf(lender2), expectedCbt2);
+        assertEq(bondToken.totalSupply(), expectedCbt1 + expectedCbt2);
     }
 
     function test_BondToken_ComputeAddressMatchesDeployed() public view {
@@ -1038,29 +1062,22 @@ contract CentuariTest is Test {
         vm.prank(lender);
         bondToken.approve(address(centuari), cbtToRedeem);
 
-        ICentuari.LendPosition memory posBefore = centuari.getLendPosition(marketId, lender);
-        ICentuari.Market memory marketBefore = centuari.getMarket(marketId);
-
-        uint256 expectedAssetsOut = (cbtToRedeem * marketBefore.totalLendAssets) / marketBefore.totalLendShares;
+        uint256 posBefore = centuari.getLendPositionCbtAmount(marketId, lender);
+        uint256 marketBefore = centuari.getMarketTotalCbt(marketId);
 
         vm.expectEmit(true, true, false, true);
-        emit LendPositionWithdrawn(marketId, lender, cbtToRedeem, expectedAssetsOut);
+        emit LendPositionWithdrawn(marketId, lender, cbtToRedeem, cbtToRedeem);
 
         vm.prank(lender);
         centuari.withdrawLendPosition(loanToken, maturity, cbtToRedeem);
 
-        ICentuari.LendPosition memory posAfter = centuari.getLendPosition(marketId, lender);
-        ICentuari.Market memory marketAfter = centuari.getMarket(marketId);
-
-        assertEq(posAfter.shares, posBefore.shares - cbtToRedeem);
-        assertEq(posAfter.principalLent, posBefore.principalLent - expectedAssetsOut);
-        assertEq(marketAfter.totalLendShares, marketBefore.totalLendShares - cbtToRedeem);
-        assertEq(marketAfter.totalLendAssets, marketBefore.totalLendAssets - expectedAssetsOut);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), posBefore - cbtToRedeem);
+        assertEq(centuari.getMarketTotalCbt(marketId), marketBefore - cbtToRedeem);
         assertEq(bondToken.balanceOf(lender), cbtBalance - cbtToRedeem);
         assertEq(mockTreasury.withdrawLendPositionCallCount(), 1);
         assertEq(mockTreasury.lastWithdrawLendUser(), lender);
         assertEq(mockTreasury.lastWithdrawLendToken(), loanToken);
-        assertEq(mockTreasury.lastWithdrawLendAmount(), expectedAssetsOut);
+        assertEq(mockTreasury.lastWithdrawLendAmount(), cbtToRedeem);
     }
 
     function test_WithdrawLendPosition_RevertZeroAmount() public {
@@ -1230,18 +1247,12 @@ contract CentuariTest is Test {
 
     function test_GetMarket_Empty() public view {
         bytes32 marketId = _getMarketId(loanToken, block.timestamp + 30 days);
-        ICentuari.Market memory market = centuari.getMarket(marketId);
-
-        assertEq(market.totalLendShares, 0);
-        assertEq(market.totalLendAssets, 0);
+        assertEq(centuari.getMarketTotalCbt(marketId), 0);
     }
 
     function test_GetLendPosition_Empty() public view {
         bytes32 marketId = _getMarketId(loanToken, block.timestamp + 30 days);
-        ICentuari.LendPosition memory pos = centuari.getLendPosition(marketId, user);
-
-        assertEq(pos.shares, 0);
-        assertEq(pos.principalLent, 0);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, user), 0);
     }
 
     function test_GetBorrowPosition_Empty() public view {
@@ -1281,11 +1292,9 @@ contract CentuariTest is Test {
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        ICentuari.Market memory market = centuari.getMarket(marketId);
-
-        // Verify market state is consistent
-        assertEq(market.totalLendAssets, matchedAmount);
-        assertGe(centuari.getBorrowPosition(marketId, borrower), matchedAmount); // Debt >= principal
+        uint256 expectedCbt = _expectedCbt(matchedAmount, rate, maturity);
+        assertEq(centuari.getMarketTotalCbt(marketId), expectedCbt);
+        assertGe(centuari.getBorrowPosition(marketId, borrower), matchedAmount);
     }
 
     function testFuzz_InterestCalculation(
@@ -1293,18 +1302,14 @@ contract CentuariTest is Test {
         uint256 rate,
         uint256 durationDays
     ) public view {
-        // Bound inputs
         principal = bound(principal, 1 ether, 1_000_000 ether);
-        rate = bound(rate, 1, 10000); // 0.01% to 100%
+        rate = bound(rate, 1, 10000);
         durationDays = bound(durationDays, 1, 3650);
 
         uint256 maturity = block.timestamp + durationDays * 1 days;
-        uint256 interest = _calculateExpectedInterest(principal, rate, maturity);
+        uint256 interest = _interestWithDayCount(principal, rate, block.timestamp, maturity);
 
-        // Interest should be non-negative
         assertGe(interest, 0);
-
-        // Interest should be less than principal for reasonable rates over reasonable time
         if (rate <= 5000 && durationDays <= 365) {
             assertLe(interest, principal);
         }
@@ -1335,9 +1340,8 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Record state before upgrade
-        ICentuari.Market memory marketBefore = centuari.getMarket(marketId);
-        ICentuari.LendPosition memory lendPosBefore = centuari.getLendPosition(marketId, lender);
+        uint256 marketBefore = centuari.getMarketTotalCbt(marketId);
+        uint256 lendPosBefore = centuari.getLendPositionCbtAmount(marketId, lender);
         address settlementBefore = centuari.settlement();
         address treasuryBefore = centuari.treasury();
         address ownerBefore = centuari.owner();
@@ -1351,14 +1355,9 @@ contract CentuariTest is Test {
             ""
         );
 
-        // Verify state is preserved
         CentuariV2 centuariV2 = CentuariV2(address(proxy));
-        ICentuari.Market memory marketAfter = centuariV2.getMarket(marketId);
-        ICentuari.LendPosition memory lendPosAfter = centuariV2.getLendPosition(marketId, lender);
-
-        assertEq(marketAfter.totalLendShares, marketBefore.totalLendShares);
-        assertEq(marketAfter.totalLendAssets, marketBefore.totalLendAssets);
-        assertEq(lendPosAfter.shares, lendPosBefore.shares);
+        assertEq(centuariV2.getMarketTotalCbt(marketId), marketBefore);
+        assertEq(centuariV2.getLendPositionCbtAmount(marketId, lender), lendPosBefore);
         assertEq(centuariV2.settlement(), settlementBefore);
         assertEq(centuariV2.treasury(), treasuryBefore);
         assertEq(centuariV2.owner(), ownerBefore);
@@ -1419,10 +1418,9 @@ contract CentuariTest is Test {
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        ICentuari.LendPosition memory pos = centuari.getLendPosition(marketId, lender);
-
-        // Lender's position should accumulate
-        assertEq(pos.principalLent, 1500 ether);
+        uint256 expectedCbt1 = _expectedCbt(1000 ether, 500, maturity);
+        uint256 expectedCbt2 = _expectedCbt(500 ether, 500, maturity);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), expectedCbt1 + expectedCbt2);
     }
 
     function test_SettleMatch_DifferentMarkets() public {
@@ -1465,12 +1463,10 @@ contract CentuariTest is Test {
         bytes32 marketId1 = _getMarketId(loanToken, maturity1);
         bytes32 marketId2 = _getMarketId(loanToken, maturity2);
 
-        // Markets should be independent
-        ICentuari.Market memory market1 = centuari.getMarket(marketId1);
-        ICentuari.Market memory market2 = centuari.getMarket(marketId2);
-
-        assertEq(market1.totalLendAssets, 1000 ether);
-        assertEq(market2.totalLendAssets, 2000 ether);
+        uint256 expectedCbt1 = _expectedCbt(1000 ether, 500, maturity1);
+        uint256 expectedCbt2 = _expectedCbt(2000 ether, 500, maturity2);
+        assertEq(centuari.getMarketTotalCbt(marketId1), expectedCbt1);
+        assertEq(centuari.getMarketTotalCbt(marketId2), expectedCbt2);
     }
 
     function test_SettleMatch_ZeroInterestRate() public {
@@ -1511,13 +1507,11 @@ contract CentuariTest is Test {
         uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
         bool borrowerIsTaker = true; // borrower is taker, lender is maker
 
-        // When borrowerIsTaker = true: lender pays makerFeeAmount, borrower pays takerFeeAmount
         uint256 expectedLenderFee = makerFeeAmount;
         uint256 expectedBorrowerFee = takerFeeAmount;
-        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 980 ether
-        uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
-        uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 10 ether
-        uint256 expectedCbtMinted = expectedShares - expectedFeeShares; // 990 ether
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee; // 990 ether
+        uint256 expectedCbtMinted = _expectedCbt(effectivePrincipal, rate, maturity);
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1528,33 +1522,24 @@ contract CentuariTest is Test {
             rate,
             maturity,
             borrowerIsTaker,
-            0, // lenderSettlementFee
-            0, // borrowerSettlementFee
+            0,
+            0,
             makerFeeAmount,
             takerFeeAmount
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Verify Treasury was called with net loan amount
         assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
         assertEq(mockTreasury.lastFrom(), lender);
         assertEq(mockTreasury.lastTo(), borrower);
 
-        // Verify CBT minting (shares minus feeShares)
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
 
-        // Verify market state (positions are processed with full matchedAmount)
-        ICentuari.Market memory market = centuari.getMarket(marketId);
-        assertEq(market.totalLendShares, matchedAmount);
-        assertEq(market.totalLendAssets, matchedAmount);
-
-        // Verify lender position (full shares recorded)
-        ICentuari.LendPosition memory lendPos = centuari.getLendPosition(marketId, lender);
-        assertEq(lendPos.shares, matchedAmount);
-        assertEq(lendPos.principalLent, matchedAmount);
+        assertEq(centuari.getMarketTotalCbt(marketId), expectedCbtMinted);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), expectedCbtMinted);
     }
 
     function test_SettleMatch_FeeCalculation_LenderIsTaker() public {
@@ -1567,13 +1552,11 @@ contract CentuariTest is Test {
         uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
         bool borrowerIsTaker = false; // lender is taker, borrower is maker
 
-        // When borrowerIsTaker = false: lender pays takerFeeAmount, borrower pays makerFeeAmount
         uint256 expectedLenderFee = takerFeeAmount;
         uint256 expectedBorrowerFee = makerFeeAmount;
-        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee; // 990 ether
-        uint256 expectedShares = matchedAmount; // First deposit: 1:1 ratio
-        uint256 expectedFeeShares = (expectedLenderFee * expectedShares) / matchedAmount; // 20 ether
-        uint256 expectedCbtMinted = expectedShares - expectedFeeShares; // 980 ether
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee; // 980 ether
+        uint256 expectedCbtMinted = _expectedCbt(effectivePrincipal, rate, maturity);
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1584,27 +1567,23 @@ contract CentuariTest is Test {
             rate,
             maturity,
             borrowerIsTaker,
-            0, // lenderSettlementFee
-            0, // borrowerSettlementFee
+            0,
+            0,
             makerFeeAmount,
             takerFeeAmount
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Verify Treasury was called with net loan amount
         assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
         assertEq(mockTreasury.lastFrom(), lender);
         assertEq(mockTreasury.lastTo(), borrower);
 
-        // Verify CBT minting (shares minus feeShares)
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
 
-        // Verify lender position (full shares recorded)
-        ICentuari.LendPosition memory lendPos = centuari.getLendPosition(marketId, lender);
-        assertEq(lendPos.shares, matchedAmount);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender), expectedCbtMinted);
     }
 
     function test_SettleMatch_FeeCalculation_ProportionalShares() public {
@@ -1631,19 +1610,14 @@ contract CentuariTest is Test {
             0
         );
 
-        // Second match: 500 ether with fees
         uint256 matchedAmount2 = 500 ether;
-        uint256 makerFeeAmount = 5 ether; // 1% of matchedAmount
-        uint256 takerFeeAmount = 10 ether; // 2% of matchedAmount
+        uint256 makerFeeAmount = 5 ether;
+        uint256 takerFeeAmount = 10 ether;
         bool borrowerIsTaker = true;
 
-        // Calculate expected shares for second match
-        // After first match: totalLendShares = 1000, totalLendAssets = 1000
-        // Second match shares = (500 * 1000) / 1000 = 500 shares
-        uint256 expectedShares2 = 500 ether;
-        uint256 expectedLenderFee = makerFeeAmount; // lender is maker
-        uint256 expectedFeeShares = (expectedLenderFee * expectedShares2) / matchedAmount2; // (5 * 500) / 500 = 5
-        uint256 expectedCbtMinted2 = expectedShares2 - expectedFeeShares; // 495 ether
+        uint256 expectedLenderFee = makerFeeAmount;
+        uint256 effectivePrincipal2 = matchedAmount2 - expectedLenderFee; // 495 ether
+        uint256 expectedCbtMinted2 = _expectedCbt(effectivePrincipal2, rate, maturity);
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1660,13 +1634,11 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Verify second lender's CBT balance
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         assertEq(bondToken.balanceOf(lender2), expectedCbtMinted2);
 
-        // Verify Treasury was called with net loan amount for second match
-        assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount); // 490 ether
+        assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount);
     }
 
     function test_SettleMatch_FeeCalculation_ZeroFees() public {
@@ -1692,13 +1664,12 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // With zero fees, Treasury should receive full matchedAmount
         assertEq(mockTreasury.lastAmount(), matchedAmount);
 
-        // With zero fees, CBT should be full shares
+        uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender), matchedAmount);
+        assertEq(bondToken.balanceOf(lender), expectedCbt);
     }
 
     function test_SettleMatch_FeeCalculation_OnlyMakerFee() public {
@@ -1725,15 +1696,13 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Lender pays makerFeeAmount, borrower pays 0
-        // Net loan amount = matchedAmount - 0 = matchedAmount
         assertEq(mockTreasury.lastAmount(), matchedAmount);
 
-        // Lender's CBT should be reduced by feeShares
+        uint256 effectivePrincipal = matchedAmount - makerFeeAmount; // 990 ether
+        uint256 expectedCbt = _expectedCbt(effectivePrincipal, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        uint256 expectedFeeShares = (makerFeeAmount * matchedAmount) / matchedAmount; // 10 ether
-        assertEq(bondToken.balanceOf(lender), matchedAmount - expectedFeeShares);
+        assertEq(bondToken.balanceOf(lender), expectedCbt);
     }
 
     function test_SettleMatch_FeeCalculation_OnlyTakerFee() public {
@@ -1760,14 +1729,12 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Lender pays 0, borrower pays takerFeeAmount
-        // Net loan amount = matchedAmount - takerFeeAmount = 980 ether
         assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
 
-        // Lender's CBT should be full shares (no fee)
+        uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender), matchedAmount);
+        assertEq(bondToken.balanceOf(lender), expectedCbt);
     }
 
     function test_SettleMatch_FeeCalculation_WithSettlementFees() public {
@@ -1865,9 +1832,9 @@ contract CentuariTest is Test {
 
         // For this test, we'll use a scenario where feeShares calculation results in shares
         // This would happen if lenderFee = matchedAmount, but that's not realistic
-        // Let's test with a fee that's close to matchedAmount
+        // Let's test with a fee that leaves exactly 1 ether effective principal for the lender.
 
-        uint256 highTakerFee = matchedAmount - 1; // Almost 100% fee
+        uint256 highTakerFee = matchedAmount - 1 ether; // Leaves effectivePrincipal = 1 ether
         uint256 highMakerFee = 0;
 
         vm.prank(settlement);
@@ -1885,12 +1852,12 @@ contract CentuariTest is Test {
             highTakerFee
         );
 
-        // Lender fee = highTakerFee, feeShares = (highTakerFee * shares) / matchedAmount
-        // feeShares = ((matchedAmount - 1) * matchedAmount) / matchedAmount = matchedAmount - 1
-        // CBT minted = shares - feeShares = matchedAmount - (matchedAmount - 1) = 1
+        // effectivePrincipal = matchedAmount - highTakerFee = 1 ether; CBT = 1 + interest(1) ≈ 1
+        uint256 effectivePrincipal = 1 ether;
+        uint256 expectedCbt = _expectedCbt(effectivePrincipal, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender), 1); // Should mint minimal amount
+        assertEq(bondToken.balanceOf(lender), expectedCbt);
     }
 
     function testFuzz_SettleMatch_FeeCalculation(
@@ -1932,17 +1899,11 @@ contract CentuariTest is Test {
         // Verify Treasury received net loan amount
         assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
 
-        // Verify CBT minting
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee;
+        uint256 expectedCbtMinted = _expectedCbt(effectivePrincipal, rate, maturity);
+
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        uint256 expectedShares = matchedAmount; // First deposit: 1:1
-        uint256 expectedFeeShares = expectedLenderFee > 0 && expectedShares > 0
-            ? (expectedLenderFee * expectedShares) / matchedAmount
-            : 0;
-        uint256 expectedCbtMinted = expectedShares > expectedFeeShares
-            ? expectedShares - expectedFeeShares
-            : 0;
-
         assertEq(bondToken.balanceOf(lender), expectedCbtMinted);
     }
 }

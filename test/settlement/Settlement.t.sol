@@ -63,12 +63,12 @@ contract MockCentuari is ICentuari {
         return keccak256(abi.encode(loanToken, maturity));
     }
 
-    function getMarket(bytes32) external pure returns (Market memory) {
-        return Market(0, 0);
+    function getMarketTotalCbt(bytes32) external pure returns (uint256) {
+        return 0;
     }
 
-    function getLendPosition(bytes32, address) external pure returns (LendPosition memory) {
-        return LendPosition(0, 0);
+    function getLendPositionCbtAmount(bytes32, address) external pure returns (uint256) {
+        return 0;
     }
 
     function getBorrowPosition(bytes32, address) external pure returns (uint256) {

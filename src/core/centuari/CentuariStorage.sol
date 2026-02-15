@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ICentuari} from "../../interfaces/ICentuari.sol";
-
 /// @title CentuariStorage
 /// @notice Storage layout for the upgradeable Centuari contract
 /// @dev This contract defines the storage layout for Centuari.
@@ -31,13 +29,13 @@ abstract contract CentuariStorage {
     /// @dev When paused, settlement functions are disabled
     bool internal _paused;
 
-    /// @notice Market state by market ID
+    /// @notice Total CBT minted per market
     /// @dev marketId = keccak256(abi.encode(loanToken, maturity))
-    mapping(bytes32 => ICentuari.Market) internal _markets;
+    mapping(bytes32 => uint256) internal _marketTotalCbt;
 
-    /// @notice Lend positions by market ID and user address
-    /// @dev marketId => user => LendPosition
-    mapping(bytes32 => mapping(address => ICentuari.LendPosition)) internal _lendPositions;
+    /// @notice Lender CBT amount per market and address
+    /// @dev marketId => lender => cbtAmount
+    mapping(bytes32 => mapping(address => uint256)) internal _lendPositionCbtAmount;
 
     /// @notice Borrow debt by market ID and user address
     /// @dev marketId => user => debt (principal + interest)

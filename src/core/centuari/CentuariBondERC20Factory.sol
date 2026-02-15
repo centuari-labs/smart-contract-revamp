@@ -145,6 +145,7 @@ contract CentuariBondERC20Factory {
         bondToken = address(token);
         bondTokens[marketId] = bondToken;
 
+        //@todo : add CBT symbol and name to the event
         emit BondTokenCreated(marketId, bondToken, loanToken, maturity);
     }
 

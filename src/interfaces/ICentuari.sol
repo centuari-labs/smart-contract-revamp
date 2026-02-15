@@ -6,24 +6,6 @@ pragma solidity ^0.8.20;
 /// @dev Settlement calls this interface to settle matched orders.
 ///      Centuari handles positions (bond tokens, debt) and calls Treasury.settle()
 interface ICentuari {
-    // ============ Structs ============
-
-    /// @notice Market state for a (loanToken, maturity) pair
-    /// @param totalLendShares Total lend shares issued in this market
-    /// @param totalLendAssets Total principal lent (used for share calculation)
-    struct Market {
-        uint256 totalLendShares;
-        uint256 totalLendAssets;
-    }
-
-    /// @notice Lend position for a user in a specific market
-    /// @param shares User's lend shares in the market
-    /// @param principalLent Original principal amount lent (for reference)
-    struct LendPosition {
-        uint256 shares;
-        uint256 principalLent;
-    }
-
     // ============ Events ============
 
     /// @notice Emitted when a new market is created
@@ -39,13 +21,13 @@ interface ICentuari {
     /// @notice Emitted when a lend position is created or updated
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param shares The shares added to the position
-    /// @param principal The principal amount lent
+    /// @param cbtAmount The CBT (claim at maturity) added to the position
+    /// @param principal The effective principal amount lent (after fees)
     /// @param rate The interest rate in basis points
     event LendPositionCreated(
         bytes32 indexed marketId,
         address indexed lender,
-        uint256 shares,
+        uint256 cbtAmount,
         uint256 principal,
         uint256 rate
     );
@@ -105,13 +87,13 @@ interface ICentuari {
     /// @notice Emitted when a lender withdraws (redeems) part or all of their lend position
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param sharesBurned The CBT (bond token) shares burned
-    /// @param assetsWithdrawn The loan token amount credited to the lender
+    /// @param cbtBurned The CBT (bond token) amount burned
+    /// @param amountWithdrawn The loan token amount credited to the lender (1:1 with cbtBurned)
     event LendPositionWithdrawn(
         bytes32 indexed marketId,
         address indexed lender,
-        uint256 sharesBurned,
-        uint256 assetsWithdrawn
+        uint256 cbtBurned,
+        uint256 amountWithdrawn
     );
 
     // ============ Errors ============
@@ -198,16 +180,16 @@ interface ICentuari {
     /// @return The market ID (keccak256 hash)
     function getMarketId(address loanToken, uint256 maturity) external pure returns (bytes32);
 
-    /// @notice Get the market state for a given market ID
+    /// @notice Get total CBT minted for a market
     /// @param marketId The market identifier
-    /// @return The market state struct
-    function getMarket(bytes32 marketId) external view returns (Market memory);
+    /// @return totalCbt Total CBT (claim at maturity) minted in this market
+    function getMarketTotalCbt(bytes32 marketId) external view returns (uint256 totalCbt);
 
-    /// @notice Get the lend position for a user in a specific market
+    /// @notice Get a lender's CBT amount in a specific market
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @return The lend position struct
-    function getLendPosition(bytes32 marketId, address lender) external view returns (LendPosition memory);
+    /// @return cbtAmount The lender's claim at maturity (CBT) in this market
+    function getLendPositionCbtAmount(bytes32 marketId, address lender) external view returns (uint256 cbtAmount);
 
     /// @notice Get the borrow debt for a user in a specific market
     /// @param marketId The market identifier

@@ -97,12 +97,9 @@ contract Centuari is
         if (matchedAmount == 0) revert InvalidAmount();
         if (maturity <= block.timestamp) revert InvalidMaturity();
 
-        // Calculate market ID and get market storage
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        Market storage market = _markets[marketId];
 
-        // Emit MarketCreated if this is a new market
-        if (market.totalLendShares == 0) {
+        if (_marketTotalCbt[marketId] == 0) {
             emit MarketCreated(marketId, loanToken, maturity);
         }
 
@@ -119,27 +116,13 @@ contract Centuari is
             borrowerFee = makerFeeAmount;
         }
 
+        uint256 cbtAmount = _processLendPosition(marketId, lender, matchedAmount, lenderFee, rate, maturity);
 
-        //@todo : use CBT concept (ZCB)
-        // Process lender position (with full matchedAmount for proper market accounting)
-        uint256 shares = _processLendPosition(marketId, lender, matchedAmount, rate);
-
-        // Process borrower position
+        // Process borrower position (same day-count so debt = lender CBT for same principal)
         _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
-        // Calculate net amounts after fees
-        // Convert lenderFee from token amount to shares using the same ratio as position calculation
-        uint256 feeShares;
-        if (lenderFee > 0 && shares > 0) {
-            // Use the same ratio: feeShares / lenderFee = shares / matchedAmount
-            feeShares = (lenderFee * shares) / matchedAmount;
-        }
-        
-        // Calculate net loan amount for borrower (matchedAmount - borrowerFee)
         uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
 
-        // Call Treasury to execute the token transfer with pre-split settlement fees
-        // Transfer net loan amount (after borrower fee deduction) to borrower
         ITreasury(_treasury).settle(
             loanToken,
             lender,
@@ -149,56 +132,40 @@ contract Centuari is
             borrowerSettlementFee
         );
 
-        // Mint bond tokens to lender (if factory is set)
-        // Mint shares minus feeShares to account for lender fee
-        if (_bondTokenFactory != address(0)) {
+        if (_bondTokenFactory != address(0) && cbtAmount > 0) {
             address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
                 loanToken,
                 maturity
             );
-            // Ensure we don't mint negative or zero shares
-            if (shares > feeShares) {
-                //@todo : we should mint cbt to treasury first so user need to withdraw from the treasury to use the CBT
-                CentuariBondERC20(bondToken).mint(lender, shares - feeShares);
-            }
+            CentuariBondERC20(bondToken).mint(lender, cbtAmount);
         }
     }
 
     // ============ Internal Functions ============
 
-    /// @notice Process the lender's position
+    /// @notice Process the lender's position (fixed-rate CBT = effective principal + day-count interest)
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param principal The principal amount being lent
+    /// @param principal The original matched principal (emitted in event)
+    /// @param lenderFee The fee deducted from the lender; CBT is based on principal - lenderFee
     /// @param rate The interest rate in basis points
-    /// @return shares The shares issued to the lender
+    /// @param maturity The maturity timestamp
+    /// @return cbtAmount The CBT (claim at maturity) issued to the lender
     function _processLendPosition(
         bytes32 marketId,
         address lender,
         uint256 principal,
-        uint256 rate
-    ) internal returns (uint256 shares) {
-        Market storage market = _markets[marketId];
-        //@todo : use ZCB
-        //@todo : need to calculate the yield from the maturity
-        // Calculate shares using assets-to-shares conversion
-        // For first deposit, shares = assets (1:1)
-        if (market.totalLendShares == 0) {
-            shares = principal;
-        } else {
-            shares = (principal * market.totalLendShares) / market.totalLendAssets;
-        }
+        uint256 lenderFee,
+        uint256 rate,
+        uint256 maturity
+    ) internal returns (uint256 cbtAmount) {
+        uint256 effectivePrincipal = principal - lenderFee;
+        cbtAmount = effectivePrincipal + _interestWithDayCount(effectivePrincipal, rate, block.timestamp, maturity);
 
-        // Update market totals
-        market.totalLendShares += shares;
-        market.totalLendAssets += principal;
+        _marketTotalCbt[marketId] += cbtAmount;
+        _lendPositionCbtAmount[marketId][lender] += cbtAmount;
 
-        // Update lender's position
-        LendPosition storage position = _lendPositions[marketId][lender];
-        position.shares += shares;
-        position.principalLent += principal;
-
-        emit LendPositionCreated(marketId, lender, shares, principal, rate);
+        emit LendPositionCreated(marketId, lender, cbtAmount, principal, rate);
     }
 
     /// @notice Process the borrower's position
@@ -214,7 +181,7 @@ contract Centuari is
         uint256 rate,
         uint256 maturity
     ) internal {
-        uint256 debt = principal + _calculateInterest(principal, rate, maturity);
+        uint256 debt = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
         _borrowDebt[marketId][borrower] += debt;
 
         emit BorrowPositionCreated(marketId, borrower, principal, debt, rate);
@@ -262,43 +229,35 @@ contract Centuari is
         //@todo : need to check if we already pass maturity or not yet
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        Market storage market = _markets[marketId];
-        LendPosition storage position = _lendPositions[marketId][msg.sender];
 
-        if (position.shares < cbtAmount) revert InvalidAmount();
-        if (market.totalLendShares == 0) revert InvalidAmount();
-
-        uint256 assetsOut = (cbtAmount * market.totalLendAssets) / market.totalLendShares;
+        if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount) revert InvalidAmount();
+        if (_marketTotalCbt[marketId] < cbtAmount) revert InvalidAmount();
 
         CentuariBondERC20(bondToken).burnFrom(msg.sender, cbtAmount);
 
-        position.shares -= cbtAmount;
-        position.principalLent -= assetsOut;
+        _lendPositionCbtAmount[marketId][msg.sender] -= cbtAmount;
+        _marketTotalCbt[marketId] -= cbtAmount;
 
-        market.totalLendShares -= cbtAmount;
-        market.totalLendAssets -= assetsOut;
+        ITreasury(_treasury).withdrawLendPosition(msg.sender, loanToken, cbtAmount);
 
-        ITreasury(_treasury).withdrawLendPosition(msg.sender, loanToken, assetsOut);
-
-        emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, assetsOut);
+        emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, cbtAmount);
     }
 
-    /// @notice Calculate interest for a loan
+    /// @notice Interest using day-count convention: start+1 = day 1, maturity-1 = last day (e.g. Jan 1 -> Feb 1 = 30 days)
     /// @param principal The principal amount
-    /// @param rate The interest rate in basis points (e.g., 500 = 5%)
+    /// @param rate The interest rate in basis points (e.g., 1000 = 10%)
+    /// @param start The settlement/start timestamp
     /// @param maturity The maturity timestamp
     /// @return interest The calculated interest amount
-    function _calculateInterest(
+    function _interestWithDayCount(
         uint256 principal,
         uint256 rate,
+        uint256 start,
         uint256 maturity
-    ) internal view returns (uint256 interest) {
-        // Duration from now until maturity
-        uint256 duration = maturity - block.timestamp;
-
-        // Simple interest calculation: principal * rate * duration / (RATE_PRECISION * SECONDS_PER_YEAR)
-        // Rate is in basis points, so 500 = 5% = 0.05
-        interest = (principal * rate * duration) / (RATE_PRECISION * SECONDS_PER_YEAR);
+    ) internal pure returns (uint256 interest) {
+        uint256 rawDays = (maturity - start) / 1 days;
+        uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
+        interest = (principal * rate * days_) / (RATE_PRECISION * 365);
     }
 
     /// @notice Calculate market ID from loan token and maturity
@@ -381,13 +340,13 @@ contract Centuari is
     }
 
     /// @inheritdoc ICentuari
-    function getMarket(bytes32 marketId) external view returns (Market memory) {
-        return _markets[marketId];
+    function getMarketTotalCbt(bytes32 marketId) external view returns (uint256) {
+        return _marketTotalCbt[marketId];
     }
 
     /// @inheritdoc ICentuari
-    function getLendPosition(bytes32 marketId, address lender) external view returns (LendPosition memory) {
-        return _lendPositions[marketId][lender];
+    function getLendPositionCbtAmount(bytes32 marketId, address lender) external view returns (uint256) {
+        return _lendPositionCbtAmount[marketId][lender];
     }
 
     /// @inheritdoc ICentuari
