@@ -22,12 +22,13 @@ contract FaucetTest is Test {
         recipient = makeAddr("recipient");
 
         token = new MockToken("USD Coin", "USDC", 6, INITIAL_SUPPLY);
-        faucet = new Faucet();
+        faucet = new Faucet(operator); // Constructor requires operator
 
         token.grantRole(token.MINTER_ROLE(), address(faucet));
-        // Deployer (owner) is already operator by default in constructor
+
+        // Single operator is set in constructor
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, 0);
-        faucet.addOperator(operator);
     }
 
     function test_mintTo_happyPath() public {
@@ -51,8 +52,7 @@ contract FaucetTest is Test {
         faucet.mintTo(address(token), recipient, 100 * 10 ** 6);
     }
 
-    function test_mintTo_onlyOperator_revertsWhenOwnerRevoked() public {
-        faucet.removeOperator(owner);
+    function test_mintTo_onlyOperator_revertsWhenOwnerButNotOperator() public {
         vm.prank(owner);
         vm.expectRevert(Faucet.OnlyOperator.selector);
         faucet.mintTo(address(token), recipient, 100 * 10 ** 6);
@@ -60,7 +60,7 @@ contract FaucetTest is Test {
 
     function test_mintTo_cooldown_secondMintWithinCooldownReverts() public {
         faucet.removeToken(address(token));
-        vm.prank(owner); // operator can add token
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);
@@ -73,7 +73,7 @@ contract FaucetTest is Test {
 
     function test_mintTo_cooldown_afterCooldownSucceeds() public {
         faucet.removeToken(address(token));
-        vm.prank(owner);
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);
@@ -120,35 +120,14 @@ contract FaucetTest is Test {
 
     // --- Operator & Batch tests ---
 
-    function test_addOperator_onlyOwner() public {
+    function test_setOperator_onlyOwner() public {
         address newOp = makeAddr("newOp");
-        faucet.addOperator(newOp);
-        assertTrue(faucet.isOperator(newOp));
+        faucet.setOperator(newOp);
+        assertEq(faucet.operator(), newOp);
 
         vm.prank(recipient);
         vm.expectRevert(); // Ownable: caller is not the owner
-        faucet.addOperator(recipient);
-    }
-
-    function test_removeOperator_onlyOwner() public {
-        faucet.removeOperator(operator);
-        assertFalse(faucet.isOperator(operator));
-
-        vm.prank(operator);
-        vm.expectRevert(); // Ownable: caller is not the owner
-        faucet.removeOperator(owner);
-    }
-
-    function test_setNewOperator_onlyOwner() public {
-        address newOp = makeAddr("newOpReplacement");
-        faucet.setNewOperator(operator, newOp);
-
-        assertFalse(faucet.isOperator(operator));
-        assertTrue(faucet.isOperator(newOp));
-
-        vm.prank(newOp);
-        vm.expectRevert(); // Ownable
-        faucet.setNewOperator(newOp, operator);
+        faucet.setOperator(recipient);
     }
 
     function test_addToken_operatorCanAdd() public {
@@ -165,6 +144,7 @@ contract FaucetTest is Test {
     function test_mintBatch_happyPath() public {
         MockToken t2 = new MockToken("Token 2", "T2", 6, 0);
         t2.grantRole(t2.MINTER_ROLE(), address(faucet));
+        vm.prank(operator);
         faucet.addToken(address(t2), MAX_PER_REQUEST, 0);
 
         address[] memory tokens = new address[](2);
@@ -203,7 +183,7 @@ contract FaucetTest is Test {
 
     function test_lastMintAt_updatedWhenCooldownSet() public {
         faucet.removeToken(address(token));
-        vm.prank(owner);
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);

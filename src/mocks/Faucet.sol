@@ -9,7 +9,7 @@ interface IMintableERC20 {
 }
 
 /// @title Faucet
-/// @notice Mints mock tokens to recipients when called by authorized operators (backend).
+/// @notice Mints mock tokens to recipients when called by authorized operator (backend).
 /// @dev Faucet must have the minter role on each MockToken to call mint.
 contract Faucet is Ownable {
     struct TokenConfig {
@@ -18,10 +18,10 @@ contract Faucet is Ownable {
         uint256 cooldown; // seconds, 0 = no cooldown
     }
 
-    // --- Operator role (replaced single `operator` address) ---
+    // --- Operator role (single operator) ---
 
-    /// @notice Addresses allowed to call mintTo / batch functions and addToken
-    mapping(address => bool) public isOperator;
+    /// @notice Address allowed to call mintTo / batch functions and addToken
+    address public operator;
 
     /// @notice Per-token config: enabled, max per request, cooldown
     mapping(address => TokenConfig) public configOf;
@@ -34,8 +34,10 @@ contract Faucet is Ownable {
 
     // --- Events ---
 
-    event OperatorAdded(address indexed operator);
-    event OperatorRemoved(address indexed operator);
+    event OperatorSet(
+        address indexed previousOperator,
+        address indexed newOperator
+    );
     event TokenAdded(
         address indexed token,
         uint256 maxPerRequest,
@@ -65,44 +67,26 @@ contract Faucet is Ownable {
     error ArrayLengthMismatch();
 
     modifier onlyOperator() {
-        if (!isOperator[msg.sender]) revert OnlyOperator();
+        if (msg.sender != operator) revert OnlyOperator();
         _;
     }
 
-    constructor() Ownable(msg.sender) {
-        // Deployer becomes the initial operator
-        isOperator[msg.sender] = true;
-        emit OperatorAdded(msg.sender);
+    constructor(address initialOperator) Ownable(msg.sender) {
+        if (initialOperator == address(0)) revert InvalidAddress();
+        operator = initialOperator;
+        emit OperatorSet(address(0), initialOperator);
     }
 
     // -------------------------------------------------------------------------
     // Operator management -- only owner
     // -------------------------------------------------------------------------
 
-    /// @notice Grant operator role to an address. Only owner.
-    function addOperator(address account) external onlyOwner {
-        if (account == address(0)) revert InvalidAddress();
-        isOperator[account] = true;
-        emit OperatorAdded(account);
-    }
-
-    /// @notice Revoke operator role from an address. Only owner.
-    function removeOperator(address account) external onlyOwner {
-        if (account == address(0)) revert InvalidAddress();
-        isOperator[account] = false;
-        emit OperatorRemoved(account);
-    }
-
-    /// @notice set new operator. Only owner.
-    function setNewOperator(
-        address oldOperator,
-        address newOperator
-    ) external onlyOwner {
+    /// @notice Set the operator address. Only owner.
+    function setOperator(address newOperator) external onlyOwner {
         if (newOperator == address(0)) revert InvalidAddress();
-        isOperator[oldOperator] = false;
-        isOperator[newOperator] = true;
-        emit OperatorRemoved(oldOperator);
-        emit OperatorAdded(newOperator);
+        address previous = operator;
+        operator = newOperator;
+        emit OperatorSet(previous, newOperator);
     }
 
     // -------------------------------------------------------------------------

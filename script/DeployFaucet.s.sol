@@ -16,10 +16,8 @@ contract DeployFaucet is Script {
 
         vm.startBroadcast();
 
-        Faucet faucet = new Faucet();
+        Faucet faucet = new Faucet(operatorAddress);
         console.log("Faucet", address(faucet));
-
-        faucet.addOperator(operatorAddress);
         console.log("Operator", operatorAddress);
 
         try vm.envAddress("FAUCET_TOKENS", ",") returns (
