@@ -16,13 +16,13 @@ contract DeployFaucet is Script {
 
         vm.startBroadcast();
 
-        Faucet faucet = new Faucet();
+        Faucet faucet = new Faucet(operatorAddress);
         console.log("Faucet", address(faucet));
-
-        faucet.setOperator(operatorAddress);
         console.log("Operator", operatorAddress);
 
-        try vm.envAddress("FAUCET_TOKENS", ",") returns (address[] memory tokenAddresses) {
+        try vm.envAddress("FAUCET_TOKENS", ",") returns (
+            address[] memory tokenAddresses
+        ) {
             for (uint256 i = 0; i < tokenAddresses.length; i++) {
                 address tokenAddr = tokenAddresses[i];
                 MockToken token = MockToken(tokenAddr);
@@ -33,7 +33,6 @@ contract DeployFaucet is Script {
                 console.log("Wired token", tokenAddr);
             }
         } catch {}
-
         vm.stopBroadcast();
     }
 

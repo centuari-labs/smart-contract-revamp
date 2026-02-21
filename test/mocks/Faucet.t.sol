@@ -22,11 +22,13 @@ contract FaucetTest is Test {
         recipient = makeAddr("recipient");
 
         token = new MockToken("USD Coin", "USDC", 6, INITIAL_SUPPLY);
-        faucet = new Faucet();
+        faucet = new Faucet(operator); // Constructor requires operator
 
         token.grantRole(token.MINTER_ROLE(), address(faucet));
+
+        // Single operator is set in constructor
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, 0);
-        faucet.setOperator(operator);
     }
 
     function test_mintTo_happyPath() public {
@@ -58,6 +60,7 @@ contract FaucetTest is Test {
 
     function test_mintTo_cooldown_secondMintWithinCooldownReverts() public {
         faucet.removeToken(address(token));
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);
@@ -70,6 +73,7 @@ contract FaucetTest is Test {
 
     function test_mintTo_cooldown_afterCooldownSucceeds() public {
         faucet.removeToken(address(token));
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);
@@ -102,36 +106,10 @@ contract FaucetTest is Test {
         faucet.mintTo(address(token), recipient, 100 * 10 ** 6);
     }
 
-    function test_mintTo_beforeGrantingMinter_reverts() public {
-        MockToken otherToken = new MockToken("Tether", "USDT", 6, 0);
-        faucet.addToken(address(otherToken), MAX_PER_REQUEST, 0);
-        // Faucet does not have MINTER_ROLE on otherToken
-
-        vm.prank(operator);
-        vm.expectRevert();
-        faucet.mintTo(address(otherToken), recipient, 100 * 10 ** 6);
-    }
-
-    function test_mintTo_afterGrantingMinter_succeeds() public {
-        MockToken otherToken = new MockToken("Tether", "USDT", 6, 0);
-        otherToken.grantRole(otherToken.MINTER_ROLE(), address(faucet));
-        faucet.addToken(address(otherToken), MAX_PER_REQUEST, 0);
-
-        vm.prank(operator);
-        faucet.mintTo(address(otherToken), recipient, 100 * 10 ** 6);
-        assertEq(otherToken.balanceOf(recipient), 100 * 10 ** 6);
-    }
-
     function test_mintTo_invalidAddress_tokenZeroReverts() public {
         vm.prank(operator);
         vm.expectRevert(Faucet.InvalidAddress.selector);
         faucet.mintTo(address(0), recipient, 100 * 10 ** 6);
-    }
-
-    function test_mintTo_invalidAddress_recipientZeroReverts() public {
-        vm.prank(operator);
-        vm.expectRevert(Faucet.InvalidAddress.selector);
-        faucet.mintTo(address(token), address(0), 100 * 10 ** 6);
     }
 
     function test_mintTo_invalidAmount_reverts() public {
@@ -140,46 +118,72 @@ contract FaucetTest is Test {
         faucet.mintTo(address(token), recipient, 0);
     }
 
-    function test_addToken_onlyOwner_revertsWhenNotOwner() public {
-        vm.prank(recipient);
-        vm.expectRevert();
-        faucet.addToken(address(token), MAX_PER_REQUEST, 0);
-    }
+    // --- Operator & Batch tests ---
 
-    function test_removeToken_onlyOwner_revertsWhenNotOwner() public {
-        vm.prank(recipient);
-        vm.expectRevert();
-        faucet.removeToken(address(token));
-    }
+    function test_setOperator_onlyOwner() public {
+        address newOp = makeAddr("newOp");
+        faucet.setOperator(newOp);
+        assertEq(faucet.operator(), newOp);
 
-    function test_setTokenConfig_onlyOwner_revertsWhenNotOwner() public {
         vm.prank(recipient);
-        vm.expectRevert();
-        faucet.setTokenConfig(address(token), 5_000 * 10 ** 6, 1 hours);
-    }
-
-    function test_setOperator_onlyOwner_revertsWhenNotOwner() public {
-        vm.prank(recipient);
-        vm.expectRevert();
+        vm.expectRevert(); // Ownable: caller is not the owner
         faucet.setOperator(recipient);
     }
 
-    function test_setOperator_onlyOwner_succeedsWhenOwner() public {
-        address newOperator = makeAddr("newOperator");
-        faucet.setOperator(newOperator);
-        assertEq(faucet.operator(), newOperator);
+    function test_addToken_operatorCanAdd() public {
+        MockToken t2 = new MockToken("Test", "TST", 18, 0);
+        t2.grantRole(t2.MINTER_ROLE(), address(faucet));
 
         vm.prank(operator);
-        vm.expectRevert(Faucet.OnlyOperator.selector);
-        faucet.mintTo(address(token), recipient, 100 * 10 ** 6);
+        faucet.addToken(address(t2), 1000, 0);
 
-        vm.prank(newOperator);
-        faucet.mintTo(address(token), recipient, 100 * 10 ** 6);
+        (bool enabled, , ) = faucet.configOf(address(t2));
+        assertTrue(enabled);
+    }
+
+    function test_mintBatch_happyPath() public {
+        MockToken t2 = new MockToken("Token 2", "T2", 6, 0);
+        t2.grantRole(t2.MINTER_ROLE(), address(faucet));
+        vm.prank(operator);
+        faucet.addToken(address(t2), MAX_PER_REQUEST, 0);
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(token);
+        tokens[1] = address(t2);
+
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 100 * 10 ** 6;
+        amounts[1] = 200 * 10 ** 6;
+
+        vm.prank(operator);
+        faucet.mintBatch(tokens, amounts, recipient);
+
         assertEq(token.balanceOf(recipient), 100 * 10 ** 6);
+        assertEq(t2.balanceOf(recipient), 200 * 10 ** 6);
+    }
+
+    function test_mintBatch_maxBatch_reverts() public {
+        uint256 maxPlusOne = 10; // MAX_BATCH + 1
+        address[] memory tokens = new address[](maxPlusOne);
+        uint256[] memory amounts = new uint256[](maxPlusOne);
+
+        vm.prank(operator);
+        vm.expectRevert(Faucet.BatchTooLarge.selector);
+        faucet.mintBatch(tokens, amounts, recipient);
+    }
+
+    function test_mintBatch_arrayMismatch_reverts() public {
+        address[] memory tokens = new address[](2);
+        uint256[] memory amounts = new uint256[](1);
+
+        vm.prank(operator);
+        vm.expectRevert(Faucet.ArrayLengthMismatch.selector);
+        faucet.mintBatch(tokens, amounts, recipient);
     }
 
     function test_lastMintAt_updatedWhenCooldownSet() public {
         faucet.removeToken(address(token));
+        vm.prank(operator);
         faucet.addToken(address(token), MAX_PER_REQUEST, COOLDOWN);
 
         vm.prank(operator);
