@@ -61,6 +61,7 @@ contract CentuariBondERC20 is ERC20 {
     /// @param amount The amount of tokens to mint
     function mint(address to, uint256 amount) external onlyMinter {
         _mint(to, amount);
+        //@todo : should emit event for amount, market id, account id
     }
 
     /// @notice Burn tokens from caller's balance

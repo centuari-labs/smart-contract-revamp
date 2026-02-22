@@ -137,6 +137,8 @@ contract Centuari is
                 loanToken,
                 maturity
             );
+
+            //@todo : should mint to treasury instead of directly to users
             CentuariBondERC20(bondToken).mint(lender, cbtAmount);
         }
     }
