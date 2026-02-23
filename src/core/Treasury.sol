@@ -19,11 +19,11 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     bytes32 public constant TOKEN_MANAGER_ROLE =
         keccak256("TOKEN_MANAGER_ROLE");
 
-    //@todo : should use uuid from the account id instead of address
-    //@todo : should use uuid from the assets id instead of address
+    //@note : should use uuid from the account id instead of address
+    //@note : should use uuid from the assets id instead of address
     mapping(address => mapping(address => uint256)) public balances;
 
-    //@todo : should use uuid from the assets id instead of address
+    //@note : should use uuid from the assets id instead of address
     mapping(address => bool) public supportedToken;
 
     address public centuariContract;

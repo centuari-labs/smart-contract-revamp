@@ -24,15 +24,14 @@ interface ISettlement {
     /// @param makerFeeAmount Trade fee charged to the maker
     /// @param takerFeeAmount Trade fee charged to the taker
     struct MatchData {
-        //@todo : need to add market id
         bytes32 matchId;
-        bytes32 lendOrderId; //@todo : change into order market id
-        bytes32 borrowOrderId; //@todo : change into order market id
-        address lender; //@todo : change into account id
-        address borrower; //@todo : change into account id
+        bytes32 lendOrderId; //@note : change into order market id
+        bytes32 borrowOrderId; //@note : change into order market id
+        address lender; //@note : change into account id
+        address borrower; //@note : change into account id
         uint256 matchedAmount;
         uint256 rate;
-        address loanToken; //@todo : change into asset id
+        address loanToken; //@note : change into asset id
         uint256 maturity;
         uint256 timestamp;
         bool borrowerIsTaker;

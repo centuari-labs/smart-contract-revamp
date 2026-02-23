@@ -81,9 +81,9 @@ contract Centuari is
 
     /// @inheritdoc ICentuari
     function settleMatch(
-        address lender, //@todo : change this into account id
-        address borrower, //@todo : change this into account id
-        address loanToken, //@todo : change this into asset id
+        address lender, //@note : change this into account id
+        address borrower, //@note : change this into account id
+        address loanToken, //@note : change this into asset id
         uint256 matchedAmount,
         uint256 rate,
         uint256 maturity,
