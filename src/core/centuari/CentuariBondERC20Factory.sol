@@ -145,6 +145,7 @@ contract CentuariBondERC20Factory {
             loanToken,
             maturity
         );
+        //@todo : when create the CBT we should use the same decimals as the loan token
 
         bondToken = address(token);
         bondTokens[marketId] = bondToken;
