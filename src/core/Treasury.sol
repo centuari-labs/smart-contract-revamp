@@ -12,6 +12,7 @@ import {
 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ITreasury} from "../interfaces/ITreasury.sol";
+import {CentuariBondERC20} from "./centuari/CentuariBondERC20.sol";
 
 contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     using SafeERC20 for IERC20;
@@ -144,6 +145,43 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         balances[address(this)][token] -= amount;
 
         emit WithdrawLendPosition(user, token, amount);
+    }
+
+    function recordBondMint(
+        address user,
+        address bondToken,
+        uint256 amount
+    )
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(bondToken)
+        onlyCentuari
+        nonZeroAmount(amount)
+    {
+        if (user == address(0)) revert ZeroAddress();
+        balances[user][bondToken] += amount;
+    }
+
+    function burnBondForUser(
+        address user,
+        address bondToken,
+        uint256 amount
+    )
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        onlySupportedToken(bondToken)
+        onlyCentuari
+        nonZeroAmount(amount)
+    {
+        if (user == address(0)) revert ZeroAddress();
+        if (balances[user][bondToken] < amount) revert InsufficientFunds();
+
+        balances[user][bondToken] -= amount;
+        CentuariBondERC20(bondToken).burn(amount);
     }
 
     /// @inheritdoc ITreasury

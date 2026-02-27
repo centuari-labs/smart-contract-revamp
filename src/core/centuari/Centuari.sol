@@ -138,8 +138,9 @@ contract Centuari is
                 maturity
             );
 
-            //@todo : should mint to treasury instead of directly to users
-            CentuariBondERC20(bondToken).mint(lender, cbtAmount);
+            // Mint CBT to Treasury and record lender's bond balance internally
+            CentuariBondERC20(bondToken).mint(_treasury, cbtAmount);
+            ITreasury(_treasury).recordBondMint(lender, bondToken, cbtAmount);
         }
     }
 
@@ -221,7 +222,7 @@ contract Centuari is
     function withdrawLendPosition(
         address loanToken,
         uint256 maturity,
-        uint256 cbtAmount
+        uint256 cbtAmount //@todo : change to not use cbt amount but use amount in loan token terms
     ) external whenNotPaused nonReentrant {
         if (cbtAmount == 0) revert InvalidAmount();
         if (_bondTokenFactory == address(0)) revert BondTokenNotFound();
@@ -236,7 +237,8 @@ contract Centuari is
         if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount) revert InvalidAmount();
         if (_marketTotalCbt[marketId] < cbtAmount) revert InvalidAmount();
 
-        CentuariBondERC20(bondToken).burnFrom(msg.sender, cbtAmount);
+        // Burn CBT held by Treasury and reduce user's internal CBT balance
+        ITreasury(_treasury).burnBondForUser(msg.sender, bondToken, cbtAmount);
 
         _lendPositionCbtAmount[marketId][msg.sender] -= cbtAmount;
         _marketTotalCbt[marketId] -= cbtAmount;

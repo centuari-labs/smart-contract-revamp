@@ -152,6 +152,26 @@ interface ITreasury {
         uint256 amount
     ) external;
 
+    /// @notice Record a newly minted bond position for a user
+    /// @param user The user address
+    /// @param bondToken The CBT bond token address
+    /// @param amount The amount of CBT minted for the user
+    function recordBondMint(
+        address user,
+        address bondToken,
+        uint256 amount
+    ) external;
+
+    /// @notice Burn a user's bond position held in Treasury
+    /// @param user The user address whose internal CBT balance is reduced
+    /// @param bondToken The CBT bond token address
+    /// @param amount The amount of CBT to burn
+    function burnBondForUser(
+        address user,
+        address bondToken,
+        uint256 amount
+    ) external;
+
     /// @notice Get user balance for a token
     /// @param user The user address
     /// @param token The token address
