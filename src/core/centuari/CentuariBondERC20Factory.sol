@@ -136,6 +136,9 @@ contract CentuariBondERC20Factory {
         string memory name = _generateName(tokenSymbol, maturity);
         string memory symbol = _generateSymbol(tokenSymbol, maturity);
 
+        // Get decimals from the underlying loan token, with safe fallback
+        uint8 decimals = _getTokenDecimals(loanToken);
+
         // Deploy using CREATE2 with marketId as salt
         bytes32 salt = marketId;
         CentuariBondERC20 token = new CentuariBondERC20{salt: salt}(
@@ -143,10 +146,9 @@ contract CentuariBondERC20Factory {
             symbol,
             CENTUARI,
             loanToken,
-            maturity
+            maturity,
+            decimals
         );
-        //@todo : when create the CBT we should use the same decimals as the loan token
-
         bondToken = address(token);
         bondTokens[marketId] = bondToken;
 
@@ -218,11 +220,28 @@ contract CentuariBondERC20Factory {
         string memory tokenSymbol = _getTokenSymbol(loanToken);
         string memory name = _generateName(tokenSymbol, maturity);
         string memory symbol = _generateSymbol(tokenSymbol, maturity);
+        uint8 decimals = _getTokenDecimals(loanToken);
 
         return abi.encodePacked(
             type(CentuariBondERC20).creationCode,
-            abi.encode(name, symbol, CENTUARI, loanToken, maturity)
+            abi.encode(name, symbol, CENTUARI, loanToken, maturity, decimals)
         );
+    }
+
+    /// @notice Get the decimals of a token, with safe handling for non-contract or non-metadata tokens
+    /// @param token The token address
+    /// @return The token decimals, or 18 if unavailable
+    function _getTokenDecimals(address token) internal view returns (uint8) {
+        // If the address has no code (e.g., a plain EOA in tests), avoid calling decimals()
+        if (token.code.length == 0) {
+            return 18;
+        }
+
+        try IERC20Metadata(token).decimals() returns (uint8 tokenDecimals) {
+            return tokenDecimals;
+        } catch {
+            return 18;
+        }
     }
 }
 

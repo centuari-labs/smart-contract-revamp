@@ -167,6 +167,7 @@ contract Centuari is
         _marketTotalCbt[marketId] += cbtAmount;
         _lendPositionCbtAmount[marketId][lender] += cbtAmount;
 
+        //@todo : should emit the lend position created event with the cbt address
         emit LendPositionCreated(marketId, lender, cbtAmount, principal, rate);
     }
 
