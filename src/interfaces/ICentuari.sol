@@ -21,12 +21,14 @@ interface ICentuari {
     /// @notice Emitted when a lend position is created or updated
     /// @param marketId The market identifier
     /// @param lender The lender address
+    /// @param bondToken The CBT (bond token) contract address for the market
     /// @param cbtAmount The CBT (claim at maturity) added to the position
     /// @param principal The effective principal amount lent (after fees)
     /// @param rate The interest rate in basis points
     event LendPositionCreated(
         bytes32 indexed marketId,
         address indexed lender,
+        address indexed bondToken,
         uint256 cbtAmount,
         uint256 principal,
         uint256 rate

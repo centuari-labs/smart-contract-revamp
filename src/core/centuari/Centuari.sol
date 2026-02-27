@@ -116,7 +116,23 @@ contract Centuari is
             borrowerFee = makerFeeAmount;
         }
 
-        uint256 cbtAmount = _processLendPosition(marketId, lender, matchedAmount, lenderFee, rate, maturity);
+        address bondToken = address(0);
+        if (_bondTokenFactory != address(0)) {
+            bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
+                loanToken,
+                maturity
+            );
+        }
+
+        uint256 cbtAmount = _processLendPosition(
+            marketId,
+            lender,
+            matchedAmount,
+            lenderFee,
+            rate,
+            maturity,
+            bondToken
+        );
 
         // Process borrower position (same day-count so debt = lender CBT for same principal)
         _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
@@ -132,12 +148,7 @@ contract Centuari is
             borrowerSettlementFee
         );
 
-        if (_bondTokenFactory != address(0) && cbtAmount > 0) {
-            address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
-                loanToken,
-                maturity
-            );
-
+        if (bondToken != address(0) && cbtAmount > 0) {
             // Mint CBT to Treasury and record lender's bond balance internally
             CentuariBondERC20(bondToken).mint(_treasury, cbtAmount);
             ITreasury(_treasury).recordBondMint(lender, bondToken, cbtAmount);
@@ -153,6 +164,7 @@ contract Centuari is
     /// @param lenderFee The fee deducted from the lender; CBT is based on principal - lenderFee
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
+    /// @param bondToken The CBT (bond token) contract address for the market
     /// @return cbtAmount The CBT (claim at maturity) issued to the lender
     function _processLendPosition(
         bytes32 marketId,
@@ -160,7 +172,8 @@ contract Centuari is
         uint256 principal,
         uint256 lenderFee,
         uint256 rate,
-        uint256 maturity
+        uint256 maturity,
+        address bondToken
     ) internal returns (uint256 cbtAmount) {
         uint256 effectivePrincipal = principal - lenderFee;
         cbtAmount = effectivePrincipal + _interestWithDayCount(effectivePrincipal, rate, block.timestamp, maturity);
@@ -168,8 +181,7 @@ contract Centuari is
         _marketTotalCbt[marketId] += cbtAmount;
         _lendPositionCbtAmount[marketId][lender] += cbtAmount;
 
-        //@todo : should emit the lend position created event with the cbt address
-        emit LendPositionCreated(marketId, lender, cbtAmount, principal, rate);
+        emit LendPositionCreated(marketId, lender, bondToken, cbtAmount, principal, rate);
     }
 
     /// @notice Process the borrower's position

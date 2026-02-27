@@ -181,6 +181,7 @@ contract CentuariTest is Test {
     event LendPositionCreated(
         bytes32 indexed marketId,
         address indexed lender,
+        address indexed bondToken,
         uint256 cbtAmount,
         uint256 principal,
         uint256 rate
@@ -333,8 +334,9 @@ contract CentuariTest is Test {
         vm.expectEmit(true, true, true, true);
         emit MarketCreated(expectedMarketId, loanToken, maturity);
 
-        vm.expectEmit(true, true, false, true);
-        emit LendPositionCreated(expectedMarketId, lender, expectedCbt, matchedAmount, rate);
+        vm.expectEmit(true, true, true, true);
+        address expectedBondToken = bondFactory.computeBondTokenAddress(loanToken, maturity);
+        emit LendPositionCreated(expectedMarketId, lender, expectedBondToken, expectedCbt, matchedAmount, rate);
 
         vm.expectEmit(true, true, false, true);
         emit BorrowPositionCreated(expectedMarketId, borrower, matchedAmount, expectedDebt, rate);
