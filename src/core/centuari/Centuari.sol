@@ -231,10 +231,12 @@ contract Centuari is
     }
 
     /// @inheritdoc ICentuari
+    /// @dev `cbtAmount` is denominated in CBT units, which are 1:1 with the
+    ///      withdrawable loan token amount at maturity for this market.
     function withdrawLendPosition(
         address loanToken,
         uint256 maturity,
-        uint256 cbtAmount //@todo : change to not use cbt amount but use amount in loan token terms
+        uint256 cbtAmount
     ) external whenNotPaused nonReentrant {
         if (cbtAmount == 0) revert InvalidAmount();
         if (_bondTokenFactory == address(0)) revert BondTokenNotFound();
