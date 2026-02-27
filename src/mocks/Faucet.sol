@@ -71,6 +71,14 @@ contract Faucet is Ownable {
         _;
     }
 
+    /// @dev Allow either the configured operator or the contract owner.
+    modifier onlyOwnerOrOperator() {
+        if (msg.sender != operator && msg.sender != owner()) {
+            revert OnlyOperator();
+        }
+        _;
+    }
+
     constructor(address initialOperator) Ownable(msg.sender) {
         if (initialOperator == address(0)) revert InvalidAddress();
         operator = initialOperator;
@@ -93,13 +101,13 @@ contract Faucet is Ownable {
     // Token config -- addToken restricted to operator; remove/update owner-only
     // -------------------------------------------------------------------------
 
-    /// @notice Add a token to the faucet. Only operator.
+    /// @notice Add a token to the faucet. Only operator or owner.
     /// @dev Faucet must already have minter role on the token before calling this.
     function addToken(
         address token,
         uint256 maxPerRequest,
         uint256 cooldown
-    ) external onlyOperator {
+    ) external onlyOwnerOrOperator {
         if (token == address(0)) revert InvalidAddress();
         configOf[token] = TokenConfig({
             enabled: true,
