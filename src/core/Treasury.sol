@@ -20,6 +20,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     bytes32 public constant TOKEN_MANAGER_ROLE =
         keccak256("TOKEN_MANAGER_ROLE");
 
+    //@todo : cbt assets should can also be withdrawn from the treasury
+
     //@note : should use uuid from the account id instead of address
     //@note : should use uuid from the assets id instead of address
     mapping(address => mapping(address => uint256)) public balances;
