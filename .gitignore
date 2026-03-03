@@ -20,3 +20,5 @@ abi/
 
 # Deployment summaries (per-run address snapshots)
 deployments/
+
+config/
