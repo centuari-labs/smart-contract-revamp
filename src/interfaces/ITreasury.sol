@@ -133,8 +133,9 @@ interface ITreasury {
 
     /// @notice Withdraw tokens from treasury
     /// @param token The token address
+    /// @param to The recipient address
     /// @param amount The amount to withdraw
-    function withdraw(address token, uint256 amount) external;
+    function withdraw(address token, address to, uint256 amount) external;
 
     /// @notice Repay loan position
     /// @param user The user address

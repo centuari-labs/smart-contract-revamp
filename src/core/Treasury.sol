@@ -88,6 +88,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
 
     function withdraw(
         address token,
+        address to,
         uint256 amount
     )
         external
@@ -97,12 +98,12 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         onlySupportedToken(token)
         nonZeroAmount(amount)
     {
-        if (balances[msg.sender][token] < amount) revert InsufficientFunds();
+        if (balances[to][token] < amount) revert InsufficientFunds();
 
-        balances[msg.sender][token] -= amount;
-        IERC20(token).safeTransfer(msg.sender, amount);
+        balances[to][token] -= amount;
+        IERC20(token).safeTransfer(to, amount);
 
-        emit Withdrawn(msg.sender, token, amount);
+        emit Withdrawn(to, token, amount);
     }
 
     function repay(
