@@ -218,7 +218,7 @@ contract TreasuryTest is Test {
         // Withdraw
         vm.expectEmit(true, true, false, true);
         emit Withdrawn(user1, address(token), 50 ether);
-        treasury.withdraw(address(token), 50 ether);
+        treasury.withdraw(address(token), user1, 50 ether);
         vm.stopPrank();
 
         // Verify balances
@@ -233,13 +233,13 @@ contract TreasuryTest is Test {
 
         vm.prank(user1);
         vm.expectRevert(ITreasury.InsufficientFunds.selector);
-        treasury.withdraw(address(token), 100 ether);
+        treasury.withdraw(address(token), user1, 100 ether);
     }
 
     function test_Withdraw_Revert_TokenNotSupported() public {
         vm.prank(user1);
         vm.expectRevert(ITreasury.Unauthorized.selector);
-        treasury.withdraw(address(unsupportedToken), 100 ether);
+        treasury.withdraw(address(unsupportedToken), user1, 100 ether);
     }
 
     function test_Withdraw_Revert_ZeroAmount() public {
@@ -248,7 +248,7 @@ contract TreasuryTest is Test {
 
         vm.prank(user1);
         vm.expectRevert(ITreasury.InvalidAmount.selector);
-        treasury.withdraw(address(token), 0);
+        treasury.withdraw(address(token), user1, 0);
     }
 
     function test_Withdraw_ExactBalance() public {
@@ -259,7 +259,7 @@ contract TreasuryTest is Test {
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
 
-        treasury.withdraw(address(token), 100 ether);
+        treasury.withdraw(address(token), user1, 100 ether);
         vm.stopPrank();
 
         assertEq(treasury.balanceOf(user1, address(token)), 0);
@@ -279,7 +279,7 @@ contract TreasuryTest is Test {
 
         vm.prank(user1);
         vm.expectRevert();
-        treasury.withdraw(address(token), 50 ether);
+        treasury.withdraw(address(token), user1, 50 ether);
     }
 
     // ========== repay Tests ==========
@@ -602,7 +602,7 @@ contract TreasuryTest is Test {
         vm.startPrank(user1);
         token.approve(address(treasury), depositAmount);
         treasury.deposit(address(token), depositAmount);
-        treasury.withdraw(address(token), withdrawAmount);
+        treasury.withdraw(address(token), user1, withdrawAmount);
         vm.stopPrank();
 
         assertEq(
