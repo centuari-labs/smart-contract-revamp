@@ -392,7 +392,7 @@ else
   echo "Skipping setCentuariContract (set TREASURY_ADDRESS and CENTUARI_ADDRESS to run)"
 fi
 
-echo "=== 8/9 SetSupportedTokens ==="
+echo "=== 8/10 SetSupportedTokens ==="
 if [[ -n "${TREASURY_ADDRESS:-}" ]]; then
   echo "Writing deployment summary to $SUMMARY_FILE for set_supported_tokens.sh"
   write_deploy_summary
@@ -401,7 +401,7 @@ else
   echo "Skipping set_supported_tokens.sh (set TREASURY_ADDRESS to run)"
 fi
 
-echo "=== 9/9 DeploySettlement ==="
+echo "=== 9/10 DeploySettlement ==="
 if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" ]]; then
   deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
     --sig "run(address,address,address,address)" \
@@ -419,7 +419,7 @@ else
   echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR and CENTUARI_ADDRESS are set)"
 fi
 
-echo "=== 9/9 UpgradeSettlement ==="
+echo "=== 10/10 UpgradeSettlement ==="
 PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
 if [[ "$DEPLOY_ONLY" == true ]]; then
   echo "Skipping UpgradeSettlement (--deploy-only)"
@@ -437,6 +437,15 @@ elif [[ -n "${PROXY_ADMIN:-}" && -n "$PROXY" ]]; then
 else
   echo "Skipping UpgradeSettlement (set PROXY_ADMIN and SETTLEMENT_PROXY or PROXY to run)"
 fi
+echo "=== 10/10 SetOperators ==="
+if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
+  echo "Writing deployment summary for set_operators.sh"
+  write_deploy_summary
+  DEPLOY_JSON="$SUMMARY_FILE" "$ROOT_DIR/bin/set_operators.sh"
+else
+  echo "Skipping set_operators.sh (no contract addresses available)"
+fi
+
 echo "=== Writing deployment summary ==="
 write_deploy_summary
 
