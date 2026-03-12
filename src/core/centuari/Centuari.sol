@@ -122,6 +122,7 @@ contract Centuari is
                 loanToken,
                 maturity
             );
+            ITreasury(_treasury).registerBondToken(bondToken);
         }
 
         uint256 cbtAmount = _processLendPosition(

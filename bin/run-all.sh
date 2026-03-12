@@ -419,6 +419,21 @@ else
   echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR and CENTUARI_ADDRESS are set)"
 fi
 
+echo "=== SetSettlement on Centuari ==="
+if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
+  echo "Updating Centuari._settlement to the deployed Settlement proxy..."
+  echo "  Centuari:         $CENTUARI_ADDRESS"
+  echo "  Settlement Proxy: $SETTLEMENT_PROXY_ADDRESS"
+  cast send "$CENTUARI_ADDRESS" "setSettlement(address)" "$SETTLEMENT_PROXY_ADDRESS" \
+    --private-key "$PRIVATE_KEY" \
+    --rpc-url "$RPC_URL"
+
+  current_settlement="$(cast call "$CENTUARI_ADDRESS" "settlement()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo '<call failed>')"
+  echo "  Verified settlement() = $current_settlement"
+else
+  echo "Skipping SetSettlement on Centuari (need CENTUARI_ADDRESS, SETTLEMENT_PROXY_ADDRESS, PRIVATE_KEY, and RPC_URL)"
+fi
+
 echo "=== 10/10 UpgradeSettlement ==="
 PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
 if [[ "$DEPLOY_ONLY" == true ]]; then

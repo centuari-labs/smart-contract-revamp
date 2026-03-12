@@ -126,6 +126,10 @@ interface ITreasury {
     /// @param _centuariContract The new Centuari contract address
     function setCentuariContract(address _centuariContract) external;
 
+    /// @notice Register a bond token so it can be used in Treasury operations
+    /// @param bondToken The CBT bond token address
+    function registerBondToken(address bondToken) external;
+
     /// @notice Deposit tokens to treasury
     /// @param token The token address
     /// @param amount The amount to deposit

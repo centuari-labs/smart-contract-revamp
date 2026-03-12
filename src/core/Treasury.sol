@@ -51,6 +51,16 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
+    function registerBondToken(
+        address bondToken
+    ) external override onlyCentuari {
+        if (bondToken == address(0)) revert ZeroAddress();
+        if (!supportedToken[bondToken]) {
+            supportedToken[bondToken] = true;
+            emit TokenSupportUpdated(bondToken, true);
+        }
+    }
+
     function setSupportedToken(
         address token,
         bool supported
