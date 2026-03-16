@@ -14,6 +14,29 @@ contract DeployFaucet is Script {
     /// @dev Role hash used by MockToken for minters.
     bytes32 internal constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
+    /// @dev Default drip amount (human-readable) when a token symbol is not in the map.
+    uint256 internal constant DEFAULT_DRIP_AMOUNT = 10_000;
+
+    /// @notice Returns the human-readable drip amount for a given token symbol.
+    ///         These values must match the frontend DRIP_AMOUNTS in faucet-token-grid.tsx.
+    function _dripAmountFor(
+        string memory symbol
+    ) internal pure returns (uint256) {
+        bytes32 s = keccak256(bytes(symbol));
+        if (s == keccak256("USDC")) return 5_000;
+        if (s == keccak256("USDT")) return 5_000;
+        if (s == keccak256("IDRX")) return 10_000_000;
+        if (s == keccak256("XSGD")) return 7_000;
+        if (s == keccak256("BTC")) return 1;
+        if (s == keccak256("ETH")) return 5;
+        if (s == keccak256("XAUT")) return 5;
+        if (s == keccak256("NVDAon")) return 100;
+        if (s == keccak256("AAPLon")) return 100;
+        if (s == keccak256("SLVon")) return 100;
+        if (s == keccak256("TLTon")) return 100;
+        return DEFAULT_DRIP_AMOUNT;
+    }
+
     /// @notice Deploys Faucet and optionally wires it to tokens from FAUCET_TOKENS env (comma-separated addresses).
     function run() external {
         address operatorAddress = vm.envAddress("BACKEND_OPERATOR");
@@ -69,14 +92,26 @@ contract DeployFaucet is Script {
                     );
                 }
 
-                uint256 maxPerRequest = 10_000 * (10 ** decimals);
+                // Read token symbol to determine the correct drip amount.
+                string memory symbol = "";
+                try MockToken(tokenAddr).symbol() returns (string memory s) {
+                    symbol = s;
+                } catch {
+                    console.log(
+                        "Skipping symbol() lookup for",
+                        tokenAddr
+                    );
+                }
+
+                uint256 maxPerRequest = _dripAmountFor(symbol) *
+                    (10 ** decimals);
                 faucet.addToken(tokenAddr, maxPerRequest, 0);
-                console.log("Wired token", tokenAddr);
+                console.log("Wired token", tokenAddr, "maxPerRequest", maxPerRequest);
             }
         } catch {
             // If FAUCET_TOKENS is not set or cannot be parsed, just deploy the faucet.
             console.log("No FAUCET_TOKENS found or parse failed; skipping wiring.");
         }
         vm.stopBroadcast();
-}
+    }
 }
