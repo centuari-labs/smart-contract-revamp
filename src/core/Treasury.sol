@@ -13,8 +13,15 @@ import {
 
 import {ITreasury} from "../interfaces/ITreasury.sol";
 import {CentuariBondERC20} from "./centuari/CentuariBondERC20.sol";
+import {CentuariStorage} from "./centuari/CentuariStorage.sol";
 
-contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
+contract Treasury is
+    AccessControl,
+    Pausable,
+    ReentrancyGuard,
+    ITreasury,
+    CentuariStorage
+{
     using SafeERC20 for IERC20;
 
     bytes32 public constant TOKEN_MANAGER_ROLE =
@@ -44,6 +51,11 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     modifier onlyCentuari() {
         if (centuariContract == address(0)) revert Unauthorized();
         if (msg.sender != centuariContract) revert Unauthorized();
+        _;
+    }
+
+    modifier onlyOperator() {
+        if (msg.sender != _operator) revert Unauthorized();
         _;
     }
 
@@ -108,6 +120,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         whenNotPaused
         onlySupportedToken(token)
         nonZeroAmount(amount)
+        onlyOperator
     {
         if (balances[to][token] < amount) revert InsufficientFunds();
 
@@ -223,7 +236,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         uint256 totalFromLender = amount + lenderSettlementFee;
 
         // Check lender has sufficient balance
-        if (balances[from][loanToken] < totalFromLender) revert InsufficientFunds();
+        if (balances[from][loanToken] < totalFromLender)
+            revert InsufficientFunds();
 
         // Calculate net amount borrower receives (after borrower settlement fee)
         uint256 netAmountToBorrower = amount;
