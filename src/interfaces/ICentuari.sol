@@ -140,6 +140,7 @@ interface ICentuari {
     /// @param makerFeeAmount Trade fee charged to the maker (for Centuari internal accounting)
     /// @param takerFeeAmount Trade fee charged to the taker (for Centuari internal accounting)
     function settleMatch(
+        bytes32 marketId,
         address lender,
         address borrower,
         address loanToken,

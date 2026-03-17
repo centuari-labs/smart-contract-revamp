@@ -81,6 +81,7 @@ contract Centuari is
 
     /// @inheritdoc ICentuari
     function settleMatch(
+        bytes32 marketId,
         address lender, //@note : change this into account id
         address borrower, //@note : change this into account id
         address loanToken, //@note : change this into asset id
@@ -96,8 +97,6 @@ contract Centuari is
         // Validate inputs
         if (matchedAmount == 0) revert InvalidAmount();
         if (maturity <= block.timestamp) revert InvalidMaturity();
-
-        bytes32 marketId = _getMarketId(loanToken, maturity);
 
         if (_marketTotalCbt[marketId] == 0) {
             emit MarketCreated(marketId, loanToken, maturity);
