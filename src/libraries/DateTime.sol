@@ -90,6 +90,66 @@ library DateTime {
         );
     }
 
+    /// @notice Get mixed-case month name for display (Jan, Feb, etc.)
+    function getMonthName(uint256 month) internal pure returns (string memory) {
+        if (month == 1) return "Jan";
+        if (month == 2) return "Feb";
+        if (month == 3) return "Mar";
+        if (month == 4) return "Apr";
+        if (month == 5) return "May";
+        if (month == 6) return "Jun";
+        if (month == 7) return "Jul";
+        if (month == 8) return "Aug";
+        if (month == 9) return "Sep";
+        if (month == 10) return "Oct";
+        if (month == 11) return "Nov";
+        if (month == 12) return "Dec";
+        return "";
+    }
+
+    /// @notice Format date as ISO "2026-06-01" for CBT symbol (architecture §3.4)
+    function formatDateISO(uint256 timestamp) internal pure returns (string memory) {
+        (uint256 year, uint256 month, uint256 day) = timestampToDate(timestamp);
+        return string(
+            abi.encodePacked(
+                uintToString(year),
+                "-",
+                month < 10 ? "0" : "",
+                uintToString(month),
+                "-",
+                day < 10 ? "0" : "",
+                uintToString(day)
+            )
+        );
+    }
+
+    /// @notice Format name as "Centuari Bond USDC Jun 2026" (architecture §3.5)
+    function formatBondName(string memory tokenSymbol, uint256 timestamp) internal pure returns (string memory) {
+        (uint256 year, uint256 month,) = timestampToDate(timestamp);
+        return string(
+            abi.encodePacked(
+                "Centuari Bond ",
+                tokenSymbol,
+                " ",
+                getMonthName(month),
+                " ",
+                uintToString(year)
+            )
+        );
+    }
+
+    /// @notice Format symbol as "CBT-USDC-2026-06-01" (architecture §3.4)
+    function formatBondSymbol(string memory tokenSymbol, uint256 timestamp) internal pure returns (string memory) {
+        return string(
+            abi.encodePacked(
+                "CBT-",
+                tokenSymbol,
+                "-",
+                formatDateISO(timestamp)
+            )
+        );
+    }
+
     /// @notice Convert uint to string
     /// @param value The uint value to convert
     /// @return The string representation

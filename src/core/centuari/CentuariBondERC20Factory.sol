@@ -155,7 +155,8 @@ contract CentuariBondERC20Factory {
         emit BondTokenCreated(marketId, bondToken, loanToken, maturity, name, symbol);
     }
 
-    /// @notice Generate token name (e.g., "CBT USDC 1 Jan 2025")
+    /// @notice Generate token name (e.g., "Centuari Bond USDC Jun 2026")
+    /// @dev Architecture §3.5: name format "Centuari Bond {ASSET} {Mon} {YYYY}"
     /// @param tokenSymbol The underlying token symbol
     /// @param maturity The maturity timestamp
     /// @return The generated name
@@ -164,12 +165,11 @@ contract CentuariBondERC20Factory {
         pure
         returns (string memory)
     {
-        return string(
-            abi.encodePacked("CBT ", tokenSymbol, " ", DateTime.formatDate(maturity))
-        );
+        return DateTime.formatBondName(tokenSymbol, maturity);
     }
 
-    /// @notice Generate token symbol (e.g., "CBT-USDC-1JAN25")
+    /// @notice Generate token symbol (e.g., "CBT-USDC-2026-06-01")
+    /// @dev Architecture §3.4: symbol format "CBT-{ASSET}-{YYYY}-{MM}-{DD}"
     /// @param tokenSymbol The underlying token symbol
     /// @param maturity The maturity timestamp
     /// @return The generated symbol
@@ -178,9 +178,7 @@ contract CentuariBondERC20Factory {
         pure
         returns (string memory)
     {
-        return string(
-            abi.encodePacked("CBT-", tokenSymbol, "-", DateTime.formatDateSymbol(maturity))
-        );
+        return DateTime.formatBondSymbol(tokenSymbol, maturity);
     }
 
     /// @notice Get the symbol of a token, with safe handling for non-contract addresses
