@@ -33,6 +33,13 @@ abstract contract YieldRouterStorage {
     /// @notice Authorized callers
     mapping(address => bool) internal _authorizedCallers;
 
+    /// @notice Per-user per-asset per-adapter shares tracking
+    /// user => asset => adapter => shares
+    mapping(address => mapping(address => mapping(address => uint256))) internal _userAdapterShares;
+
+    /// @notice Registered adapters (for iteration during recall)
+    address[] internal _registeredAdapters;
+
     /// @notice Max per-protocol allocation in BPS
     uint256 internal constant _MAX_PER_PROTOCOL_BPS = 6000;
 
