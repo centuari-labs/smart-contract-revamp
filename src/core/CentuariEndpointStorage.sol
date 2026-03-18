@@ -33,6 +33,13 @@ abstract contract CentuariEndpointStorage {
     /// @notice Grace period states per position
     mapping(bytes32 => ICentuariEndpoint.GracePeriodStart) internal _gracePeriods;
 
+    /// @notice CentuariRateOracle for anchor rate verification
+    address internal _rateOracle;
+
+    /// @notice Signer update timelock: timestamp when new signer can be applied
+    uint256 internal _signerUpdateTimelockEnd;
+    address internal _pendingSigner;
+
     /// @notice Timestamp tolerance for batch validation (±60 seconds)
     uint256 internal constant TIMESTAMP_TOLERANCE = 60;
 
@@ -45,7 +52,17 @@ abstract contract CentuariEndpointStorage {
     /// @notice Seconds per year for interest computation
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
 
+    /// @notice Protocol rate bounds (§3.13)
+    uint256 internal constant MIN_RATE_BPS = 10;     // 0.10% floor
+    uint256 internal constant MAX_RATE_BPS = 10000;  // 100.00% ceiling
+
+    /// @notice Anchor rate tolerance for rollover/refinance (±50 bps)
+    uint256 internal constant ANCHOR_RATE_TOLERANCE_BPS = 50;
+
+    /// @notice Signer update timelock duration (48 hours)
+    uint256 internal constant SIGNER_UPDATE_TIMELOCK = 48 hours;
+
     // ============ Gap ============
 
-    uint256[38] private __gap;
+    uint256[35] private __gap;
 }
