@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.sol";
+
+import {IWithdrawalRegistry} from "../interfaces/IWithdrawalRegistry.sol";
+import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
+import {WithdrawalRegistryStorage} from "./WithdrawalRegistryStorage.sol";
+
+/// @title WithdrawalRegistry
+/// @notice Manages withdrawal requests with sequential enforcement and SLA
+/// @dev Security Invariant #4: SpokePayout cannot release until recall confirmed.
+///      MAX_WITHDRAWAL_QUEUE_HOURS = 4 with escalation path.
+contract WithdrawalRegistry is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    WithdrawalRegistryStorage,
+    IWithdrawalRegistry
+{
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() { _disableInitializers(); }
+
+    function initialize(address owner_, address balanceLedger_) external initializer {
+        if (owner_ == address(0) || balanceLedger_ == address(0)) revert ZeroAddress();
+        __Ownable_init(owner_);
+        __ReentrancyGuard_init();
+        _balanceLedger = balanceLedger_;
+    }
+
+    modifier onlyAuthorized() {
+        if (!_authorizedCallers[msg.sender]) revert Unauthorized();
+        _;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function MAX_WITHDRAWAL_QUEUE_HOURS() external pure override returns (uint256) {
+        return _MAX_WITHDRAWAL_QUEUE_HOURS;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function requestWithdrawal(
+        address asset,
+        uint256 amount,
+        uint256 targetChainId
+    ) external override nonReentrant returns (bytes32 requestId) {
+        if (amount == 0) revert ZeroAmount();
+
+        requestId = keccak256(abi.encode(msg.sender, asset, amount, ++_requestCounter, block.timestamp));
+
+        IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
+        uint256 available = ledger.getAvailable(msg.sender, asset);
+
+        WithdrawalState initialState;
+        if (available >= amount) {
+            // Instant: debit immediately
+            ledger.debit(msg.sender, asset, amount);
+            initialState = WithdrawalState.PROCESSING;
+        } else {
+            // Queued: needs YieldRouter recall
+            initialState = WithdrawalState.PENDING;
+        }
+
+        _requests[requestId] = WithdrawalRequest({
+            user: msg.sender,
+            asset: asset,
+            amount: amount,
+            requestedAt: block.timestamp,
+            targetChainId: targetChainId,
+            state: initialState
+        });
+
+        emit WithdrawalRequested(requestId, msg.sender, asset, amount, targetChainId);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function authorize(bytes32 requestId) external override onlyAuthorized {
+        WithdrawalRequest storage req = _requests[requestId];
+        if (req.requestedAt == 0) revert WithdrawalNotFound(requestId);
+        if (req.state != WithdrawalState.PENDING && req.state != WithdrawalState.PROCESSING) {
+            revert InvalidState(requestId, req.state, WithdrawalState.PROCESSING);
+        }
+
+        _authorized[requestId] = true;
+        req.state = WithdrawalState.PROCESSING;
+
+        emit WithdrawalAuthorized(requestId);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function complete(bytes32 requestId) external override onlyAuthorized {
+        WithdrawalRequest storage req = _requests[requestId];
+        if (req.requestedAt == 0) revert WithdrawalNotFound(requestId);
+        if (req.state != WithdrawalState.PROCESSING) {
+            revert InvalidState(requestId, req.state, WithdrawalState.PROCESSING);
+        }
+
+        req.state = WithdrawalState.COMPLETED;
+        emit WithdrawalCompleted(requestId);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function escalate(bytes32 requestId) external override {
+        WithdrawalRequest storage req = _requests[requestId];
+        if (req.requestedAt == 0) revert WithdrawalNotFound(requestId);
+
+        uint256 elapsed = block.timestamp - req.requestedAt;
+        if (elapsed < _MAX_WITHDRAWAL_QUEUE_HOURS * 1 hours) {
+            revert InvalidState(requestId, req.state, WithdrawalState.ESCALATED);
+        }
+
+        req.state = WithdrawalState.ESCALATED;
+        emit WithdrawalEscalated(requestId, elapsed);
+    }
+
+    // ============ View ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function getRequest(bytes32 requestId) external view override returns (WithdrawalRequest memory) {
+        return _requests[requestId];
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function isAuthorized(bytes32 requestId) external view override returns (bool) {
+        return _authorized[requestId];
+    }
+
+    // ============ Admin ============
+
+    function setAuthorizedCaller(address caller, bool authorized_) external onlyOwner {
+        _authorizedCallers[caller] = authorized_;
+    }
+
+    function setYieldRouter(address yr) external onlyOwner {
+        _yieldRouter = yr;
+    }
+}
