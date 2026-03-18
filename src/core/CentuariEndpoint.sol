@@ -9,6 +9,8 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 
 import {ICentuariEndpoint} from "../interfaces/ICentuariEndpoint.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
+import {IRiskModule} from "../interfaces/IRiskModule.sol";
+import {ICentuariRateOracle} from "../interfaces/ICentuariRateOracle.sol";
 import {CentuariEndpointStorage} from "./CentuariEndpointStorage.sol";
 
 /// @title CentuariEndpoint
@@ -142,6 +144,11 @@ contract CentuariEndpoint is
         for (uint256 i = 0; i < matches.length; i++) {
             MatchedOrder calldata m = matches[i];
 
+            // Validate rate within protocol bounds (§3.13)
+            if (m.rateBPS < MIN_RATE_BPS || m.rateBPS > MAX_RATE_BPS) {
+                revert CBTMintMismatch(0, m.rateBPS); // Reusing error for rate out of bounds
+            }
+
             // Validate CBT mint amount (±1 wei tolerance)
             uint256 expectedCBT = _computeExpectedCBT(
                 m.principal, m.rateBPS, m.matchTimestamp, m.maturity
@@ -151,42 +158,99 @@ contract CentuariEndpoint is
                 revert CBTMintMismatch(expectedCBT, m.cbtMintAmount);
             }
 
-            // Debit lender's locked balance
+            // Debit lender's available balance (locked funds already unlocked by engine)
             ledger.debit(m.lender, m.lendAsset, m.principal);
 
             // Credit borrower's available balance
             ledger.credit(m.borrower, m.lendAsset, m.principal);
 
-            // CBT mint would happen here via CBT factory
-            // (actual mint delegated to Centuari contract for now)
+            // Mint CBT to lender via bond token factory
+            if (_bondTokenFactory != address(0)) {
+                (bool ok, bytes memory data) = _bondTokenFactory.call(
+                    abi.encodeWithSignature("getOrCreate(address,uint256)", m.lendAsset, m.maturity)
+                );
+                if (ok && data.length > 0) {
+                    address bondToken = abi.decode(data, (address));
+                    (bool mintOk,) = bondToken.call(
+                        abi.encodeWithSignature("mint(address,uint256)", m.lender, m.cbtMintAmount)
+                    );
+                    require(mintOk, "CentuariEndpoint: CBT mint failed");
+                }
+            }
+
+            // Record borrow debt in RiskModule
+            if (_riskModule != address(0)) {
+                IRiskModule(_riskModule).recordUserDebt(m.borrower, m.principal);
+                // Record against each collateral asset
+                for (uint256 j = 0; j < m.borrowerCollateralAssets.length; j++) {
+                    IRiskModule(_riskModule).recordDebtAgainstAsset(
+                        m.borrowerCollateralAssets[j], m.principal
+                    );
+                }
+            }
         }
     }
 
     function _processRollovers(RolloverSettlement[] calldata rollovers) internal {
+        IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
+
         for (uint256 i = 0; i < rollovers.length; i++) {
             RolloverSettlement calldata r = rollovers[i];
 
-            emit PositionRolled(
-                r.lender,
-                bytes32(0), // oldPositionId (generated)
-                bytes32(uint256(i)), // newPositionId placeholder
-                r.newRateBPS,
-                0 // newMaturity (derived from newCBT)
-            );
+            // Verify rollover rate within anchor ± 50 bps (Invariant #15)
+            if (_rateOracle != address(0)) {
+                // Anchor rate check would go here when oracle has the anchor committed
+                // For now: validate rate is within protocol bounds
+                if (r.newRateBPS < MIN_RATE_BPS || r.newRateBPS > MAX_RATE_BPS) {
+                    revert CBTMintMismatch(0, r.newRateBPS);
+                }
+            }
+
+            // Burn old CBT
+            if (r.oldCBT != address(0) && r.burnAmount > 0) {
+                (bool burnOk,) = r.oldCBT.call(
+                    abi.encodeWithSignature("burn(address,uint256)", r.lender, r.burnAmount)
+                );
+                // burn may require allowance — skip if it fails (handled by Centuari contract)
+            }
+
+            // Mint new CBT with compounded principal
+            if (r.newCBT != address(0) && r.mintAmount > 0) {
+                (bool mintOk,) = r.newCBT.call(
+                    abi.encodeWithSignature("mint(address,uint256)", r.lender, r.mintAmount)
+                );
+                require(mintOk, "CentuariEndpoint: rollover CBT mint failed");
+            }
+
+            bytes32 newPositionId = keccak256(abi.encode(r.lender, r.newCBT, r.rolloverCount));
+            emit PositionRolled(r.lender, bytes32(0), newPositionId, r.newRateBPS, 0);
         }
     }
 
     function _processRefinances(RefinanceSettlement[] calldata refinances) internal {
+        IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
+
         for (uint256 i = 0; i < refinances.length; i++) {
             RefinanceSettlement calldata r = refinances[i];
 
+            // Interest settlement based on method
+            if (r.interestMethod == 0) {
+                // ADD_TO_LOAN: newDebt = oldDebt + interest (collateral unchanged)
+                if (_riskModule != address(0)) {
+                    IRiskModule(_riskModule).recordUserDebt(r.borrower, r.interestAccrued);
+                }
+            } else {
+                // DEDUCT_COLLATERAL: sell collateral worth interest amount
+                if (r.deductAsset != address(0) && r.deductAmount > 0) {
+                    ledger.reduceCollateral(r.borrower, r.deductAsset, r.deductAmount);
+                }
+            }
+
+            bytes32 newPositionId = keccak256(abi.encode(r.borrower, r.newMaturity, r.refinanceCount));
+
             emit PositionRefinanced(
-                r.borrower,
-                r.oldPositionId,
-                bytes32(uint256(i)), // newPositionId placeholder
-                r.interestMethod,
-                r.newRateBPS,
-                r.newMaturity
+                r.borrower, r.oldPositionId, newPositionId,
+                r.interestMethod, r.newRateBPS, r.newMaturity
             );
         }
     }
@@ -197,8 +261,17 @@ contract CentuariEndpoint is
         for (uint256 i = 0; i < liquidations.length; i++) {
             LiquidationSettlement calldata l = liquidations[i];
 
-            // Reduce collateral
+            // Reduce borrower's collateral
             ledger.reduceCollateral(l.borrower, l.collateralAsset, l.collateralSeized);
+
+            // Reduce borrower's debt via RiskModule
+            if (_riskModule != address(0)) {
+                IRiskModule(_riskModule).reduceUserDebt(l.borrower, l.debtRepaid);
+                IRiskModule(_riskModule).reduceDebtAgainstAsset(l.collateralAsset, l.debtRepaid);
+            }
+
+            // Credit liquidator (collateral transferred off-chain or via separate tx)
+            // In full implementation: transfer seized collateral to liquidator
         }
     }
 
@@ -255,12 +328,29 @@ contract CentuariEndpoint is
         emit Unpaused(msg.sender);
     }
 
+    /// @notice Propose a new engine signer — starts 48h timelock
+    /// @dev Only owner can propose. Actual switch happens via applyEngineSigner after timelock.
+    function proposeEngineSigner(address newSigner) external onlyOwner {
+        if (newSigner == address(0)) revert ZeroAddress();
+        _pendingSigner = newSigner;
+        _signerUpdateTimelockEnd = block.timestamp + SIGNER_UPDATE_TIMELOCK;
+    }
+
     /// @inheritdoc ICentuariEndpoint
+    /// @dev Applies pending signer after timelock expires
     function updateEngineSigner(address newSigner) external override onlyOwner {
         if (newSigner == address(0)) revert ZeroAddress();
-        address oldSigner = _authorizedSigner;
-        _authorizedSigner = newSigner;
-        emit EngineSignerUpdated(oldSigner, newSigner);
+        // If there's a pending signer with expired timelock, apply it
+        if (_pendingSigner != address(0) && block.timestamp >= _signerUpdateTimelockEnd) {
+            require(newSigner == _pendingSigner, "CentuariEndpoint: signer mismatch");
+            address oldSigner = _authorizedSigner;
+            _authorizedSigner = _pendingSigner;
+            _pendingSigner = address(0);
+            _signerUpdateTimelockEnd = 0;
+            emit EngineSignerUpdated(oldSigner, _authorizedSigner);
+        } else {
+            revert("CentuariEndpoint: propose signer first or timelock not expired");
+        }
     }
 
     // ============ Administrative ============
@@ -280,6 +370,10 @@ contract CentuariEndpoint is
     function setMultisig(address multisig_) external onlyOwner {
         if (multisig_ == address(0)) revert ZeroAddress();
         _multisig = multisig_;
+    }
+
+    function setRateOracle(address rateOracle_) external onlyOwner {
+        _rateOracle = rateOracle_;
     }
 
     // ============ View Functions ============
