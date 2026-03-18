@@ -5,6 +5,9 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {IAssetBehaviorRegistry} from "../interfaces/IAssetBehaviorRegistry.sol";
@@ -23,6 +26,8 @@ contract BalanceLedger is
     BalanceLedgerStorage,
     IBalanceLedger
 {
+    using SafeERC20 for IERC20;
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -241,6 +246,50 @@ contract BalanceLedger is
 
         if (!found) revert CollateralNotFound();
         emit CollateralReduced(user, asset, amount);
+    }
+
+    // ============ User-Facing Deposit / Withdraw ============
+
+    /// @notice Deposit tokens into the protocol — transfers ERC20 and credits available balance
+    /// @param asset The token to deposit
+    /// @param amount The amount to deposit
+    function deposit(address asset, uint256 amount) external whenNotPaused nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        _balances[msg.sender][asset].available += amount;
+
+        emit BalanceCredited(msg.sender, asset, amount);
+    }
+
+    /// @notice Withdraw tokens from the protocol — debits available balance and transfers ERC20
+    /// @param asset The token to withdraw
+    /// @param amount The amount to withdraw
+    function withdraw(address asset, uint256 amount) external whenNotPaused nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        if (_balances[msg.sender][asset].available < amount) revert InsufficientAvailable();
+
+        _balances[msg.sender][asset].available -= amount;
+        IERC20(asset).safeTransfer(msg.sender, amount);
+
+        emit BalanceDebited(msg.sender, asset, amount);
+    }
+
+    /// @notice Update cached USD value for a collateral position (called by CollateralRegistry)
+    /// @param user The user address
+    /// @param asset The collateral asset
+    /// @param newUsdValue The new USD value
+    function updateCollateralUsdValue(
+        address user,
+        address asset,
+        uint256 newUsdValue
+    ) external onlyAuthorized {
+        for (uint256 i = 0; i < _collateral[user].length; i++) {
+            if (_collateral[user][i].asset == asset) {
+                _collateral[user][i].usdValueCached = newUsdValue;
+                return;
+            }
+        }
     }
 
     // ============ Administrative Functions ============
