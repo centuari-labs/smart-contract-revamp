@@ -18,6 +18,7 @@ contract TreasuryTest is Test {
     address public lender = address(5);
     address public borrower = address(6);
     address public centuariContract = address(7);
+    address public operator = address(8);
 
     bytes32 public constant TOKEN_MANAGER_ROLE =
         keccak256("TOKEN_MANAGER_ROLE");
@@ -67,6 +68,9 @@ contract TreasuryTest is Test {
         token = new ERC20Mock();
         unsupportedToken = new ERC20Mock();
 
+        // Set operator
+        treasury.setOperator(operator);
+
         // Grant roles
         treasury.grantRole(TOKEN_MANAGER_ROLE, tokenManager);
 
@@ -80,6 +84,7 @@ contract TreasuryTest is Test {
         token.mint(user2, 1000 ether);
         token.mint(lender, 1000 ether);
         token.mint(borrower, 1000 ether);
+        token.mint(operator, 1000 ether);
     }
 
     // ========== setSupportedToken Tests ==========
@@ -211,65 +216,65 @@ contract TreasuryTest is Test {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
-        vm.startPrank(user1);
+        vm.startPrank(operator);
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
 
         // Withdraw
         vm.expectEmit(true, true, false, true);
-        emit Withdrawn(user1, address(token), 50 ether);
-        treasury.withdraw(address(token), user1, 50 ether);
+        emit Withdrawn(operator, address(token), 50 ether);
+        treasury.withdraw(address(token), operator, 50 ether);
         vm.stopPrank();
 
         // Verify balances
-        assertEq(treasury.balanceOf(user1, address(token)), 50 ether);
+        assertEq(treasury.balanceOf(operator, address(token)), 50 ether);
         assertEq(token.balanceOf(address(treasury)), 50 ether);
-        assertEq(token.balanceOf(user1), 950 ether);
+        assertEq(token.balanceOf(operator), 950 ether);
     }
 
     function test_Withdraw_Revert_InsufficientBalance() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
-        vm.prank(user1);
+        vm.prank(operator);
         vm.expectRevert(ITreasury.InsufficientFunds.selector);
-        treasury.withdraw(address(token), user1, 100 ether);
+        treasury.withdraw(address(token), operator, 100 ether);
     }
 
     function test_Withdraw_Revert_TokenNotSupported() public {
-        vm.prank(user1);
+        vm.prank(operator);
         vm.expectRevert(ITreasury.Unauthorized.selector);
-        treasury.withdraw(address(unsupportedToken), user1, 100 ether);
+        treasury.withdraw(address(unsupportedToken), operator, 100 ether);
     }
 
     function test_Withdraw_Revert_ZeroAmount() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
-        vm.prank(user1);
+        vm.prank(operator);
         vm.expectRevert(ITreasury.InvalidAmount.selector);
-        treasury.withdraw(address(token), user1, 0);
+        treasury.withdraw(address(token), operator, 0);
     }
 
     function test_Withdraw_ExactBalance() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
-        vm.startPrank(user1);
+        vm.startPrank(operator);
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
 
-        treasury.withdraw(address(token), user1, 100 ether);
+        treasury.withdraw(address(token), operator, 100 ether);
         vm.stopPrank();
 
-        assertEq(treasury.balanceOf(user1, address(token)), 0);
+        assertEq(treasury.balanceOf(operator, address(token)), 0);
     }
 
     function test_Withdraw_WhenPaused_Revert() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
-        vm.startPrank(user1);
+        vm.startPrank(operator);
         token.approve(address(treasury), 100 ether);
         treasury.deposit(address(token), 100 ether);
         vm.stopPrank();
@@ -277,9 +282,9 @@ contract TreasuryTest is Test {
         vm.prank(admin);
         treasury.pause();
 
-        vm.prank(user1);
+        vm.prank(operator);
         vm.expectRevert();
-        treasury.withdraw(address(token), user1, 50 ether);
+        treasury.withdraw(address(token), operator, 50 ether);
     }
 
     // ========== repay Tests ==========
@@ -431,7 +436,14 @@ contract TreasuryTest is Test {
         // Settlement
         vm.prank(centuariContract);
         vm.expectEmit(true, true, true, true);
-        emit SettlementExecuted(address(token), lender, borrower, 50 ether, 0, 0);
+        emit SettlementExecuted(
+            address(token),
+            lender,
+            borrower,
+            50 ether,
+            0,
+            0
+        );
         treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
 
         // Verify balances
@@ -467,8 +479,22 @@ contract TreasuryTest is Test {
         // Settlement with fees: 50 ether amount, 5 ether lender fee, 3 ether borrower fee
         vm.prank(centuariContract);
         vm.expectEmit(true, true, true, true);
-        emit SettlementExecuted(address(token), lender, borrower, 50 ether, 5 ether, 3 ether);
-        treasury.settle(address(token), lender, borrower, 50 ether, 5 ether, 3 ether);
+        emit SettlementExecuted(
+            address(token),
+            lender,
+            borrower,
+            50 ether,
+            5 ether,
+            3 ether
+        );
+        treasury.settle(
+            address(token),
+            lender,
+            borrower,
+            50 ether,
+            5 ether,
+            3 ether
+        );
 
         // Verify balances
         // Lender loses: 50 ether (amount) + 5 ether (lender fee) = 55 ether
@@ -476,7 +502,10 @@ contract TreasuryTest is Test {
         // Borrower gains: 50 ether (amount) - 3 ether (borrower fee) = 47 ether
         assertEq(treasury.balanceOf(borrower, address(token)), 47 ether);
         // Treasury gains: 5 ether (lender fee) + 3 ether (borrower fee) = 8 ether
-        assertEq(treasury.balanceOf(address(treasury), address(token)), 8 ether);
+        assertEq(
+            treasury.balanceOf(address(treasury), address(token)),
+            8 ether
+        );
     }
 
     function test_Settlement_Revert_TokenNotSupported() public {
@@ -549,6 +578,14 @@ contract TreasuryTest is Test {
         assertEq(treasury.balanceOf(user1, address(token)), 100 ether);
     }
 
+    // ========== setOperator Tests ==========
+    function test_SetOperator_Success() public {
+        vm.prank(admin);
+        treasury.setOperator(operator);
+
+        assertEq(treasury.getOperator(), operator);
+    }
+
     // ========== Pause Tests ==========
 
     function test_Pause_Success() public {
@@ -602,8 +639,10 @@ contract TreasuryTest is Test {
         vm.startPrank(user1);
         token.approve(address(treasury), depositAmount);
         treasury.deposit(address(token), depositAmount);
-        treasury.withdraw(address(token), user1, withdrawAmount);
         vm.stopPrank();
+
+        vm.prank(operator);
+        treasury.withdraw(address(token), user1, withdrawAmount);
 
         assertEq(
             treasury.balanceOf(user1, address(token)),

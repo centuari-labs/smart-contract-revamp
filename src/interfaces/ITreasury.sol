@@ -43,6 +43,11 @@ interface ITreasury {
         uint256 amount
     );
 
+    event OperatorUpdated(
+        address indexed oldOperator,
+        address indexed newOperator
+    );
+
     /// @notice Emitted when a user withdraws tokens
     /// @param user The user address
     /// @param token The token address
@@ -186,9 +191,15 @@ interface ITreasury {
         address token
     ) external view returns (uint256);
 
+    /// @notice Set operator address
+    function setOperator(address newOperator) external;
+
     /// @notice Pause contract operations
     function pause() external;
 
     /// @notice Unpause contract operations
     function unpause() external;
+
+    /// @notice Get operator address
+    function getOperator() external view returns (address);
 }

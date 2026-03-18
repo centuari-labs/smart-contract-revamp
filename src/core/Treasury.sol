@@ -13,15 +13,8 @@ import {
 
 import {ITreasury} from "../interfaces/ITreasury.sol";
 import {CentuariBondERC20} from "./centuari/CentuariBondERC20.sol";
-import {CentuariStorage} from "./centuari/CentuariStorage.sol";
 
-contract Treasury is
-    AccessControl,
-    Pausable,
-    ReentrancyGuard,
-    ITreasury,
-    CentuariStorage
-{
+contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     using SafeERC20 for IERC20;
 
     bytes32 public constant TOKEN_MANAGER_ROLE =
@@ -35,6 +28,8 @@ contract Treasury is
 
     //@note : should use uuid from the assets id instead of address
     mapping(address => bool) public supportedToken;
+
+    address internal operator;
 
     address public centuariContract;
 
@@ -55,7 +50,7 @@ contract Treasury is
     }
 
     modifier onlyOperator() {
-        if (msg.sender != _operator) revert Unauthorized();
+        if (msg.sender != operator) revert Unauthorized();
         _;
     }
 
@@ -279,11 +274,23 @@ contract Treasury is
         return balances[user][token];
     }
 
+    function setOperator(
+        address newOperator
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newOperator == address(0)) revert ZeroAddress();
+        operator = newOperator;
+        emit OperatorUpdated(operator, newOperator);
+    }
+
     function pause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
     function unpause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    function getOperator() external view returns (address) {
+        return operator;
     }
 }
