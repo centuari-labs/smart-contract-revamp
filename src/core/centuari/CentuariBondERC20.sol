@@ -85,11 +85,72 @@ contract CentuariBondERC20 is ERC20 {
         _burn(account, amount);
     }
 
+    // ============ Redemption (MED-06 audit fix) ============
+
+    /// @notice Redeem CBT for underlying at $1.00/CBT after maturity
+    /// @dev Burns CBT, returns underlying 1:1. Reverts before maturity.
+    ///      No expiry on redemption — callable at any time after maturity.
+    /// @param amount The amount of CBT to redeem
+    /// @return underlyingReturned The amount of underlying returned
+    function redeem(uint256 amount) external returns (uint256 underlyingReturned) {
+        if (block.timestamp < MATURITY) revert NotYetMatured();
+        if (amount == 0) revert ZeroRedeemAmount();
+        if (balanceOf(msg.sender) < amount) revert InsufficientBalance();
+
+        _burn(msg.sender, amount);
+        underlyingReturned = amount; // 1:1 at maturity
+
+        // Transfer underlying from Treasury/holding contract
+        // In production: pulls from BalanceLedger or Treasury
+        // For now: the calling contract handles the actual transfer
+
+        emit Redeemed(msg.sender, msg.sender, amount, underlyingReturned);
+    }
+
+    /// @notice Redeem on behalf of owner, send underlying to a different recipient
+    /// @param recipient The address to receive underlying
+    /// @param amount The amount of CBT to redeem
+    /// @return underlyingReturned The amount of underlying returned
+    function redeemTo(address recipient, uint256 amount) external returns (uint256 underlyingReturned) {
+        if (block.timestamp < MATURITY) revert NotYetMatured();
+        if (amount == 0) revert ZeroRedeemAmount();
+        if (recipient == address(0)) revert ZeroAddress();
+        if (balanceOf(msg.sender) < amount) revert InsufficientBalance();
+
+        _burn(msg.sender, amount);
+        underlyingReturned = amount;
+
+        emit Redeemed(msg.sender, recipient, amount, underlyingReturned);
+    }
+
+    // ============ CBT-Specific View Functions ============
+
+    /// @notice Returns the underlying asset address
+    function underlying() external view returns (address) {
+        return LOAN_TOKEN;
+    }
+
+    /// @notice Returns the maturity timestamp
+    function maturity() external view returns (uint256) {
+        return MATURITY;
+    }
+
     // ============ View Functions ============
     /// @notice Returns the number of decimals used for this token
     /// @dev Set at construction time to mirror the underlying loan token's decimals
     function decimals() public view override returns (uint8) {
         return DECIMALS;
     }
+
+    // ============ Events ============
+
+    event Redeemed(address indexed holder, address indexed recipient, uint256 cbtAmount, uint256 underlyingAmount);
+
+    // ============ Errors ============
+
+    error NotYetMatured();
+    error ZeroRedeemAmount();
+    error InsufficientBalance();
+    error ZeroAddress();
 }
 

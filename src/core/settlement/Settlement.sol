@@ -176,6 +176,10 @@ contract Settlement is
         if (matchData.maturity == 0) revert InvalidMatchData();
         if (matchData.timestamp == 0) revert InvalidMatchData();
         if (matchData.lender == matchData.borrower) revert InvalidMatchData();
+
+        // Validate marketId matches expected hash of (loanToken, maturity)
+        bytes32 expectedMarketId = keccak256(abi.encode(matchData.loanToken, matchData.maturity));
+        if (matchData.marketId != expectedMarketId) revert InvalidMatchData();
     }
 
     // ============ Administrative Functions ============

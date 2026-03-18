@@ -262,7 +262,11 @@ contract Centuari is
         emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, cbtAmount);
     }
 
-    /// @notice Interest using day-count convention: start+1 = day 1, maturity-1 = last day (e.g. Jan 1 -> Feb 1 = 30 days)
+    /// @notice Interest using seconds-based computation matching the canonical BigInt formula
+    /// @dev interest = (principal * rateBPS * elapsedSeconds) / (RATE_PRECISION * SECONDS_PER_YEAR)
+    ///      This aligns with the architecture's off-chain BigInt formula:
+    ///      interest = (principal * rateBPS * scaledTime) / 10000 / 1e9
+    ///      where scaledTime = Math.round(timeInYears * 1e9)
     /// @param principal The principal amount
     /// @param rate The interest rate in basis points (e.g., 1000 = 10%)
     /// @param start The settlement/start timestamp
@@ -274,9 +278,9 @@ contract Centuari is
         uint256 start,
         uint256 maturity
     ) internal pure returns (uint256 interest) {
-        uint256 rawDays = (maturity - start) / 1 days;
-        uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
-        interest = (principal * rate * days_) / (RATE_PRECISION * 365);
+        if (maturity <= start) return 0;
+        uint256 elapsedSeconds = maturity - start;
+        interest = (principal * rate * elapsedSeconds) / (RATE_PRECISION * SECONDS_PER_YEAR);
     }
 
     /// @notice Calculate market ID from loan token and maturity
