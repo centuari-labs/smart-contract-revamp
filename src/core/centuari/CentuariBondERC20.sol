@@ -2,13 +2,14 @@
 pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title CentuariBondERC20
 /// @notice ERC20 token representing a lender's bond position in a specific market
 /// @dev Each bond token is unique to a (loanToken, maturity) pair.
 ///      Only the Centuari contract (minter) can mint tokens.
-///      Tokens are fully transferable.
-contract CentuariBondERC20 is ERC20 {
+///      Tokens are fully transferable. redeem/redeemTo use nonReentrant (MED-06).
+contract CentuariBondERC20 is ERC20, ReentrancyGuard {
     // ============ Errors ============
 
     /// @notice Thrown when caller is not the minter
@@ -92,7 +93,7 @@ contract CentuariBondERC20 is ERC20 {
     ///      No expiry on redemption — callable at any time after maturity.
     /// @param amount The amount of CBT to redeem
     /// @return underlyingReturned The amount of underlying returned
-    function redeem(uint256 amount) external returns (uint256 underlyingReturned) {
+    function redeem(uint256 amount) external nonReentrant returns (uint256 underlyingReturned) {
         if (block.timestamp < MATURITY) revert NotYetMatured();
         if (amount == 0) revert ZeroRedeemAmount();
         if (balanceOf(msg.sender) < amount) revert InsufficientBalance();
@@ -111,7 +112,7 @@ contract CentuariBondERC20 is ERC20 {
     /// @param recipient The address to receive underlying
     /// @param amount The amount of CBT to redeem
     /// @return underlyingReturned The amount of underlying returned
-    function redeemTo(address recipient, uint256 amount) external returns (uint256 underlyingReturned) {
+    function redeemTo(address recipient, uint256 amount) external nonReentrant returns (uint256 underlyingReturned) {
         if (block.timestamp < MATURITY) revert NotYetMatured();
         if (amount == 0) revert ZeroRedeemAmount();
         if (recipient == address(0)) revert ZeroAddress();
