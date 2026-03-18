@@ -31,6 +31,13 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
 
     address public centuariContract;
 
+    address public operator;
+
+    modifier onlyOperatorOrAdmin() {
+        if (msg.sender != operator && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert Unauthorized();
+        _;
+    }
+
     modifier onlySupportedToken(address token) {
         if (!supportedToken[token]) revert Unauthorized();
         _;
@@ -96,7 +103,6 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         emit Deposited(msg.sender, token, amount);
     }
 
-    //@todo : add access control only operator
     function withdraw(
         address token,
         address to,
@@ -106,6 +112,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         override
         nonReentrant
         whenNotPaused
+        onlyOperatorOrAdmin
         onlySupportedToken(token)
         nonZeroAmount(amount)
     {
@@ -263,6 +270,10 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         address token
     ) external view override returns (uint256) {
         return balances[user][token];
+    }
+
+    function setOperator(address operator_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        operator = operator_;
     }
 
     function pause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
