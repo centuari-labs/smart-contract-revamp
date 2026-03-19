@@ -29,6 +29,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     //@note : should use uuid from the assets id instead of address
     mapping(address => bool) public supportedToken;
 
+    address internal operator;
+
     address public centuariContract;
 
     modifier onlySupportedToken(address token) {
@@ -44,6 +46,11 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
     modifier onlyCentuari() {
         if (centuariContract == address(0)) revert Unauthorized();
         if (msg.sender != centuariContract) revert Unauthorized();
+        _;
+    }
+
+    modifier onlyOperator() {
+        if (msg.sender != operator) revert Unauthorized();
         _;
     }
 
@@ -108,6 +115,7 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         whenNotPaused
         onlySupportedToken(token)
         nonZeroAmount(amount)
+        onlyOperator
     {
         if (balances[to][token] < amount) revert InsufficientFunds();
 
@@ -223,7 +231,8 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         uint256 totalFromLender = amount + lenderSettlementFee;
 
         // Check lender has sufficient balance
-        if (balances[from][loanToken] < totalFromLender) revert InsufficientFunds();
+        if (balances[from][loanToken] < totalFromLender)
+            revert InsufficientFunds();
 
         // Calculate net amount borrower receives (after borrower settlement fee)
         uint256 netAmountToBorrower = amount;
@@ -265,11 +274,23 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         return balances[user][token];
     }
 
+    function setOperator(
+        address newOperator
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newOperator == address(0)) revert ZeroAddress();
+        operator = newOperator;
+        emit OperatorUpdated(operator, newOperator);
+    }
+
     function pause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
     function unpause() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    function getOperator() external view returns (address) {
+        return operator;
     }
 }
