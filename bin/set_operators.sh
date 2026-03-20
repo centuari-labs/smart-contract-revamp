@@ -136,8 +136,8 @@ set_operator_for_contract "Settlement" "$SETTLEMENT_ADDR" "SETTLEMENT_OPERATOR"
 # Faucet: BACKEND_OPERATOR
 set_operator_for_contract "Faucet" "$FAUCET_ADDR" "BACKEND_OPERATOR"
 
-# Treasury: TREASURY_OPERATOR
-set_operator_for_contract "Treasury" "$TREASURY_ADDR" "TREASURY_OPERATOR"
+# Treasury: BACKEND_OPERATOR
+set_operator_for_contract "Treasury" "$TREASURY_ADDR" "BACKEND_OPERATOR"
 
 echo "Done setting operators."
 
