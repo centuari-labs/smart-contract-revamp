@@ -132,34 +132,39 @@ contract Centuari is
             ITreasury(_treasury).registerBondToken(bondToken);
         }
 
+        // Fee flow: calculate the actual net amount the borrower will receive
+        uint256 netBorrowAmount = matchedAmount - borrowerFee - borrowerSettlementFee;
+
+        // Debt and CBT must match symmetric net borrow size
         uint256 cbtAmount = _processLendPosition(
             marketId,
             lender,
-            matchedAmount,
+            netBorrowAmount + lenderFee, // offsets lenderFee deduction inside _processLendPosition
             lenderFee,
             rate,
             maturity,
             bondToken
         );
 
-        // Process borrower position (same day-count so debt = lender CBT for same principal)
+        // Process borrower position based on net amount actually received
         _processBorrowPosition(
             marketId,
             borrower,
-            matchedAmount,
+            netBorrowAmount,
             rate,
             maturity
         );
 
-        uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
-
+        // Pass netBorrowAmount so Treasury handles transfers cleanly
         ITreasury(_treasury).settle(
             loanToken,
             lender,
             borrower,
-            netLoanAmountForBorrower,
+            netBorrowAmount,
             lenderSettlementFee,
-            borrowerSettlementFee
+            borrowerSettlementFee,
+            lenderFee,
+            borrowerFee
         );
 
         if (bondToken != address(0) && cbtAmount > 0) {

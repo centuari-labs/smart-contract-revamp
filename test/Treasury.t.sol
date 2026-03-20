@@ -485,14 +485,15 @@ contract TreasuryTest is Test {
         treasury.deposit(address(token), 100 ether);
         vm.stopPrank();
 
-        // Settlement with settlement fees only: 50 ether amount, 5 ether lender fee, 3 ether borrower fee
+        // Settlement with settlement fees only: 50 gross amount, 5 ether lender fee, 3 ether borrower fee
+        // netAmount = 50 - 3 = 47 ether
         vm.prank(centuariContract);
         vm.expectEmit(true, true, true, true);
         emit SettlementExecuted(
             address(token),
             lender,
             borrower,
-            50 ether,
+            47 ether,
             5 ether,
             3 ether,
             0,
@@ -502,7 +503,7 @@ contract TreasuryTest is Test {
             address(token),
             lender,
             borrower,
-            50 ether,
+            47 ether,
             5 ether,
             3 ether,
             0,
@@ -531,13 +532,14 @@ contract TreasuryTest is Test {
         treasury.deposit(address(token), 100 ether);
         vm.stopPrank();
 
-        // Settlement with trade fees: 50 ether amount, 0 settlement fees, 1 ether lender trade fee, 2 ether borrower trade fee
+        // Settlement with trade fees: 50 gross, 0 settlement fees, 1 ether lender trade fee, 2 ether borrower trade fee
+        // netAmount = 50 - 2 = 48 ether
         vm.prank(centuariContract);
         treasury.settle(
             address(token),
             lender,
             borrower,
-            50 ether,
+            48 ether,
             0,
             0,
             1 ether,
@@ -566,12 +568,13 @@ contract TreasuryTest is Test {
         vm.stopPrank();
 
         // Settlement with all fees
+        // Gross amount = 50. Borrower fees = 3 + 2 = 5. Net amount = 45.
         vm.prank(centuariContract);
         treasury.settle(
             address(token),
             lender,
             borrower,
-            50 ether,    // amount
+            45 ether,    // net amount
             5 ether,     // lender settlement fee
             3 ether,     // borrower settlement fee
             1 ether,     // lender trade fee

@@ -229,32 +229,27 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidAmount();
 
-        // Calculate total lender deduction: principal + all lender fees
+        // Calculate total fees
         uint256 totalLenderFee = lenderSettlementFee + lenderTradeFee;
-        uint256 totalFromLender = amount + totalLenderFee;
+        uint256 totalBorrowerFee = borrowerSettlementFee + borrowerTradeFee;
 
-        // Check lender has sufficient balance for principal + fees
+        // The lender provides the gross amount (amount + totalBorrowerFee) plus lender fees
+        uint256 totalFromLender = amount + totalBorrowerFee + totalLenderFee;
+
+        // Check lender has sufficient balance for gross principal + fees
         if (balances[from][loanToken] < totalFromLender)
             revert InsufficientFunds();
 
-        // Deduct principal + fees from lender
+        // Deduct gross principal + fees from lender
         balances[from][loanToken] -= totalFromLender;
 
-        // Credit full principal to borrower (no fee deduction)
+        // Credit actual net amount to borrower (fees already withheld)
         balances[to][loanToken] += amount;
 
-        // Collect lender fees as protocol revenue
-        if (totalLenderFee > 0) {
-            balances[address(this)][loanToken] += totalLenderFee;
-        }
-
-        // Deduct borrower fees from borrower's balance
-        uint256 totalBorrowerFee = borrowerSettlementFee + borrowerTradeFee;
-        if (totalBorrowerFee > 0) {
-            if (balances[to][loanToken] < totalBorrowerFee)
-                revert InsufficientFunds();
-            balances[to][loanToken] -= totalBorrowerFee;
-            balances[address(this)][loanToken] += totalBorrowerFee;
+        // Collect all fees as protocol revenue
+        uint256 totalFees = totalLenderFee + totalBorrowerFee;
+        if (totalFees > 0) {
+            balances[address(this)][loanToken] += totalFees;
         }
 
         // Emit settlement event
