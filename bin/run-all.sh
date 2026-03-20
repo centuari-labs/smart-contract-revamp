@@ -15,6 +15,7 @@
 #   BACKEND_OPERATOR     - Required. Backend operator address (used as Faucet operator)
 #   FAUCET_TOKENS        - Optional. Comma-separated token addresses to wire to Faucet (grant minter + addToken)
 #   SETTLEMENT_OPERATOR  - Required to run DeploySettlement. Settlement engine operator
+#   TREASURY_OPERATOR    - Required to run SetOperators. Treasury contract operator
 #   CENTUARI_OWNER       - Optional. Centuari owner; defaults to the deployer wallet address
 #   CENTUARI_SETTLEMENT_PLACEHOLDER - Optional. Centuari init settlement; defaults to CENTUARI_OWNER
 #   TREASURY_ADDRESS     - Optional. If set, skip DeployTreasury and use this for DeployCentuari / setCentuariContract
@@ -64,6 +65,11 @@ done
 # Required operators
 if [[ -z "${BACKEND_OPERATOR:-}" ]]; then
   echo "BACKEND_OPERATOR must be set for Faucet deployment"
+  exit 1
+fi
+
+if [[ -z "${TREASURY_OPERATOR:-}" ]]; then
+  echo "TREASURY_OPERATOR must be set for Treasury configuration"
   exit 1
 fi
 
@@ -180,6 +186,7 @@ write_deploy_summary() {
     echo "  \"backendOperator\": \"${BACKEND_OPERATOR:-}\","
     echo "  \"settlementOperator\": \"${SETTLEMENT_OPERATOR:-}\","
     echo "  \"faucetOperator\": \"${FAUCET_OPERATOR:-}\","
+    echo "  \"treasuryOperator\": \"${TREASURY_OPERATOR:-}\","
     echo "  \"faucetAddress\": \"${FAUCET_ADDRESS}\","
     echo "  \"treasuryAddress\": \"${TREASURY_ADDRESS:-}\","
     echo "  \"centuariAddress\": \"${CENTUARI_ADDRESS:-}\","
@@ -313,6 +320,7 @@ fi
 
 echo "=== 2/7 DeployFaucet ==="
 export FAUCET_OPERATOR="$BACKEND_OPERATOR"
+export TREASURY_OPERATOR="${TREASURY_OPERATOR:-$BACKEND_OPERATOR}"
 deploy_faucet_output=$(run_script script/DeployFaucet.s.sol:DeployFaucet 2>&1) || {
   status=$?
   echo "$deploy_faucet_output"
