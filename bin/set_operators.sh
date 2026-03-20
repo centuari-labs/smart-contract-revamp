@@ -60,6 +60,7 @@ RPC_URL="$(jq -r '.rpcUrl' "$DEPLOY_JSON")"
 CENTUARI_ADDR="$(jq -r '.centuariAddress' "$DEPLOY_JSON")"
 SETTLEMENT_ADDR="$(jq -r '.settlementProxy' "$DEPLOY_JSON")"
 FAUCET_ADDR="$(jq -r '.faucetAddress' "$DEPLOY_JSON")"
+TREASURY_ADDR="$(jq -r '.treasuryAddress' "$DEPLOY_JSON")"
 
 if [[ -z "$RPC_URL" || "$RPC_URL" == "null" ]]; then
   echo "rpcUrl missing in $DEPLOY_JSON" >&2
@@ -77,6 +78,7 @@ echo "Using RPC_URL:          $RPC_URL"
 echo "Centuari address:       $CENTUARI_ADDR"
 echo "Settlement proxy:       $SETTLEMENT_ADDR"
 echo "Faucet address:         $FAUCET_ADDR"
+echo "Treasury address:       $TREASURY_ADDR"
 echo
 
 # Helper to set operator on a single contract.
@@ -84,6 +86,7 @@ set_operator_for_contract() {
   local label="$1"
   local addr="$2"
   local operator_env_var="$3"
+  local getter="${4:-operator()}"
 
   # Indirect expansion to read env var by name.
   local operator_addr="${!operator_env_var-}"
@@ -112,12 +115,15 @@ set_operator_for_contract() {
     --rpc-url "$RPC_URL"
 
   # Verify operator value.
-  echo "  Verifying operator()..."
+  local getter="operator()"
+  [[ "$label" == "Treasury" ]] && getter="getOperator()"
+
+  echo "  Verifying $getter..."
   local current_operator
-  if ! current_operator="$(cast call "$addr" "operator()(address)" --rpc-url "$RPC_URL" 2>/dev/null)"; then
+  if ! current_operator="$(cast call "$addr" "$getter" --rpc-url "$RPC_URL" 2>/dev/null)"; then
     current_operator="<call failed>"
   fi
-  echo "  operator() = $current_operator"
+  echo "  $getter = $current_operator"
   echo
 }
 
@@ -129,6 +135,9 @@ set_operator_for_contract "Settlement" "$SETTLEMENT_ADDR" "SETTLEMENT_OPERATOR"
 
 # Faucet: BACKEND_OPERATOR
 set_operator_for_contract "Faucet" "$FAUCET_ADDR" "BACKEND_OPERATOR"
+
+# Treasury: TREASURY_OPERATOR
+set_operator_for_contract "Treasury" "$TREASURY_ADDR" "TREASURY_OPERATOR"
 
 echo "Done setting operators."
 
