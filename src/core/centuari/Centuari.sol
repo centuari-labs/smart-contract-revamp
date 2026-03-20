@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
+import {
+    Initializable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    OwnableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {
+    ReentrancyGuardUpgradeable
+} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
 import {ICentuari} from "../../interfaces/ICentuari.sol";
 import {ITreasury} from "../../interfaces/ITreasury.sol";
 import {CentuariStorage} from "./CentuariStorage.sol";
 import {CentuariBondERC20Factory} from "./CentuariBondERC20Factory.sol";
 import {CentuariBondERC20} from "./CentuariBondERC20.sol";
+
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Centuari
 /// @notice Manages lending and borrowing positions for fixed-rate markets
@@ -128,24 +136,30 @@ contract Centuari is
             marketId,
             lender,
             matchedAmount,
+            lenderFee,
             rate,
             maturity,
             bondToken
         );
 
         // Process borrower position (same day-count so debt = lender CBT for same principal)
-        _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
+        _processBorrowPosition(
+            marketId,
+            borrower,
+            matchedAmount,
+            rate,
+            maturity
+        );
 
-        // All fees (settlement + trade) are deducted from treasury balances, not from principal
+        uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
+
         ITreasury(_treasury).settle(
             loanToken,
             lender,
             borrower,
-            matchedAmount,
+            netLoanAmountForBorrower,
             lenderSettlementFee,
-            borrowerSettlementFee,
-            lenderFee,
-            borrowerFee
+            borrowerSettlementFee
         );
 
         if (bondToken != address(0) && cbtAmount > 0) {
@@ -157,10 +171,11 @@ contract Centuari is
 
     // ============ Internal Functions ============
 
-    /// @notice Process the lender's position (fixed-rate CBT = principal + day-count interest)
+    /// @notice Process the lender's position (fixed-rate CBT = effective principal + day-count interest)
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param principal The full matched principal (fees are deducted separately from treasury balance)
+    /// @param principal The original matched principal (emitted in event)
+    /// @param lenderFee The fee deducted from the lender; CBT is based on principal - lenderFee
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
     /// @param bondToken The CBT (bond token) contract address for the market
@@ -169,16 +184,32 @@ contract Centuari is
         bytes32 marketId,
         address lender,
         uint256 principal,
+        uint256 lenderFee,
         uint256 rate,
         uint256 maturity,
         address bondToken
     ) internal returns (uint256 cbtAmount) {
-        cbtAmount = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
+        uint256 effectivePrincipal = principal - lenderFee;
+        cbtAmount =
+            effectivePrincipal +
+            _interestWithDayCount(
+                effectivePrincipal,
+                rate,
+                block.timestamp,
+                maturity
+            );
 
         _marketTotalCbt[marketId] += cbtAmount;
         _lendPositionCbtAmount[marketId][lender] += cbtAmount;
 
-        emit LendPositionCreated(marketId, lender, bondToken, cbtAmount, principal, rate);
+        emit LendPositionCreated(
+            marketId,
+            lender,
+            bondToken,
+            cbtAmount,
+            principal,
+            rate
+        );
     }
 
     /// @notice Process the borrower's position
@@ -194,7 +225,8 @@ contract Centuari is
         uint256 rate,
         uint256 maturity
     ) internal {
-        uint256 debt = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
+        uint256 debt = principal +
+            _interestWithDayCount(principal, rate, block.timestamp, maturity);
         _borrowDebt[marketId][borrower] += debt;
 
         emit BorrowPositionCreated(marketId, borrower, principal, debt, rate);
@@ -238,14 +270,16 @@ contract Centuari is
         if (cbtAmount == 0) revert InvalidAmount();
         if (_bondTokenFactory == address(0)) revert BondTokenNotFound();
 
-        address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getBondToken(loanToken, maturity);
+        address bondToken = CentuariBondERC20Factory(_bondTokenFactory)
+            .getBondToken(loanToken, maturity);
         if (bondToken == address(0)) revert BondTokenNotFound();
 
         if (block.timestamp < maturity) revert NotYetMatured();
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount) revert InvalidAmount();
+        if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount)
+            revert InvalidAmount();
         if (_marketTotalCbt[marketId] < cbtAmount) revert InvalidAmount();
 
         // Burn CBT held by Treasury and reduce user's internal CBT balance
@@ -254,7 +288,11 @@ contract Centuari is
         _lendPositionCbtAmount[marketId][msg.sender] -= cbtAmount;
         _marketTotalCbt[marketId] -= cbtAmount;
 
-        ITreasury(_treasury).withdrawLendPosition(msg.sender, loanToken, cbtAmount);
+        ITreasury(_treasury).withdrawLendPosition(
+            msg.sender,
+            loanToken,
+            cbtAmount
+        );
 
         emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, cbtAmount);
     }
@@ -273,14 +311,21 @@ contract Centuari is
     ) internal pure returns (uint256 interest) {
         uint256 rawDays = (maturity - start) / 1 days;
         uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
-        interest = (principal * rate * days_) / (RATE_PRECISION * 365);
+        interest = Math.mulDiv(
+            Math.mulDiv(principal, rate, RATE_PRECISION),
+            days_,
+            365
+        );
     }
 
     /// @notice Calculate market ID from loan token and maturity
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp
     /// @return The market ID
-    function _getMarketId(address loanToken, uint256 maturity) internal pure returns (bytes32) {
+    function _getMarketId(
+        address loanToken,
+        uint256 maturity
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encode(loanToken, maturity));
     }
 
@@ -351,22 +396,33 @@ contract Centuari is
     // ============ View Functions ============
 
     /// @inheritdoc ICentuari
-    function getMarketId(address loanToken, uint256 maturity) external pure returns (bytes32) {
+    function getMarketId(
+        address loanToken,
+        uint256 maturity
+    ) external pure returns (bytes32) {
         return _getMarketId(loanToken, maturity);
     }
 
     /// @inheritdoc ICentuari
-    function getMarketTotalCbt(bytes32 marketId) external view returns (uint256) {
+    function getMarketTotalCbt(
+        bytes32 marketId
+    ) external view returns (uint256) {
         return _marketTotalCbt[marketId];
     }
 
     /// @inheritdoc ICentuari
-    function getLendPositionCbtAmount(bytes32 marketId, address lender) external view returns (uint256) {
+    function getLendPositionCbtAmount(
+        bytes32 marketId,
+        address lender
+    ) external view returns (uint256) {
         return _lendPositionCbtAmount[marketId][lender];
     }
 
     /// @inheritdoc ICentuari
-    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (uint256) {
+    function getBorrowPosition(
+        bytes32 marketId,
+        address borrower
+    ) external view returns (uint256) {
         return _borrowDebt[marketId][borrower];
     }
 

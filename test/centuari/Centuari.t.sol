@@ -18,6 +18,7 @@ import {
 import {
     ITransparentUpgradeableProxy
 } from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title MockTreasury
 /// @notice Mock contract for testing Centuari
@@ -30,8 +31,6 @@ contract MockTreasury is ITreasury {
     uint256 public lastAmount;
     uint256 public lastLenderSettlementFee;
     uint256 public lastBorrowerSettlementFee;
-    uint256 public lastLenderTradeFee;
-    uint256 public lastBorrowerTradeFee;
     address public operator;
 
     uint256 public repayCallCount;
@@ -66,9 +65,7 @@ contract MockTreasury is ITreasury {
         address to,
         uint256 amount,
         uint256 lenderSettlementFee,
-        uint256 borrowerSettlementFee,
-        uint256 lenderTradeFee,
-        uint256 borrowerTradeFee
+        uint256 borrowerSettlementFee
     ) external override {
         if (shouldRevert) {
             revert("MockTreasury: forced revert");
@@ -81,8 +78,6 @@ contract MockTreasury is ITreasury {
         lastAmount = amount;
         lastLenderSettlementFee = lenderSettlementFee;
         lastBorrowerSettlementFee = borrowerSettlementFee;
-        lastLenderTradeFee = lenderTradeFee;
-        lastBorrowerTradeFee = borrowerTradeFee;
 
         emit SettlementExecuted(
             loanToken,
@@ -90,17 +85,9 @@ contract MockTreasury is ITreasury {
             to,
             amount,
             lenderSettlementFee,
-            borrowerSettlementFee,
-            lenderTradeFee,
-            borrowerTradeFee
+            borrowerSettlementFee
         );
     }
-
-    function protocolFeeBalance(address) external pure override returns (uint256) {
-        return 0;
-    }
-
-    function withdrawProtocolFees(address, address, uint256) external pure override {}
 
     function repay(
         address user,
@@ -122,8 +109,6 @@ contract MockTreasury is ITreasury {
         lastAmount = 0;
         lastLenderSettlementFee = 0;
         lastBorrowerSettlementFee = 0;
-        lastLenderTradeFee = 0;
-        lastBorrowerTradeFee = 0;
         repayCallCount = 0;
         lastRepayUser = address(0);
         lastRepayToken = address(0);
@@ -340,7 +325,11 @@ contract CentuariTest is Test {
     ) internal pure returns (uint256) {
         uint256 rawDays = (maturity - start) / 1 days;
         uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
-        return (principal * rate * days_) / (RATE_PRECISION * 365);
+        return Math.mulDiv(
+            Math.mulDiv(principal, rate, RATE_PRECISION),
+            days_,
+            365
+        );
     }
 
     function _expectedCbt(
@@ -1295,9 +1284,6 @@ contract CentuariTest is Test {
             centuari.getMarketTotalCbt(marketId),
             marketBefore - cbtToRedeem
         );
-        // Note: MockTreasury doesn't actually burn the ERC20 token,
-        // so bondToken.balanceOf(mockTreasury) remains unchanged.
-        // We verify the burn was requested via the call tracking below.
         // Verify Treasury burn accounting hook was used
         assertEq(mockTreasury.burnBondForUserCallCount(), 1);
         assertEq(mockTreasury.lastBondBurnUser(), lender);
@@ -1384,8 +1370,9 @@ contract CentuariTest is Test {
             0
         );
 
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        uint256 positionCbt = centuari.getLendPositionCbtAmount(marketId, lender);
+        uint256 cbtBalance = centuari.getLendPositionCbtAmount(marketId, lender);
 
         vm.warp(maturity);
         vm.prank(lender);
@@ -1393,7 +1380,7 @@ contract CentuariTest is Test {
         centuari.withdrawLendPosition(
             loanToken,
             maturity,
-            positionCbt + 1 ether
+            cbtBalance + 1 ether
         );
     }
 
@@ -1800,10 +1787,12 @@ contract CentuariTest is Test {
         uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
         bool borrowerIsTaker = true; // borrower is taker, lender is maker
 
-        // Fees are deducted from treasury balance, not from principal
-        // CBT is calculated on full matchedAmount
+        uint256 expectedLenderFee = makerFeeAmount;
+        uint256 expectedBorrowerFee = takerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee; // 990 ether
         uint256 expectedCbtMinted = _expectedCbt(
-            matchedAmount,
+            effectivePrincipal,
             rate,
             maturity
         );
@@ -1826,13 +1815,9 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Full matchedAmount is passed to Treasury (no fee deduction)
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
         assertEq(mockTreasury.lastFrom(), lender);
         assertEq(mockTreasury.lastTo(), borrower);
-        // Trade fees are passed separately to Treasury
-        assertEq(mockTreasury.lastLenderTradeFee(), makerFeeAmount);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), takerFeeAmount);
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
@@ -1857,10 +1842,12 @@ contract CentuariTest is Test {
         uint256 takerFeeAmount = 20 ether; // 2% of matchedAmount
         bool borrowerIsTaker = false; // lender is taker, borrower is maker
 
-        // Fees are deducted from treasury balance, not from principal
-        // CBT is calculated on full matchedAmount
+        uint256 expectedLenderFee = takerFeeAmount;
+        uint256 expectedBorrowerFee = makerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee; // 980 ether
         uint256 expectedCbtMinted = _expectedCbt(
-            matchedAmount,
+            effectivePrincipal,
             rate,
             maturity
         );
@@ -1883,13 +1870,9 @@ contract CentuariTest is Test {
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
 
-        // Full matchedAmount is passed to Treasury (no fee deduction)
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
         assertEq(mockTreasury.lastFrom(), lender);
         assertEq(mockTreasury.lastTo(), borrower);
-        // Trade fees are passed separately (lender is taker)
-        assertEq(mockTreasury.lastLenderTradeFee(), takerFeeAmount);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), makerFeeAmount);
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
@@ -1933,9 +1916,10 @@ contract CentuariTest is Test {
         uint256 takerFeeAmount = 10 ether;
         bool borrowerIsTaker = true;
 
-        // Fees deducted from treasury balance, CBT based on full principal
+        uint256 expectedLenderFee = makerFeeAmount;
+        uint256 effectivePrincipal2 = matchedAmount2 - expectedLenderFee; // 495 ether
         uint256 expectedCbtMinted2 = _expectedCbt(
-            matchedAmount2,
+            effectivePrincipal2,
             rate,
             maturity
         );
@@ -1956,15 +1940,12 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
+        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
+        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         bytes32 marketId = _getMarketId(loanToken, maturity);
-        // Lender2 gets CBT based on full matchedAmount2
-        assertEq(
-            centuari.getLendPositionCbtAmount(marketId, lender2),
-            expectedCbtMinted2
-        );
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender2), expectedCbtMinted2);
 
-        // Full matchedAmount is passed to Treasury
-        assertEq(mockTreasury.lastAmount(), matchedAmount2);
+        assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount);
     }
 
     function test_SettleMatch_FeeCalculation_ZeroFees() public {
@@ -2025,13 +2006,10 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Full matchedAmount passed to Treasury (fees deducted from balance, not amount)
         assertEq(mockTreasury.lastAmount(), matchedAmount);
-        assertEq(mockTreasury.lastLenderTradeFee(), makerFeeAmount);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), 0);
 
-        // CBT based on full principal
-        uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
+        uint256 effectivePrincipal = matchedAmount - makerFeeAmount; // 990 ether
+        uint256 expectedCbt = _expectedCbt(effectivePrincipal, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         assertEq(bondToken.balanceOf(address(mockTreasury)), expectedCbt);
@@ -2063,12 +2041,8 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Full matchedAmount passed to Treasury
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
-        assertEq(mockTreasury.lastLenderTradeFee(), 0);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), takerFeeAmount);
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
 
-        // CBT based on full principal
         uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
@@ -2103,20 +2077,16 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // All fees are passed separately to Treasury
+        // Settlement fees are separate from maker/taker fees
+        // Treasury should receive settlement fees separately
         assertEq(mockTreasury.lastLenderSettlementFee(), lenderSettlementFee);
-        assertEq(mockTreasury.lastBorrowerSettlementFee(), borrowerSettlementFee);
-        assertEq(mockTreasury.lastLenderTradeFee(), makerFeeAmount);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), takerFeeAmount);
+        assertEq(
+            mockTreasury.lastBorrowerSettlementFee(),
+            borrowerSettlementFee
+        );
 
-        // Full matchedAmount passed to Treasury (no fee deduction)
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
-
-        // CBT based on full principal
-        uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
-        address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
-        CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(address(mockTreasury)), expectedCbt);
+        // Net loan amount should still account for borrower fee (takerFeeAmount)
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
     }
 
     function test_SettleMatch_FeeCalculation_NoBondFactory() public {
@@ -2157,24 +2127,32 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Full matchedAmount passed to Treasury (fees deducted from balance)
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
-        assertEq(mockTreasury.lastLenderTradeFee(), makerFeeAmount);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), takerFeeAmount);
+        // Treasury should still be called correctly
+        assertEq(mockTreasury.lastAmount(), matchedAmount - takerFeeAmount);
 
         // Verify bond factory is not set
         assertEq(centuariNoFactory.bondTokenFactory(), address(0));
     }
 
-    function test_SettleMatch_FeeCalculation_HighFees() public {
+    function test_SettleMatch_FeeCalculation_FeeSharesEqualToShares() public {
         address lender = makeAddr("lender");
         address borrower = makeAddr("borrower");
         uint256 matchedAmount = 1000 ether;
         uint256 maturity = block.timestamp + 365 days;
+        uint256 makerFeeAmount = 0;
+        uint256 takerFeeAmount = 0;
         bool borrowerIsTaker = false; // lender is taker
 
-        // High taker fee — but CBT is still based on full principal
-        uint256 highTakerFee = matchedAmount - 1 ether;
+        // Set lenderFee equal to matchedAmount (100% fee)
+        uint256 lenderFee = matchedAmount; // This would be takerFeeAmount when borrowerIsTaker = false
+        // But we can't set takerFeeAmount = matchedAmount because that would make borrowerFee = matchedAmount
+        // Instead, test with a high fee that results in feeShares >= shares
+
+        // For this test, we'll use a scenario where feeShares calculation results in shares
+        // This would happen if lenderFee = matchedAmount, but that's not realistic
+        // Let's test with a fee that leaves exactly 1 ether effective principal for the lender.
+
+        uint256 highTakerFee = matchedAmount - 1 ether; // Leaves effectivePrincipal = 1 ether
         uint256 highMakerFee = 0;
 
         vm.prank(settlement);
@@ -2193,8 +2171,9 @@ contract CentuariTest is Test {
             highTakerFee
         );
 
-        // CBT is based on full matchedAmount, not reduced by fees
-        uint256 expectedCbt = _expectedCbt(matchedAmount, 500, maturity);
+        // effectivePrincipal = matchedAmount - highTakerFee = 1 ether; CBT = 1 + interest(1) ≈ 1
+        uint256 effectivePrincipal = 1 ether;
+        uint256 expectedCbt = _expectedCbt(effectivePrincipal, 500, maturity);
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
         assertEq(bondToken.balanceOf(address(mockTreasury)), expectedCbt);
@@ -2217,13 +2196,14 @@ contract CentuariTest is Test {
         uint256 maturity = block.timestamp + 365 days;
         uint256 rate = 500;
 
-        // Calculate expected fee assignments
-        uint256 expectedLenderTradeFee = borrowerIsTaker
+        // Calculate expected values
+        uint256 expectedLenderFee = borrowerIsTaker
             ? makerFeeAmount
             : takerFeeAmount;
-        uint256 expectedBorrowerTradeFee = borrowerIsTaker
+        uint256 expectedBorrowerFee = borrowerIsTaker
             ? takerFeeAmount
             : makerFeeAmount;
+        uint256 expectedNetLoanAmount = matchedAmount - expectedBorrowerFee;
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -2241,13 +2221,15 @@ contract CentuariTest is Test {
             takerFeeAmount
         );
 
-        // Full matchedAmount passed to Treasury (no fee deduction)
-        assertEq(mockTreasury.lastAmount(), matchedAmount);
-        assertEq(mockTreasury.lastLenderTradeFee(), expectedLenderTradeFee);
-        assertEq(mockTreasury.lastBorrowerTradeFee(), expectedBorrowerTradeFee);
+        // Verify Treasury received net loan amount
+        assertEq(mockTreasury.lastAmount(), expectedNetLoanAmount);
 
-        // CBT based on full principal
-        uint256 expectedCbtMinted = _expectedCbt(matchedAmount, rate, maturity);
+        uint256 effectivePrincipal = matchedAmount - expectedLenderFee;
+        uint256 expectedCbtMinted = _expectedCbt(
+            effectivePrincipal,
+            rate,
+            maturity
+        );
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
