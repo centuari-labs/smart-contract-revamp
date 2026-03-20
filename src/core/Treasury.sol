@@ -213,7 +213,9 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         address to,
         uint256 amount,
         uint256 lenderSettlementFee,
-        uint256 borrowerSettlementFee
+        uint256 borrowerSettlementFee,
+        uint256 lenderTradeFee,
+        uint256 borrowerTradeFee
     )
         external
         override
@@ -227,33 +229,32 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidAmount();
 
-        // Calculate total amount needed from lender (principal + lender fee)
-        uint256 totalFromLender = amount + lenderSettlementFee;
+        // Calculate total lender deduction: principal + all lender fees
+        uint256 totalLenderFee = lenderSettlementFee + lenderTradeFee;
+        uint256 totalFromLender = amount + totalLenderFee;
 
-        // Check lender has sufficient balance
+        // Check lender has sufficient balance for principal + fees
         if (balances[from][loanToken] < totalFromLender)
             revert InsufficientFunds();
 
-        // Calculate net amount borrower receives (after borrower settlement fee)
-        uint256 netAmountToBorrower = amount;
-        if (borrowerSettlementFee > 0) {
-            if (amount < borrowerSettlementFee) revert InvalidAmount();
-            netAmountToBorrower = amount - borrowerSettlementFee;
+        // Deduct principal + fees from lender
+        balances[from][loanToken] -= totalFromLender;
+
+        // Credit full principal to borrower (no fee deduction)
+        balances[to][loanToken] += amount;
+
+        // Collect lender fees as protocol revenue
+        if (totalLenderFee > 0) {
+            balances[address(this)][loanToken] += totalLenderFee;
         }
 
-        // Transfer net principal amount from lender to borrower
-        balances[from][loanToken] -= amount;
-        balances[to][loanToken] += netAmountToBorrower;
-
-        // Deduct lender settlement fee from lender and add to Treasury
-        if (lenderSettlementFee > 0) {
-            balances[from][loanToken] -= lenderSettlementFee;
-            balances[address(this)][loanToken] += lenderSettlementFee;
-        }
-
-        // Add borrower settlement fee to Treasury (deducted from amount)
-        if (borrowerSettlementFee > 0) {
-            balances[address(this)][loanToken] += borrowerSettlementFee;
+        // Deduct borrower fees from borrower's balance
+        uint256 totalBorrowerFee = borrowerSettlementFee + borrowerTradeFee;
+        if (totalBorrowerFee > 0) {
+            if (balances[to][loanToken] < totalBorrowerFee)
+                revert InsufficientFunds();
+            balances[to][loanToken] -= totalBorrowerFee;
+            balances[address(this)][loanToken] += totalBorrowerFee;
         }
 
         // Emit settlement event
@@ -263,8 +264,39 @@ contract Treasury is AccessControl, Pausable, ReentrancyGuard, ITreasury {
             to,
             amount,
             lenderSettlementFee,
-            borrowerSettlementFee
+            borrowerSettlementFee,
+            lenderTradeFee,
+            borrowerTradeFee
         );
+    }
+
+    /// @inheritdoc ITreasury
+    function protocolFeeBalance(
+        address token
+    ) external view override returns (uint256) {
+        return balances[address(this)][token];
+    }
+
+    /// @inheritdoc ITreasury
+    function withdrawProtocolFees(
+        address token,
+        address recipient,
+        uint256 amount
+    )
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
+        if (balances[address(this)][token] < amount) revert InsufficientFunds();
+
+        balances[address(this)][token] -= amount;
+        IERC20(token).safeTransfer(recipient, amount);
+
+        emit ProtocolFeesWithdrawn(token, recipient, amount);
     }
 
     function balanceOf(

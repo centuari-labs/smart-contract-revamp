@@ -48,7 +48,14 @@ contract TreasuryTest is Test {
         address indexed to,
         uint256 amount,
         uint256 lenderSettlementFee,
-        uint256 borrowerSettlementFee
+        uint256 borrowerSettlementFee,
+        uint256 lenderTradeFee,
+        uint256 borrowerTradeFee
+    );
+    event ProtocolFeesWithdrawn(
+        address indexed token,
+        address indexed recipient,
+        uint256 amount
     );
     event InternalTransfer(
         address indexed from,
@@ -442,9 +449,11 @@ contract TreasuryTest is Test {
             borrower,
             50 ether,
             0,
+            0,
+            0,
             0
         );
-        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0, 0, 0);
 
         // Verify balances
         // Lender loses 50 ether (amount), borrower gains 50 ether (no fees)
@@ -463,10 +472,10 @@ contract TreasuryTest is Test {
 
         vm.prank(centuariContract);
         vm.expectRevert(ITreasury.InsufficientFunds.selector);
-        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0, 0, 0);
     }
 
-    function test_Settlement_WithFees() public {
+    function test_Settlement_WithSettlementFees() public {
         vm.prank(tokenManager);
         treasury.setSupportedToken(address(token), true);
 
@@ -476,7 +485,7 @@ contract TreasuryTest is Test {
         treasury.deposit(address(token), 100 ether);
         vm.stopPrank();
 
-        // Settlement with fees: 50 ether amount, 5 ether lender fee, 3 ether borrower fee
+        // Settlement with settlement fees only: 50 ether amount, 5 ether lender fee, 3 ether borrower fee
         vm.prank(centuariContract);
         vm.expectEmit(true, true, true, true);
         emit SettlementExecuted(
@@ -485,7 +494,9 @@ contract TreasuryTest is Test {
             borrower,
             50 ether,
             5 ether,
-            3 ether
+            3 ether,
+            0,
+            0
         );
         treasury.settle(
             address(token),
@@ -493,18 +504,88 @@ contract TreasuryTest is Test {
             borrower,
             50 ether,
             5 ether,
-            3 ether
+            3 ether,
+            0,
+            0
         );
 
         // Verify balances
-        // Lender loses: 50 ether (amount) + 5 ether (lender fee) = 55 ether
+        // Lender loses: 50 ether (amount) + 5 ether (settlement fee) = 55 ether
         assertEq(treasury.balanceOf(lender, address(token)), 45 ether);
-        // Borrower gains: 50 ether (amount) - 3 ether (borrower fee) = 47 ether
+        // Borrower gains: 50 ether (full amount) - 3 ether (borrower settlement fee) = 47 ether
         assertEq(treasury.balanceOf(borrower, address(token)), 47 ether);
         // Treasury gains: 5 ether (lender fee) + 3 ether (borrower fee) = 8 ether
         assertEq(
             treasury.balanceOf(address(treasury), address(token)),
             8 ether
+        );
+    }
+
+    function test_Settlement_WithTradeFees() public {
+        vm.prank(tokenManager);
+        treasury.setSupportedToken(address(token), true);
+
+        // Setup: Give lender extra balance to cover trade fees
+        vm.startPrank(lender);
+        token.approve(address(treasury), 100 ether);
+        treasury.deposit(address(token), 100 ether);
+        vm.stopPrank();
+
+        // Settlement with trade fees: 50 ether amount, 0 settlement fees, 1 ether lender trade fee, 2 ether borrower trade fee
+        vm.prank(centuariContract);
+        treasury.settle(
+            address(token),
+            lender,
+            borrower,
+            50 ether,
+            0,
+            0,
+            1 ether,
+            2 ether
+        );
+
+        // Lender loses: 50 ether (amount) + 1 ether (trade fee) = 51 ether
+        assertEq(treasury.balanceOf(lender, address(token)), 49 ether);
+        // Borrower gains: 50 ether (full amount) - 2 ether (trade fee) = 48 ether
+        assertEq(treasury.balanceOf(borrower, address(token)), 48 ether);
+        // Treasury gains: 1 ether (lender trade fee) + 2 ether (borrower trade fee) = 3 ether
+        assertEq(
+            treasury.balanceOf(address(treasury), address(token)),
+            3 ether
+        );
+    }
+
+    function test_Settlement_WithAllFees() public {
+        vm.prank(tokenManager);
+        treasury.setSupportedToken(address(token), true);
+
+        // Setup: Give lender balance
+        vm.startPrank(lender);
+        token.approve(address(treasury), 100 ether);
+        treasury.deposit(address(token), 100 ether);
+        vm.stopPrank();
+
+        // Settlement with all fees
+        vm.prank(centuariContract);
+        treasury.settle(
+            address(token),
+            lender,
+            borrower,
+            50 ether,    // amount
+            5 ether,     // lender settlement fee
+            3 ether,     // borrower settlement fee
+            1 ether,     // lender trade fee
+            2 ether      // borrower trade fee
+        );
+
+        // Lender loses: 50 (amount) + 5 (settlement) + 1 (trade) = 56 ether
+        assertEq(treasury.balanceOf(lender, address(token)), 44 ether);
+        // Borrower gains: 50 (full amount) - 3 (settlement) - 2 (trade) = 45 ether
+        assertEq(treasury.balanceOf(borrower, address(token)), 45 ether);
+        // Treasury gains: 5 + 3 + 1 + 2 = 11 ether
+        assertEq(
+            treasury.balanceOf(address(treasury), address(token)),
+            11 ether
         );
     }
 
@@ -516,6 +597,8 @@ contract TreasuryTest is Test {
             lender,
             borrower,
             50 ether,
+            0,
+            0,
             0,
             0
         );
@@ -536,7 +619,7 @@ contract TreasuryTest is Test {
         vm.stopPrank();
 
         vm.prank(centuariContract);
-        treasury.settle(address(token), lender, borrower, 100 ether, 0, 0);
+        treasury.settle(address(token), lender, borrower, 100 ether, 0, 0, 0, 0);
 
         // Lender loses 100 ether, borrower gains 100 ether (no fees)
         assertEq(treasury.balanceOf(lender, address(token)), 0);
@@ -559,7 +642,69 @@ contract TreasuryTest is Test {
 
         vm.prank(user1);
         vm.expectRevert(ITreasury.Unauthorized.selector);
-        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0);
+        treasury.settle(address(token), lender, borrower, 50 ether, 0, 0, 0, 0);
+    }
+
+    // ========== Protocol Fee Tests ==========
+
+    function test_ProtocolFeeBalance() public {
+        vm.prank(tokenManager);
+        treasury.setSupportedToken(address(token), true);
+
+        // Setup: Give lender balance
+        vm.startPrank(lender);
+        token.approve(address(treasury), 100 ether);
+        treasury.deposit(address(token), 100 ether);
+        vm.stopPrank();
+
+        // Settle with fees to accumulate protocol revenue
+        vm.prank(centuariContract);
+        treasury.settle(
+            address(token), lender, borrower, 50 ether,
+            2 ether, 1 ether, 1 ether, 0.5 ether
+        );
+
+        // Protocol fee = 2 + 1 + 1 + 0.5 = 4.5 ether
+        assertEq(treasury.protocolFeeBalance(address(token)), 4.5 ether);
+    }
+
+    function test_WithdrawProtocolFees_Success() public {
+        vm.prank(tokenManager);
+        treasury.setSupportedToken(address(token), true);
+
+        // Setup: Give lender balance and settle with fees
+        vm.startPrank(lender);
+        token.approve(address(treasury), 100 ether);
+        treasury.deposit(address(token), 100 ether);
+        vm.stopPrank();
+
+        vm.prank(centuariContract);
+        treasury.settle(
+            address(token), lender, borrower, 50 ether,
+            5 ether, 0, 0, 0
+        );
+
+        // Admin withdraws protocol fees
+        address feeRecipient = address(9);
+        vm.prank(admin);
+        vm.expectEmit(true, true, false, true);
+        emit ProtocolFeesWithdrawn(address(token), feeRecipient, 5 ether);
+        treasury.withdrawProtocolFees(address(token), feeRecipient, 5 ether);
+
+        assertEq(token.balanceOf(feeRecipient), 5 ether);
+        assertEq(treasury.protocolFeeBalance(address(token)), 0);
+    }
+
+    function test_WithdrawProtocolFees_Revert_NotAdmin() public {
+        vm.prank(user1);
+        vm.expectRevert();
+        treasury.withdrawProtocolFees(address(token), user1, 1 ether);
+    }
+
+    function test_WithdrawProtocolFees_Revert_InsufficientBalance() public {
+        vm.prank(admin);
+        vm.expectRevert(ITreasury.InsufficientFunds.selector);
+        treasury.withdrawProtocolFees(address(token), admin, 1 ether);
     }
 
     // ========== balanceOf Tests ==========
@@ -671,6 +816,8 @@ contract TreasuryTest is Test {
             lender,
             borrower,
             settlementAmount,
+            0,
+            0,
             0,
             0
         );

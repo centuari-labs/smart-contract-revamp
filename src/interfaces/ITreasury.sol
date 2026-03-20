@@ -15,13 +15,27 @@ interface ITreasury {
     /// @param amount The principal amount transferred
     /// @param lenderSettlementFee The settlement fee amount charged to the lender
     /// @param borrowerSettlementFee The settlement fee amount charged to the borrower
+    /// @param lenderTradeFee The maker/taker trade fee charged to the lender
+    /// @param borrowerTradeFee The maker/taker trade fee charged to the borrower
     event SettlementExecuted(
         address indexed loanToken,
         address indexed from,
         address indexed to,
         uint256 amount,
         uint256 lenderSettlementFee,
-        uint256 borrowerSettlementFee
+        uint256 borrowerSettlementFee,
+        uint256 lenderTradeFee,
+        uint256 borrowerTradeFee
+    );
+
+    /// @notice Emitted when protocol fees are withdrawn by admin
+    /// @param token The token address
+    /// @param recipient The recipient address
+    /// @param amount The amount withdrawn
+    event ProtocolFeesWithdrawn(
+        address indexed token,
+        address indexed recipient,
+        uint256 amount
     );
 
     /// @notice Emitted when token support is updated
@@ -106,20 +120,40 @@ interface ITreasury {
 
     /// @notice Execute a settlement transfer
     /// @dev Called by Centuari during match settlement.
-    ///      Transfers funds from lender's deposit to borrower and collects fees.
+    ///      Transfers full principal from lender to borrower. All fees (settlement + trade)
+    ///      are deducted from each party's treasury balance and collected as protocol revenue.
     /// @param loanToken The loan token address
     /// @param from The lender address (funds come from their deposit)
     /// @param to The borrower address (receives the loan)
-    /// @param amount The principal amount to transfer
+    /// @param amount The full principal amount to transfer (no fee deduction)
     /// @param lenderSettlementFee The settlement fee amount charged to the lender
     /// @param borrowerSettlementFee The settlement fee amount charged to the borrower
+    /// @param lenderTradeFee The maker/taker trade fee charged to the lender
+    /// @param borrowerTradeFee The maker/taker trade fee charged to the borrower
     function settle(
         address loanToken,
         address from,
         address to,
         uint256 amount,
         uint256 lenderSettlementFee,
-        uint256 borrowerSettlementFee
+        uint256 borrowerSettlementFee,
+        uint256 lenderTradeFee,
+        uint256 borrowerTradeFee
+    ) external;
+
+    /// @notice Get accumulated protocol fee balance for a token
+    /// @param token The token address
+    /// @return The accumulated protocol fee balance
+    function protocolFeeBalance(address token) external view returns (uint256);
+
+    /// @notice Withdraw accumulated protocol fees
+    /// @param token The token address
+    /// @param recipient The recipient address
+    /// @param amount The amount to withdraw
+    function withdrawProtocolFees(
+        address token,
+        address recipient,
+        uint256 amount
     ) external;
 
     /// @notice Set token support status
