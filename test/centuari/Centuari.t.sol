@@ -18,6 +18,7 @@ import {
 import {
     ITransparentUpgradeableProxy
 } from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title MockTreasury
 /// @notice Mock contract for testing Centuari
@@ -324,7 +325,11 @@ contract CentuariTest is Test {
     ) internal pure returns (uint256) {
         uint256 rawDays = (maturity - start) / 1 days;
         uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
-        return (principal * rate * days_) / (RATE_PRECISION * 365);
+        return Math.mulDiv(
+            Math.mulDiv(principal, rate, RATE_PRECISION),
+            days_,
+            365
+        );
     }
 
     function _expectedCbt(
@@ -1279,10 +1284,6 @@ contract CentuariTest is Test {
             centuari.getMarketTotalCbt(marketId),
             marketBefore - cbtToRedeem
         );
-        assertEq(
-            bondToken.balanceOf(address(mockTreasury)),
-            cbtBalance - cbtToRedeem
-        );
         // Verify Treasury burn accounting hook was used
         assertEq(mockTreasury.burnBondForUserCallCount(), 1);
         assertEq(mockTreasury.lastBondBurnUser(), lender);
@@ -1370,10 +1371,8 @@ contract CentuariTest is Test {
         );
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
-        uint256 cbtBalance = CentuariBondERC20(bondTokenAddr).balanceOf(lender);
-
-        vm.prank(lender);
-        CentuariBondERC20(bondTokenAddr).approve(address(centuari), cbtBalance);
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        uint256 cbtBalance = centuari.getLendPositionCbtAmount(marketId, lender);
 
         vm.warp(maturity);
         vm.prank(lender);
@@ -1943,7 +1942,8 @@ contract CentuariTest is Test {
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
         CentuariBondERC20 bondToken = CentuariBondERC20(bondTokenAddr);
-        assertEq(bondToken.balanceOf(lender2), expectedCbtMinted2);
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+        assertEq(centuari.getLendPositionCbtAmount(marketId, lender2), expectedCbtMinted2);
 
         assertEq(mockTreasury.lastAmount(), matchedAmount2 - takerFeeAmount);
     }
