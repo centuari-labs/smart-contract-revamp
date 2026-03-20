@@ -128,7 +128,6 @@ contract Centuari is
             marketId,
             lender,
             matchedAmount,
-            lenderFee,
             rate,
             maturity,
             bondToken
@@ -137,15 +136,16 @@ contract Centuari is
         // Process borrower position (same day-count so debt = lender CBT for same principal)
         _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
-        uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
-
+        // All fees (settlement + trade) are deducted from treasury balances, not from principal
         ITreasury(_treasury).settle(
             loanToken,
             lender,
             borrower,
-            netLoanAmountForBorrower,
+            matchedAmount,
             lenderSettlementFee,
-            borrowerSettlementFee
+            borrowerSettlementFee,
+            lenderFee,
+            borrowerFee
         );
 
         if (bondToken != address(0) && cbtAmount > 0) {
@@ -157,11 +157,10 @@ contract Centuari is
 
     // ============ Internal Functions ============
 
-    /// @notice Process the lender's position (fixed-rate CBT = effective principal + day-count interest)
+    /// @notice Process the lender's position (fixed-rate CBT = principal + day-count interest)
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param principal The original matched principal (emitted in event)
-    /// @param lenderFee The fee deducted from the lender; CBT is based on principal - lenderFee
+    /// @param principal The full matched principal (fees are deducted separately from treasury balance)
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
     /// @param bondToken The CBT (bond token) contract address for the market
@@ -170,13 +169,11 @@ contract Centuari is
         bytes32 marketId,
         address lender,
         uint256 principal,
-        uint256 lenderFee,
         uint256 rate,
         uint256 maturity,
         address bondToken
     ) internal returns (uint256 cbtAmount) {
-        uint256 effectivePrincipal = principal - lenderFee;
-        cbtAmount = effectivePrincipal + _interestWithDayCount(effectivePrincipal, rate, block.timestamp, maturity);
+        cbtAmount = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
 
         _marketTotalCbt[marketId] += cbtAmount;
         _lendPositionCbtAmount[marketId][lender] += cbtAmount;
