@@ -31,7 +31,7 @@ contract CompoundV3Adapter is IYieldAdapter, ReentrancyGuard {
     /// @inheritdoc IYieldAdapter
     function deploy(address asset, uint256 amount) external override onlyRouter nonReentrant returns (uint256 shares) {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(asset).safeApprove(COMET, amount);
+        IERC20(asset).forceApprove(COMET, amount);
 
         (bool success,) = COMET.call(abi.encodeWithSignature("supply(address,uint256)", asset, amount));
         require(success, "CompoundV3Adapter: supply failed");

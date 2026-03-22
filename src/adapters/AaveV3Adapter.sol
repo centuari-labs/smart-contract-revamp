@@ -38,7 +38,7 @@ contract AaveV3Adapter is IYieldAdapter, ReentrancyGuard {
     /// @inheritdoc IYieldAdapter
     function deploy(address asset, uint256 amount) external override onlyRouter nonReentrant returns (uint256 shares) {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(asset).safeApprove(POOL, amount);
+        IERC20(asset).forceApprove(POOL, amount);
 
         // Call Aave supply
         (bool success,) = POOL.call(

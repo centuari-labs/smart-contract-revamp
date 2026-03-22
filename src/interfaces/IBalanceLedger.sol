@@ -114,6 +114,12 @@ interface IBalanceLedger {
     /// @param amount The amount to reduce
     function reduceCollateral(address user, address asset, uint256 amount) external;
 
+    /// @notice Update cached USD value for a collateral position
+    /// @param user The user address
+    /// @param asset The collateral asset
+    /// @param newUsdValue The new USD value
+    function updateCollateralUsdValue(address user, address asset, uint256 newUsdValue) external;
+
     // ============ View Functions ============
 
     /// @notice Get user's full balance for an asset
