@@ -72,6 +72,16 @@ interface IRiskModule {
     /// @return totalDebt Total USD debt against this collateral type
     function getTotalDebtAgainstAsset(address collateralAsset) external view returns (uint256 totalDebt);
 
+    /// @notice Record user's total debt (called by CentuariEndpoint during settlement)
+    /// @param user The borrower address
+    /// @param debtUSD The debt amount in USD to add
+    function recordUserDebt(address user, uint256 debtUSD) external;
+
+    /// @notice Reduce user's total debt (called on repayment/liquidation)
+    /// @param user The borrower address
+    /// @param debtUSD The debt amount in USD to reduce
+    function reduceUserDebt(address user, uint256 debtUSD) external;
+
     /// @notice Record new debt against collateral (called by CentuariEndpoint during settlement)
     /// @param collateralAsset The collateral asset
     /// @param debtUSD The debt amount in USD

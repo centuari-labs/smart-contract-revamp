@@ -96,7 +96,7 @@ contract YieldRouter is
         }
 
         // Deploy via adapter
-        IERC20(asset).safeApprove(adapter, amount);
+        IERC20(asset).forceApprove(adapter, amount);
         uint256 shares = IYieldAdapter(adapter).deploy(asset, amount);
 
         // Update tracking

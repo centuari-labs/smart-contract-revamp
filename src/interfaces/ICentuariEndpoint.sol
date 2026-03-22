@@ -14,7 +14,7 @@ interface ICentuariEndpoint {
         RolloverSettlement[] rollovers;
         RefinanceSettlement[] refinances;
         LiquidationSettlement[] liquidations;
-        ReturnSettlement[] returns;
+        ReturnSettlement[] returnSettlements;
         GracePeriodStart[] graceStarts;
         uint256 nonce;
         uint256 timestamp;

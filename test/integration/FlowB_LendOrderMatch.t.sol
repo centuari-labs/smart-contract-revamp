@@ -97,7 +97,7 @@ contract FlowB_LendOrderMatchTest is Test {
         batch.rollovers = new ICentuariEndpoint.RolloverSettlement[](0);
         batch.refinances = new ICentuariEndpoint.RefinanceSettlement[](0);
         batch.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
-        batch.returns = new ICentuariEndpoint.ReturnSettlement[](0);
+        batch.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
 
         // Sign batch
@@ -105,7 +105,7 @@ contract FlowB_LendOrderMatchTest is Test {
             batch.nonce, batch.timestamp, batch.batchHash,
             batch.matches.length, batch.rollovers.length,
             batch.refinances.length, batch.liquidations.length,
-            batch.returns.length, batch.graceStarts.length
+            batch.returnSettlements.length, batch.graceStarts.length
         ));
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, ethSignedHash);

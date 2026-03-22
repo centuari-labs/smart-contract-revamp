@@ -7,7 +7,14 @@ import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.so
 
 import {ICollateralRegistry} from "../interfaces/ICollateralRegistry.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
+import {IPCBT} from "../interfaces/IPCBT.sol";
 import {CollateralRegistryStorage} from "./CollateralRegistryStorage.sol";
+
+/// @notice Minimal Chainlink AggregatorV3 interface for price reads
+interface IAggregatorV3 {
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
+    function decimals() external view returns (uint8);
+}
 
 /// @title CollateralRegistry
 /// @notice Manages RWA attestation processing from spoke chains via LayerZero
@@ -89,13 +96,38 @@ contract CollateralRegistry is
 
     /// @inheritdoc ICollateralRegistry
     function refreshCollateralValues(address[] calldata users) external override onlyKeeper {
-        // In production, this would read Chainlink prices for each user's collateral
-        // and update usdValueCached in BalanceLedger. For now, it's a keeper-triggered
-        // batch operation that external systems can call.
-        // The actual price read and cache update happens per-position.
+        IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
+
         for (uint256 i = 0; i < users.length; i++) {
-            // Emit event per user for off-chain tracking
-            // In full implementation: iterate collateral positions, read price, update cache
+            address user = users[i];
+            IBalanceLedger.CollateralPosition[] memory positions = ledger.getCollateral(user);
+
+            for (uint256 j = 0; j < positions.length; j++) {
+                IBalanceLedger.CollateralPosition memory pos = positions[j];
+                if (pos.amount == 0) continue;
+
+                uint256 usdValue;
+
+                if (_isPCBTVault[pos.asset]) {
+                    // pCBT vault: read collateral value directly from vault
+                    uint256 valuePerShare = IPCBT(pos.asset).collateralValuePerPCBT();
+                    usdValue = (pos.amount * valuePerShare) / 1e18;
+                } else {
+                    // Standard asset: read from Chainlink price feed
+                    address feed = _priceFeeds[pos.asset];
+                    if (feed == address(0)) continue;
+
+                    (, int256 price,, uint256 updatedAt,) = IAggregatorV3(feed).latestRoundData();
+                    if (price <= 0) continue;
+
+                    uint8 feedDecimals = IAggregatorV3(feed).decimals();
+                    usdValue = (pos.amount * uint256(price)) / (10 ** feedDecimals);
+                }
+
+                ledger.updateCollateralUsdValue(user, pos.asset, usdValue);
+            }
+
+            emit CollateralValuesRefreshed(user);
         }
     }
 
@@ -106,8 +138,10 @@ contract CollateralRegistry is
         uint256 newUsdValue
     ) external override onlyKeeper {
         if (user == address(0)) revert ZeroAddress();
-        // In production, this updates the usdValueCached field in BalanceLedger's CollateralPosition
-        // For now, emit event for off-chain tracking
+
+        // Write cached USD value to BalanceLedger — this is what RiskModule reads for HF computation
+        IBalanceLedger(_balanceLedger).updateCollateralUsdValue(user, asset, newUsdValue);
+
         emit CollateralValueUpdated(user, asset, newUsdValue);
     }
 
@@ -141,4 +175,16 @@ contract CollateralRegistry is
     function setBalanceLedger(address balanceLedger_) external onlyOwner {
         _balanceLedger = balanceLedger_;
     }
+
+    function setPriceFeed(address asset, address feed) external onlyOwner {
+        _priceFeeds[asset] = feed;
+    }
+
+    function setPCBTVault(address vault, bool isPCBT) external onlyOwner {
+        _isPCBTVault[vault] = isPCBT;
+    }
+
+    // ============ Events ============
+
+    event CollateralValuesRefreshed(address indexed user);
 }

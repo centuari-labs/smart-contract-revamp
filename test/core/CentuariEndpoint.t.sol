@@ -60,7 +60,7 @@ contract CentuariEndpointTest is Test {
             batch.rollovers.length,
             batch.refinances.length,
             batch.liquidations.length,
-            batch.returns.length,
+            batch.returnSettlements.length,
             batch.graceStarts.length
         ));
 
@@ -77,7 +77,7 @@ contract CentuariEndpointTest is Test {
         batch.rollovers = new ICentuariEndpoint.RolloverSettlement[](0);
         batch.refinances = new ICentuariEndpoint.RefinanceSettlement[](0);
         batch.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
-        batch.returns = new ICentuariEndpoint.ReturnSettlement[](0);
+        batch.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
     }
 
@@ -128,7 +128,7 @@ contract CentuariEndpointTest is Test {
             batch.nonce, batch.timestamp, batch.batchHash,
             batch.matches.length, batch.rollovers.length,
             batch.refinances.length, batch.liquidations.length,
-            batch.returns.length, batch.graceStarts.length
+            batch.returnSettlements.length, batch.graceStarts.length
         ));
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, ethSignedHash);
@@ -234,7 +234,7 @@ contract CentuariEndpointTest is Test {
             asset: usdc,
             amount: 5_000e6
         });
-        batch.returns = returns_;
+        batch.returnSettlements = returns_;
 
         endpoint.submitSettlementBatch(batch, _signBatch(batch));
 
@@ -281,6 +281,15 @@ contract CentuariEndpointTest is Test {
 
     function test_updateEngineSigner() public {
         address newSigner = address(0xDEAD);
+
+        // Propose new signer (starts 48h timelock)
+        vm.prank(owner);
+        endpoint.proposeEngineSigner(newSigner);
+
+        // Warp past 48h timelock
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        // Apply the proposed signer
         vm.prank(owner);
         endpoint.updateEngineSigner(newSigner);
 

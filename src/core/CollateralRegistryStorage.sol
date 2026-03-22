@@ -23,7 +23,13 @@ abstract contract CollateralRegistryStorage {
     /// @notice RiskModule address (for collateral value updates)
     address internal _riskModule;
 
+    /// @notice Price feed addresses per asset (Chainlink-compatible)
+    mapping(address => address) internal _priceFeeds;
+
+    /// @notice pCBT vault addresses (asset => true if it's a pCBT vault)
+    mapping(address => bool) internal _isPCBTVault;
+
     // ============ Gap ============
 
-    uint256[42] private __gap;
+    uint256[40] private __gap;
 }
