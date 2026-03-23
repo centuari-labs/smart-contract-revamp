@@ -143,9 +143,9 @@ contract BalanceLedger is
         if (user == address(0)) revert ZeroAddress();
         if (_balances[user][asset].yieldRouterShares < shares) revert InsufficientYieldRouter();
 
-        _balances[user][asset].inYieldRouter = _balances[user][asset].inYieldRouter > amount
-            ? _balances[user][asset].inYieldRouter - amount
-            : 0;
+        // M-05 FIX: Revert instead of silently clamping to 0. Clamping masks accounting bugs.
+        if (_balances[user][asset].inYieldRouter < amount) revert InsufficientYieldRouter();
+        _balances[user][asset].inYieldRouter -= amount;
         _balances[user][asset].yieldRouterShares -= shares;
         _balances[user][asset].available += amount;
         emit YieldRouterWithdrawn(user, asset, amount, shares);
@@ -263,6 +263,8 @@ contract BalanceLedger is
     }
 
     /// @notice Withdraw tokens from the protocol — debits available balance and transfers ERC20
+    /// @dev H-01 FIX: Check health factor after debiting. Without this, a borrower could
+    ///      withdraw all available balance and drop their HF below 1.0 without liquidation.
     /// @param asset The token to withdraw
     /// @param amount The amount to withdraw
     function withdraw(address asset, uint256 amount) external whenNotPaused nonReentrant {
@@ -270,9 +272,34 @@ contract BalanceLedger is
         if (_balances[msg.sender][asset].available < amount) revert InsufficientAvailable();
 
         _balances[msg.sender][asset].available -= amount;
-        IERC20(asset).safeTransfer(msg.sender, amount);
 
+        // H-01 FIX: Verify withdrawal doesn't put user below liquidation threshold
+        if (_riskModule != address(0)) {
+            uint256 hf = IRiskModule(_riskModule).getHealthFactor(msg.sender);
+            // type(uint256).max means no debt — always safe
+            if (hf != type(uint256).max && hf < 1e18) {
+                revert WouldCauseUndercollateralization();
+            }
+        }
+
+        IERC20(asset).safeTransfer(msg.sender, amount);
         emit BalanceDebited(msg.sender, asset, amount);
+    }
+
+    /// @notice Transfer ERC20 tokens out of the ledger (for CBT redemption)
+    /// @dev C-05 FIX: CentuariEndpoint calls this during redeemCBT() to release underlying.
+    ///      Does NOT modify user balances — only moves ERC20 tokens the ledger contract holds.
+    /// @param asset The token to transfer
+    /// @param to The recipient address
+    /// @param amount The amount to transfer
+    function transferOut(
+        address asset,
+        address to,
+        uint256 amount
+    ) external onlyAuthorized whenNotPaused nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        IERC20(asset).safeTransfer(to, amount);
     }
 
     /// @notice Update cached USD value for a collateral position (called by CollateralRegistry)
@@ -283,7 +310,7 @@ contract BalanceLedger is
         address user,
         address asset,
         uint256 newUsdValue
-    ) external onlyAuthorized {
+    ) external onlyAuthorized nonReentrant {
         for (uint256 i = 0; i < _collateral[user].length; i++) {
             if (_collateral[user][i].asset == asset) {
                 _collateral[user][i].usdValueCached = newUsdValue;

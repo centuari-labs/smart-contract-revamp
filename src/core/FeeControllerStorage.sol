@@ -43,6 +43,16 @@ abstract contract FeeControllerStorage {
     /// @dev paramHash => timestamp when update can be applied
     mapping(bytes32 => uint256) internal _paramTimelockEnd;
 
+    // ============ Admin Timelock (H-05 FIX) ============
+
+    /// @notice Pending admin address changes (treasury, endpoint, ledger)
+    mapping(bytes32 => address) internal _pendingAdminAddresses;
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
+    bytes32 internal constant ADMIN_TREASURY = keccak256("ADMIN_TREASURY");
+    bytes32 internal constant ADMIN_ENDPOINT = keccak256("ADMIN_ENDPOINT");
+    bytes32 internal constant ADMIN_LEDGER = keccak256("ADMIN_LEDGER");
+
     // ============ State ============
 
     /// @notice Paused state
@@ -94,5 +104,5 @@ abstract contract FeeControllerStorage {
     // ============ Gap ============
 
     /// @dev Reserved storage for future upgrades
-    uint256[35] private __gap;
+    uint256[33] private __gap;
 }

@@ -148,6 +148,7 @@ interface IAssetBehaviorRegistry {
 
     // ============ Events ============
 
+    event AssetProposed(address indexed asset, AssetClass assetClass);
     event AssetAdded(address indexed asset, AssetClass assetClass);
     event AssetUpdated(address indexed asset);
     event AssetDeactivated(address indexed asset);

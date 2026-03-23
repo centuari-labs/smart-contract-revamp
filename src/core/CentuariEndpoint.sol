@@ -12,7 +12,11 @@ import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {ICentuariRateOracle} from "../interfaces/ICentuariRateOracle.sol";
 import {IFeeController} from "../interfaces/IFeeController.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICBT} from "../interfaces/ICBT.sol";
+import {CentuariBondERC20Factory} from "./centuari/CentuariBondERC20Factory.sol";
+import {CentuariBondERC20} from "./centuari/CentuariBondERC20.sol";
 import {CentuariEndpointStorage} from "./CentuariEndpointStorage.sol";
 
 /// @title CentuariEndpoint
@@ -78,16 +82,18 @@ contract CentuariEndpoint is
         bytes calldata engineSignature
     ) external override whenNotPaused nonReentrant {
         // STEP 1: Verify engine ECDSA signature (Security Invariant #1)
+        // C-01 FIX: Hash actual operation CONTENTS, not just array lengths.
+        // Without this, an attacker could swap operation contents while keeping
+        // the same array length — the signature would still be valid.
         bytes32 batchDigest = keccak256(abi.encode(
             batch.nonce,
             batch.timestamp,
-            batch.batchHash,
-            batch.matches.length,
-            batch.rollovers.length,
-            batch.refinances.length,
-            batch.liquidations.length,
-            batch.returnSettlements.length,
-            batch.graceStarts.length,
+            keccak256(abi.encode(batch.matches)),
+            keccak256(abi.encode(batch.rollovers)),
+            keccak256(abi.encode(batch.refinances)),
+            keccak256(abi.encode(batch.liquidations)),
+            keccak256(abi.encode(batch.returnSettlements)),
+            keccak256(abi.encode(batch.graceStarts)),
             keccak256(abi.encode(batch.feeDistributions))
         ));
 
@@ -162,11 +168,14 @@ contract CentuariEndpoint is
             }
 
             // Validate CBT mint amount (±1 wei tolerance)
+            // C-04 FIX: Use absolute difference to avoid underflow when expectedCBT is small
             uint256 expectedCBT = _computeExpectedCBT(
                 m.principal, m.rateBPS, m.matchTimestamp, m.maturity
             );
-            if (m.cbtMintAmount > expectedCBT + CBT_TOLERANCE ||
-                m.cbtMintAmount < expectedCBT - CBT_TOLERANCE) {
+            uint256 cbtDiff = m.cbtMintAmount > expectedCBT
+                ? m.cbtMintAmount - expectedCBT
+                : expectedCBT - m.cbtMintAmount;
+            if (cbtDiff > CBT_TOLERANCE) {
                 revert CBTMintMismatch(expectedCBT, m.cbtMintAmount);
             }
 
@@ -176,18 +185,13 @@ contract CentuariEndpoint is
             // Credit borrower's available balance
             ledger.credit(m.borrower, m.lendAsset, m.principal);
 
-            // Mint CBT to lender via bond token factory
+            // C-03 FIX: Use typed interface calls instead of low-level .call()
+            // Low-level calls can silently succeed with unexpected data, causing lender
+            // to lose principal without receiving CBT.
             if (_bondTokenFactory != address(0)) {
-                (bool ok, bytes memory data) = _bondTokenFactory.call(
-                    abi.encodeWithSignature("getOrCreate(address,uint256)", m.lendAsset, m.maturity)
-                );
-                if (ok && data.length > 0) {
-                    address bondToken = abi.decode(data, (address));
-                    (bool mintOk,) = bondToken.call(
-                        abi.encodeWithSignature("mint(address,uint256)", m.lender, m.cbtMintAmount)
-                    );
-                    require(mintOk, "CentuariEndpoint: CBT mint failed");
-                }
+                address bondToken = CentuariBondERC20Factory(_bondTokenFactory)
+                    .getOrCreate(m.lendAsset, m.maturity);
+                CentuariBondERC20(bondToken).mint(m.lender, m.cbtMintAmount);
             }
 
             // Record borrow debt in RiskModule
@@ -212,24 +216,38 @@ contract CentuariEndpoint is
                 revert CBTMintMismatch(0, r.newRateBPS);
             }
 
-            // Burn old CBT — MUST succeed or entire batch reverts (H-01 fix)
+            // M-01 FIX: Verify rate within anchor bounds (±50 bps) — Invariant #15
+            if (r.anchorRateBPS > 0) {
+                uint256 rateDiff = r.newRateBPS > r.anchorRateBPS
+                    ? r.newRateBPS - r.anchorRateBPS
+                    : r.anchorRateBPS - r.newRateBPS;
+                if (rateDiff > ANCHOR_RATE_TOLERANCE_BPS) {
+                    revert CBTMintMismatch(r.anchorRateBPS, r.newRateBPS);
+                }
+            }
+
+            // Burn old CBT — MUST succeed or entire batch reverts
             if (r.oldCBT != address(0) && r.burnAmount > 0) {
                 ICBT(r.oldCBT).burn(r.lender, r.burnAmount);
             }
 
-            // Validate new CBT mint amount within ±1 wei tolerance (H-02 fix)
+            // H-02 FIX: Validate new CBT mint amount within ±1 wei tolerance
             if (r.newCBT != address(0) && r.mintAmount > 0) {
-                // Use batch timestamp as matchTimestamp for rollovers;
-                // newMaturity must be derived from the RolloverSettlement.
-                // Since RolloverSettlement doesn't carry newMaturity or newPrincipal directly,
-                // we validate that mintAmount is reasonable relative to the rate and rollover period.
-                // For rollovers, the rollover's newRateBPS and the anchor rate are the primary checks.
+                uint256 expectedMint = _computeExpectedCBT(
+                    r.newPrincipal, r.newRateBPS, block.timestamp, r.newMaturity
+                );
+                uint256 mintDiff = r.mintAmount > expectedMint
+                    ? r.mintAmount - expectedMint
+                    : expectedMint - r.mintAmount;
+                if (mintDiff > CBT_TOLERANCE) {
+                    revert CBTMintMismatch(expectedMint, r.mintAmount);
+                }
 
                 ICBT(r.newCBT).mint(r.lender, r.mintAmount);
             }
 
             bytes32 newPositionId = keccak256(abi.encode(r.lender, r.newCBT, r.rolloverCount));
-            emit PositionRolled(r.lender, bytes32(0), newPositionId, r.newRateBPS, 0);
+            emit PositionRolled(r.lender, bytes32(0), newPositionId, r.newRateBPS, r.newMaturity);
         }
     }
 
@@ -267,6 +285,10 @@ contract CentuariEndpoint is
         for (uint256 i = 0; i < liquidations.length; i++) {
             LiquidationSettlement calldata l = liquidations[i];
 
+            // H-07 FIX: Debit debt repayment FROM liquidator first.
+            // Without this, liquidator receives collateral for free — no payment for debt.
+            ledger.debit(l.liquidator, l.debtAsset, l.debtRepaid);
+
             // Reduce borrower's collateral
             ledger.reduceCollateral(l.borrower, l.collateralAsset, l.collateralSeized);
 
@@ -276,8 +298,11 @@ contract CentuariEndpoint is
                 IRiskModule(_riskModule).reduceDebtAgainstAsset(l.collateralAsset, l.debtRepaid);
             }
 
-            // Credit seized collateral (including bonus) to liquidator's balance
+            // Credit seized collateral (including bonus) to liquidator
             ledger.credit(l.liquidator, l.collateralAsset, l.collateralSeized);
+
+            // Credit repaid debt to borrower's available balance (debt is now covered)
+            ledger.credit(l.borrower, l.debtAsset, l.debtRepaid);
         }
     }
 
@@ -384,6 +409,38 @@ contract CentuariEndpoint is
 
     function setFeeController(address feeController_) external onlyOwner {
         _feeController = feeController_;
+    }
+
+    // ============ CBT Redemption (C-05 FIX) ============
+
+    /// @notice Redeem matured CBT for underlying tokens
+    /// @dev C-05 FIX: CBT is immutable (no proxy), so redemption logic lives here.
+    ///      Burns the caller's CBT and transfers underlying from BalanceLedger to the caller.
+    ///      BalanceLedger holds all underlying ERC20 tokens from user deposits.
+    /// @param cbtAddress The CBT token contract to redeem
+    /// @param amount The amount of CBT to redeem (1:1 with underlying at maturity)
+    function redeemCBT(address cbtAddress, uint256 amount) external whenNotPaused nonReentrant {
+        if (cbtAddress == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAddress();
+
+        CentuariBondERC20 cbt = CentuariBondERC20(cbtAddress);
+
+        // Verify maturity has passed
+        require(block.timestamp >= cbt.MATURITY(), "CentuariEndpoint: not yet matured");
+
+        // Verify caller has sufficient CBT balance
+        require(cbt.balanceOf(msg.sender) >= amount, "CentuariEndpoint: insufficient CBT");
+
+        // Burn CBT from caller — CentuariEndpoint is the MINTER (via factory)
+        // so it can call burn(address, uint256) added in C-06 fix
+        cbt.burn(msg.sender, amount);
+
+        // Transfer underlying from BalanceLedger to caller
+        // BalanceLedger.transferOut() releases ERC20 tokens held by the ledger contract
+        address underlying = cbt.LOAN_TOKEN();
+        IBalanceLedger(_balanceLedger).transferOut(underlying, msg.sender, amount);
+
+        emit CBTRedeemed(msg.sender, cbtAddress, underlying, amount);
     }
 
     // ============ View Functions ============

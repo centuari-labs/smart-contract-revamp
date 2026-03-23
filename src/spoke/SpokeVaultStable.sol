@@ -37,7 +37,7 @@ contract SpokeVaultStable is ISpokeVaultStable, Ownable, ReentrancyGuard {
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function withdraw(address asset, uint256 amount) external override nonReentrant {
+    function withdraw(address asset, uint256 amount) external override onlySweeper nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (_balances[asset] < amount) revert InsufficientBuffer();
         _balances[asset] -= amount;

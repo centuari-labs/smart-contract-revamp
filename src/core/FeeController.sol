@@ -479,21 +479,42 @@ contract FeeController is
 
     // ============ Administrative ============
 
-    function setProtocolTreasury(address treasury_) external onlyOwner {
-        if (treasury_ == address(0)) revert ZeroAddress();
-        address old = _protocolTreasury;
-        _protocolTreasury = treasury_;
-        emit ProtocolTreasuryUpdated(old, treasury_);
+    // ============ Admin Address Changes (H-05 FIX: 48h timelock) ============
+
+    /// @notice Propose a new admin address (treasury, endpoint, or ledger)
+    function proposeAdminAddress(bytes32 adminId, address newAddress) external onlyOwner {
+        if (newAddress == address(0)) revert ZeroAddress();
+        _pendingAdminAddresses[adminId] = newAddress;
+        _pendingAdminTimelockEnd[adminId] = block.timestamp + TIMELOCK_DURATION;
     }
 
-    function setCentuariEndpoint(address endpoint_) external onlyOwner {
-        if (endpoint_ == address(0)) revert ZeroAddress();
-        _centuariEndpoint = endpoint_;
+    /// @notice Apply a pending admin address change after timelock expires
+    function applyAdminAddress(bytes32 adminId) external onlyOwner {
+        if (_pendingAdminTimelockEnd[adminId] == 0) revert NoPendingUpdate(adminId);
+        if (block.timestamp < _pendingAdminTimelockEnd[adminId]) revert TimelockNotExpired();
+
+        address newAddress = _pendingAdminAddresses[adminId];
+
+        if (adminId == ADMIN_TREASURY) {
+            address old = _protocolTreasury;
+            _protocolTreasury = newAddress;
+            emit ProtocolTreasuryUpdated(old, newAddress);
+        } else if (adminId == ADMIN_ENDPOINT) {
+            _centuariEndpoint = newAddress;
+        } else if (adminId == ADMIN_LEDGER) {
+            _balanceLedger = newAddress;
+        } else {
+            revert NoPendingUpdate(adminId);
+        }
+
+        delete _pendingAdminAddresses[adminId];
+        delete _pendingAdminTimelockEnd[adminId];
     }
 
-    function setBalanceLedger(address ledger_) external onlyOwner {
-        if (ledger_ == address(0)) revert ZeroAddress();
-        _balanceLedger = ledger_;
+    /// @notice Cancel a pending admin address change
+    function cancelAdminAddress(bytes32 adminId) external onlyOwner {
+        delete _pendingAdminAddresses[adminId];
+        delete _pendingAdminTimelockEnd[adminId];
     }
 
     function pause() external onlyOwner {

@@ -64,8 +64,7 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
     }
 
     /// @inheritdoc ISpokeVaultRWA
-    function reportFrozen(address asset) external override {
-        // Verify by attempting a transfer of 0 (or checking canTransfer)
+    function reportFrozen(address asset) external override onlyOwner {
         frozenAssets[asset] = true;
         emit AssetFrozenReported(asset);
     }
@@ -75,14 +74,26 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
     function setLayerZeroEndpoint(address ep) external onlyOwner { layerZeroEndpoint = ep; }
     function setHubLiquidationEngine(address hub) external onlyOwner { hubLiquidationEngine = hub; }
 
-    /// @notice LayerZero receive handler (simplified)
-    function lzReceive(uint32, bytes32 sender, bytes calldata message) external {
+    /// @notice Hub chain EID for source verification
+    uint32 public hubChainEid;
+
+    function setHubChainEid(uint32 eid) external onlyOwner { hubChainEid = eid; }
+
+    /// @notice LayerZero receive handler
+    /// C-08 FIX: Verify sender == hubLiquidationEngine AND source chain == hubChainEid.
+    /// Without this, any LayerZero message from any chain could drain all locked RWAs.
+    function lzReceive(uint32 srcEid, bytes32 sender, bytes calldata message) external {
         require(msg.sender == layerZeroEndpoint, "SpokeVaultRWA: only LZ");
-        // In production: verify sender == hubLiquidationEngine
-        // Decode and execute liquidation release
+        require(srcEid == hubChainEid, "SpokeVaultRWA: invalid source chain");
+        require(
+            sender == bytes32(uint256(uint160(hubLiquidationEngine))),
+            "SpokeVaultRWA: invalid hub sender"
+        );
+
         (address user, address asset, uint256 amount, address liquidator) = abi.decode(
             message, (address, address, uint256, address)
         );
+        require(lockedBalances[user][asset] >= amount, "SpokeVaultRWA: insufficient locked");
         lockedBalances[user][asset] -= amount;
         IERC20(asset).safeTransfer(liquidator, amount);
         emit LiquidationReleased(user, asset, amount, liquidator);

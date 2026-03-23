@@ -45,21 +45,52 @@ contract AssetBehaviorRegistry is
 
     // ============ Asset Management ============
 
-    /// @inheritdoc IAssetBehaviorRegistry
-    function addAsset(
+    /// @notice H-03 FIX: Propose a new asset — starts 48h timelock (Invariant #7)
+    /// @dev Previously addAsset() was instant. Now split into propose/execute with timelock.
+    function proposeAsset(
         address asset,
         AssetBehavior calldata behavior
-    ) external override onlyOwner whenNotPaused nonReentrant {
+    ) external onlyOwner whenNotPaused nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
         if (_behaviors[asset].active) revert AssetAlreadyExists();
         if (behavior.liquidationBonusBPS > MAX_LIQUIDATION_BONUS_BPS) revert MaxLiquidationBonusExceeded();
         _validateBehavior(behavior);
 
-        _behaviors[asset] = behavior;
+        _pendingAssets[asset] = behavior;
+        _pendingAssetTimestamp[asset] = block.timestamp + TIMELOCK_DURATION;
+
+        emit AssetProposed(asset, behavior.assetClass);
+    }
+
+    /// @notice Execute a pending asset proposal after timelock expires
+    function executeAddAsset(address asset) external onlyOwner whenNotPaused nonReentrant {
+        if (_pendingAssetTimestamp[asset] == 0) revert AssetNotFound();
+        if (block.timestamp < _pendingAssetTimestamp[asset]) revert TimelockNotExpired();
+        if (_behaviors[asset].active) revert AssetAlreadyExists();
+
+        _behaviors[asset] = _pendingAssets[asset];
         _behaviors[asset].active = true;
         _assetAddedAt[asset] = block.timestamp;
 
-        emit AssetAdded(asset, behavior.assetClass);
+        delete _pendingAssets[asset];
+        delete _pendingAssetTimestamp[asset];
+
+        emit AssetAdded(asset, _behaviors[asset].assetClass);
+    }
+
+    /// @notice Cancel a pending asset proposal
+    function cancelProposeAsset(address asset) external onlyOwner {
+        delete _pendingAssets[asset];
+        delete _pendingAssetTimestamp[asset];
+    }
+
+    /// @inheritdoc IAssetBehaviorRegistry
+    /// @dev DEPRECATED — use proposeAsset() + executeAddAsset() instead. Kept for interface compat.
+    function addAsset(
+        address asset,
+        AssetBehavior calldata behavior
+    ) external override onlyOwner whenNotPaused nonReentrant {
+        revert TimelockNotExpired(); // Force use of propose/execute pattern
     }
 
     /// @inheritdoc IAssetBehaviorRegistry

@@ -154,9 +154,31 @@ contract CentuariRateOracle is
         _activeMaturities[asset] = maturities;
     }
 
-    function updateSigner(address newSigner) external onlyOwner {
+    /// @notice H-04 FIX: Propose a new oracle signer — starts 48h timelock
+    function proposeOracleSigner(address newSigner) external onlyOwner {
         if (newSigner == address(0)) revert ZeroAddress();
-        _authorizedSigner = newSigner;
+        _pendingOracleSigner = newSigner;
+        _oracleSignerTimelockEnd = block.timestamp + 48 hours;
+    }
+
+    /// @notice Apply pending oracle signer after timelock expires
+    function applyOracleSigner() external onlyOwner {
+        require(_pendingOracleSigner != address(0), "CentuariRateOracle: no pending signer");
+        require(block.timestamp >= _oracleSignerTimelockEnd, "CentuariRateOracle: timelock not expired");
+        _authorizedSigner = _pendingOracleSigner;
+        _pendingOracleSigner = address(0);
+        _oracleSignerTimelockEnd = 0;
+    }
+
+    /// @notice Cancel pending signer proposal
+    function cancelOracleSigner() external onlyOwner {
+        _pendingOracleSigner = address(0);
+        _oracleSignerTimelockEnd = 0;
+    }
+
+    /// @notice DEPRECATED — use proposeOracleSigner() + applyOracleSigner() instead
+    function updateSigner(address) external view onlyOwner {
+        revert("CentuariRateOracle: use proposeOracleSigner");
     }
 
     // ============ Internal ============

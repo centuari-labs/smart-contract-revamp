@@ -49,6 +49,8 @@ interface ICentuariEndpoint {
         uint256 newRateBPS;
         uint256 anchorRateBPS;
         uint8 rolloverCount;
+        uint256 newMaturity;    // H-02 FIX: needed for CBT mint validation
+        uint256 newPrincipal;   // H-02 FIX: compounded principal for validation
     }
 
     /// @notice A borrow position being refinanced at maturity
@@ -75,6 +77,7 @@ interface ICentuariEndpoint {
         uint256 collateralSeized;
         uint256 debtRepaid;
         uint256 bonusBPS;
+        address debtAsset;      // H-07 FIX: asset liquidator pays to cover debt
     }
 
     /// @notice Principal + interest returned to lender (failed rollover)
@@ -171,6 +174,7 @@ interface ICentuariEndpoint {
     );
 
     event FeesProcessed(uint256 indexed nonce, uint256 totalProtocolRevenue);
+    event CBTRedeemed(address indexed redeemer, address indexed cbtAddress, address underlying, uint256 amount);
     event EngineSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event Paused(address indexed account);
     event Unpaused(address indexed account);

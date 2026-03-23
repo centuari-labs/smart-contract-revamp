@@ -28,6 +28,10 @@ abstract contract CentuariRateOracleStorage {
     /// @notice Authorized engine signer for commits
     address internal _authorizedSigner;
 
+    /// @notice H-04 FIX: Pending signer update with 48h timelock
+    address internal _pendingOracleSigner;
+    uint256 internal _oracleSignerTimelockEnd;
+
     /// @notice BPS denominator
     uint256 internal constant BPS_DENOMINATOR = 10000;
 
@@ -36,5 +40,5 @@ abstract contract CentuariRateOracleStorage {
 
     // ============ Gap ============
 
-    uint256[44] private __gap;
+    uint256[42] private __gap;
 }
