@@ -105,11 +105,20 @@ contract AssetBehaviorRegistryTest is Test {
         });
     }
 
+    // ============ Helper: propose + execute asset (with timelock warp) ============
+
+    function _proposeAndAddAsset(address asset, IAssetBehaviorRegistry.AssetBehavior memory behavior) internal {
+        vm.prank(owner);
+        registry.proposeAsset(asset, behavior);
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.prank(owner);
+        registry.executeAddAsset(asset);
+    }
+
     // ============ addAsset Tests ============
 
     function test_addAsset_classC() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         IAssetBehaviorRegistry.AssetBehavior memory b = registry.getBehavior(usdc);
         assertTrue(b.active);
@@ -122,8 +131,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_addAsset_classD_stock() public {
-        vm.prank(owner);
-        registry.addAsset(stock, _stockBehavior());
+        _proposeAndAddAsset(stock, _stockBehavior());
 
         IAssetBehaviorRegistry.AssetBehavior memory b = registry.getBehavior(stock);
         assertTrue(b.assetClass == IAssetBehaviorRegistry.AssetClass.D);
@@ -135,18 +143,18 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_addAsset_reverts_duplicate() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
+        // Proposing a duplicate should revert
         vm.prank(owner);
         vm.expectRevert(IAssetBehaviorRegistry.AssetAlreadyExists.selector);
-        registry.addAsset(usdc, _usdcBehavior());
+        registry.proposeAsset(usdc, _usdcBehavior());
     }
 
     function test_addAsset_reverts_non_owner() public {
         vm.prank(address(0x999));
         vm.expectRevert(); // OwnableUnauthorizedAccount
-        registry.addAsset(usdc, _usdcBehavior());
+        registry.proposeAsset(usdc, _usdcBehavior());
     }
 
     function test_addAsset_reverts_excessive_bonus() public {
@@ -155,7 +163,7 @@ contract AssetBehaviorRegistryTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(IAssetBehaviorRegistry.MaxLiquidationBonusExceeded.selector);
-        registry.addAsset(usdc, b);
+        registry.proposeAsset(usdc, b);
     }
 
     function test_addAsset_reverts_invalid_ltv() public {
@@ -165,14 +173,30 @@ contract AssetBehaviorRegistryTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(IAssetBehaviorRegistry.InvalidLiquidationThreshold.selector);
-        registry.addAsset(usdc, b);
+        registry.proposeAsset(usdc, b);
+    }
+
+    function test_addAsset_requires_timelock() public {
+        vm.prank(owner);
+        registry.proposeAsset(usdc, _usdcBehavior());
+
+        // Cannot execute before timelock
+        vm.prank(owner);
+        vm.expectRevert(IAssetBehaviorRegistry.TimelockNotExpired.selector);
+        registry.executeAddAsset(usdc);
+
+        // Can execute after timelock
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.prank(owner);
+        registry.executeAddAsset(usdc);
+
+        assertTrue(registry.getBehavior(usdc).active);
     }
 
     // ============ Deactivate / Pause Tests ============
 
     function test_deactivateAsset() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         vm.prank(owner);
         registry.deactivateAsset(usdc);
@@ -182,8 +206,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_pauseAsset() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         vm.prank(owner);
         registry.pauseAsset(usdc);
@@ -191,8 +214,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_unpauseAsset_requires_timelock() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         // Update to set _lastUpdateAt
         vm.warp(block.timestamp + 48 hours + 1);
@@ -217,8 +239,7 @@ contract AssetBehaviorRegistryTest is Test {
     // ============ LTV Governance Tests ============
 
     function test_updateAsset_creates_pending_ltv_change() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         // Prepare updated behavior with different LTV
         IAssetBehaviorRegistry.AssetBehavior memory updated = _usdcBehavior();
@@ -236,8 +257,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_applyLTVToExisting_requires_30_day_observation() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         IAssetBehaviorRegistry.AssetBehavior memory updated = _usdcBehavior();
         updated.maxLTV = 7500;
@@ -264,16 +284,14 @@ contract AssetBehaviorRegistryTest is Test {
     // ============ Effective LTV with Market Hours ============
 
     function test_effectiveLiqThreshold_market_open() public {
-        vm.prank(owner);
-        registry.addAsset(stock, _stockBehavior());
+        _proposeAndAddAsset(stock, _stockBehavior());
 
         mockSchedule.setIsOpen(true);
         assertEq(registry.getEffectiveLiqThreshold(stock), 5700); // full threshold
     }
 
     function test_effectiveLiqThreshold_market_closed() public {
-        vm.prank(owner);
-        registry.addAsset(stock, _stockBehavior());
+        _proposeAndAddAsset(stock, _stockBehavior());
 
         mockSchedule.setIsOpen(false);
         // 5700 - 1000 (afterHoursLTVBuffer) = 4700
@@ -281,8 +299,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_effectiveMaxLTV_market_closed() public {
-        vm.prank(owner);
-        registry.addAsset(stock, _stockBehavior());
+        _proposeAndAddAsset(stock, _stockBehavior());
 
         mockSchedule.setIsOpen(false);
         // 5000 - 1000 = 4000
@@ -290,8 +307,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_no_market_hours_asset_unaffected() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         mockSchedule.setIsOpen(false); // doesn't matter for USDC
         assertEq(registry.getEffectiveLiqThreshold(usdc), 8500); // unchanged
@@ -300,8 +316,7 @@ contract AssetBehaviorRegistryTest is Test {
     // ============ Liquidator Whitelist Tests ============
 
     function test_liquidator_whitelist_empty_allows_anyone() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         assertTrue(registry.isLiquidatorApproved(usdc, liquidator1));
         assertTrue(registry.isLiquidatorApproved(usdc, address(0x999)));
@@ -334,8 +349,7 @@ contract AssetBehaviorRegistryTest is Test {
     // ============ Timelock Enforcement (Security Invariant #7) ============
 
     function test_updateAsset_respects_timelock() public {
-        vm.prank(owner);
-        registry.addAsset(usdc, _usdcBehavior());
+        _proposeAndAddAsset(usdc, _usdcBehavior());
 
         // First update to set _lastUpdateAt
         vm.warp(block.timestamp + 48 hours + 1);

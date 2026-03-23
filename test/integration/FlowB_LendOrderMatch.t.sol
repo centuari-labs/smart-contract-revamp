@@ -102,12 +102,15 @@ contract FlowB_LendOrderMatchTest is Test {
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
         batch.feeDistributions = new IFeeController.FeeDistribution[](0);
 
-        // Sign batch
+        // Sign batch (C-01 FIX: hash operation contents, not lengths)
         bytes32 batchDigest = keccak256(abi.encode(
-            batch.nonce, batch.timestamp, batch.batchHash,
-            batch.matches.length, batch.rollovers.length,
-            batch.refinances.length, batch.liquidations.length,
-            batch.returnSettlements.length, batch.graceStarts.length,
+            batch.nonce, batch.timestamp,
+            keccak256(abi.encode(batch.matches)),
+            keccak256(abi.encode(batch.rollovers)),
+            keccak256(abi.encode(batch.refinances)),
+            keccak256(abi.encode(batch.liquidations)),
+            keccak256(abi.encode(batch.returnSettlements)),
+            keccak256(abi.encode(batch.graceStarts)),
             keccak256(abi.encode(batch.feeDistributions))
         ));
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();

@@ -46,7 +46,13 @@ abstract contract AssetBehaviorRegistryStorage {
     /// @notice Paused state
     bool internal _paused;
 
+    /// @notice H-03 FIX: Pending asset proposals awaiting timelock
+    mapping(address => IAssetBehaviorRegistry.AssetBehavior) internal _pendingAssets;
+
+    /// @notice H-03 FIX: Timelock end timestamps for pending asset proposals
+    mapping(address => uint256) internal _pendingAssetTimestamp;
+
     // ============ Gap ============
 
-    uint256[40] private __gap;
+    uint256[38] private __gap;
 }

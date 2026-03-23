@@ -65,21 +65,23 @@ contract RiskModuleTest is Test {
         vm.startPrank(owner);
         registry.setMarketScheduleRegistry(address(scheduleRegistry));
 
-        // Add USDC (Class C, lendable, collateral)
-        registry.addAsset(usdc, _behavior(
+        // Add USDC (Class C, lendable, collateral) — via propose/execute timelock
+        registry.proposeAsset(usdc, _behavior(
             IAssetBehaviorRegistry.AssetClass.C, 8000, 8500, false, 0, 500, address(usdcFeed), 0, 500e6
         ));
-
-        // Add OUSG (Class A, collateral only, attestation)
-        registry.addAsset(ousg, _behavior(
+        registry.proposeAsset(ousg, _behavior(
             IAssetBehaviorRegistry.AssetClass.A, 5500, 6200, false, 0, 800, address(ousgFeed), 5_000_000e18, 0
         ));
-
-        // Add Stock (Class D, has market hours)
         _addNYSESchedule();
-        registry.addAsset(stock, _behavior(
+        registry.proposeAsset(stock, _behavior(
             IAssetBehaviorRegistry.AssetClass.D, 5000, 5700, true, 1000, 1200, address(stockFeed), 1_000_000e18, 0
         ));
+
+        // Warp past 48h timelock and execute all
+        vm.warp(block.timestamp + 48 hours + 1);
+        registry.executeAddAsset(usdc);
+        registry.executeAddAsset(ousg);
+        registry.executeAddAsset(stock);
 
         // Authorize the risk module + authorized caller
         ledger.setAuthorizedWriter(authorized, true);

@@ -77,6 +77,15 @@ contract CentuariBondERC20 is ERC20, ReentrancyGuard {
         _burn(msg.sender, amount);
     }
 
+    /// @notice Burn tokens from an address — callable by minter (for rollovers)
+    /// @dev C-06 FIX: CentuariEndpoint calls ICBT.burn(lender, amount) during rollovers.
+    ///      Without this, rollover settlements revert because only burn(uint256) existed.
+    /// @param from The address to burn tokens from
+    /// @param amount The amount of tokens to burn
+    function burn(address from, uint256 amount) external onlyMinter {
+        _burn(from, amount);
+    }
+
     /// @notice Burn tokens from an address (requires approval)
     /// @dev Caller must have allowance from the account
     /// @param account The address to burn tokens from

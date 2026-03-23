@@ -193,6 +193,10 @@ contract RiskModule is
         // Call Chainlink AggregatorV3Interface
         (,int256 answer,,uint256 updatedAt_,) = _latestRoundData(behavior.priceFeed);
 
+        // C-02 FIX: Reject non-positive prices. Negative int256 wraps to ~2^255
+        // as uint256, corrupting all HF calculations and enabling unlimited borrowing.
+        require(answer > 0, "RiskModule: non-positive price");
+
         // Convert to 18 decimals
         uint8 feedDecimals = _feedDecimals(behavior.priceFeed);
         priceUSD = uint256(answer) * (10 ** (18 - feedDecimals));

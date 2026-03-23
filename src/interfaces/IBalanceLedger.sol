@@ -120,6 +120,14 @@ interface IBalanceLedger {
     /// @param newUsdValue The new USD value
     function updateCollateralUsdValue(address user, address asset, uint256 newUsdValue) external;
 
+    /// @notice Transfer ERC20 tokens out of the ledger (for CBT redemption)
+    /// @dev Only callable by authorized writers (CentuariEndpoint).
+    ///      Does NOT modify any user balance — transfers from the ledger's own ERC20 holdings.
+    /// @param asset The token to transfer
+    /// @param to The recipient
+    /// @param amount The amount
+    function transferOut(address asset, address to, uint256 amount) external;
+
     // ============ View Functions ============
 
     /// @notice Get user's full balance for an asset

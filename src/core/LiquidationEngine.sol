@@ -107,11 +107,18 @@ contract LiquidationEngine is
         }
 
         // 7. Compute collateral to seize (including bonus)
+        // H-08 FIX: Use fresh oracle price instead of stale usdValueCached.
+        // The cached value could be hours old — liquidation must use current market price.
         IAssetBehaviorRegistry.AssetBehavior memory behavior = registry.getBehavior(collateralAsset);
         uint256 bonusBPS = behavior.liquidationBonusBPS;
-        uint256 collateralToSeize = _computeSeizure(debtToCover, collPos.usdValueCached, collPos.amount, bonusBPS);
+        (uint256 pricePerUnit18,) = riskModule.getAssetPriceUSD(collateralAsset);
+        uint256 freshCollateralUsdValue = (pricePerUnit18 * collPos.amount) / 1e18;
+        uint256 collateralToSeize = _computeSeizure(debtToCover, freshCollateralUsdValue, collPos.amount, bonusBPS);
 
         if (collateralToSeize > collPos.amount) revert InsufficientCollateral();
+
+        // Update cache with fresh value (benefits subsequent HF checks)
+        ledger.updateCollateralUsdValue(borrower, collateralAsset, freshCollateralUsdValue);
 
         // 8. Execute liquidation (hub-native path)
         // Reduce collateral
