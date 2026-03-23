@@ -11,6 +11,7 @@ import {ICentuariEndpoint} from "../interfaces/ICentuariEndpoint.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {ICentuariRateOracle} from "../interfaces/ICentuariRateOracle.sol";
+import {IFeeController} from "../interfaces/IFeeController.sol";
 import {ICBT} from "../interfaces/ICBT.sol";
 import {CentuariEndpointStorage} from "./CentuariEndpointStorage.sol";
 
@@ -86,7 +87,8 @@ contract CentuariEndpoint is
             batch.refinances.length,
             batch.liquidations.length,
             batch.returnSettlements.length,
-            batch.graceStarts.length
+            batch.graceStarts.length,
+            keccak256(abi.encode(batch.feeDistributions))
         ));
 
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
@@ -120,7 +122,16 @@ contract CentuariEndpoint is
         // Step 8: Process new matches
         _processMatches(batch.matches);
 
-        // Step 9: Process grace period starts
+        // Step 9: Process fee distributions (delegated to FeeController)
+        if (_feeController != address(0) && batch.feeDistributions.length > 0) {
+            uint256 totalRevenue = IFeeController(_feeController).validateAndExecuteFees(
+                batch.feeDistributions,
+                abi.encode(batch.matches, batch.rollovers, batch.refinances)
+            );
+            emit FeesProcessed(batch.nonce, totalRevenue);
+        }
+
+        // Step 10: Process grace period starts
         _processGraceStarts(batch.graceStarts);
 
         // STEP 12: Update nonce and emit confirmation
@@ -369,6 +380,10 @@ contract CentuariEndpoint is
 
     function setRateOracle(address rateOracle_) external onlyOwner {
         _rateOracle = rateOracle_;
+    }
+
+    function setFeeController(address feeController_) external onlyOwner {
+        _feeController = feeController_;
     }
 
     // ============ View Functions ============

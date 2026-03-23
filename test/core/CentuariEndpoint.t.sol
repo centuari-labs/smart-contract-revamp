@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CentuariEndpoint} from "../../src/core/CentuariEndpoint.sol";
 import {BalanceLedger} from "../../src/core/BalanceLedger.sol";
 import {ICentuariEndpoint} from "../../src/interfaces/ICentuariEndpoint.sol";
+import {IFeeController} from "../../src/interfaces/IFeeController.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
@@ -61,7 +62,8 @@ contract CentuariEndpointTest is Test {
             batch.refinances.length,
             batch.liquidations.length,
             batch.returnSettlements.length,
-            batch.graceStarts.length
+            batch.graceStarts.length,
+            keccak256(abi.encode(batch.feeDistributions))
         ));
 
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
@@ -79,6 +81,7 @@ contract CentuariEndpointTest is Test {
         batch.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
         batch.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
+        batch.feeDistributions = new IFeeController.FeeDistribution[](0);
     }
 
     function _batchWithMatch(uint256 nonce) internal view returns (ICentuariEndpoint.SettlementBatch memory batch) {
@@ -128,7 +131,8 @@ contract CentuariEndpointTest is Test {
             batch.nonce, batch.timestamp, batch.batchHash,
             batch.matches.length, batch.rollovers.length,
             batch.refinances.length, batch.liquidations.length,
-            batch.returnSettlements.length, batch.graceStarts.length
+            batch.returnSettlements.length, batch.graceStarts.length,
+            keccak256(abi.encode(batch.feeDistributions))
         ));
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, ethSignedHash);

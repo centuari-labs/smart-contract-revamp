@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BalanceLedger} from "../../src/core/BalanceLedger.sol";
 import {CentuariEndpoint} from "../../src/core/CentuariEndpoint.sol";
 import {ICentuariEndpoint} from "../../src/interfaces/ICentuariEndpoint.sol";
+import {IFeeController} from "../../src/interfaces/IFeeController.sol";
 import {IBalanceLedger} from "../../src/interfaces/IBalanceLedger.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -99,13 +100,15 @@ contract FlowB_LendOrderMatchTest is Test {
         batch.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
         batch.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
+        batch.feeDistributions = new IFeeController.FeeDistribution[](0);
 
         // Sign batch
         bytes32 batchDigest = keccak256(abi.encode(
             batch.nonce, batch.timestamp, batch.batchHash,
             batch.matches.length, batch.rollovers.length,
             batch.refinances.length, batch.liquidations.length,
-            batch.returnSettlements.length, batch.graceStarts.length
+            batch.returnSettlements.length, batch.graceStarts.length,
+            keccak256(abi.encode(batch.feeDistributions))
         ));
         bytes32 ethSignedHash = batchDigest.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, ethSignedHash);

@@ -40,6 +40,9 @@ abstract contract CentuariEndpointStorage {
     uint256 internal _signerUpdateTimelockEnd;
     address internal _pendingSigner;
 
+    /// @notice FeeController contract — all fee logic delegated here
+    address internal _feeController;
+
     /// @notice Timestamp tolerance for batch validation (±60 seconds)
     uint256 internal constant TIMESTAMP_TOLERANCE = 60;
 
@@ -64,5 +67,5 @@ abstract contract CentuariEndpointStorage {
 
     // ============ Gap ============
 
-    uint256[35] private __gap;
+    uint256[34] private __gap;
 }

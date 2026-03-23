@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {IFeeController} from "./IFeeController.sol";
+
 /// @title ICentuariEndpoint
 /// @notice Primary settlement contract and trust anchor of the Centuari protocol
 /// @dev Accepts settlement batches from the off-chain matching engine.
@@ -16,6 +18,7 @@ interface ICentuariEndpoint {
         LiquidationSettlement[] liquidations;
         ReturnSettlement[] returnSettlements;
         GracePeriodStart[] graceStarts;
+        IFeeController.FeeDistribution[] feeDistributions;
         uint256 nonce;
         uint256 timestamp;
         bytes32 batchHash;
@@ -167,6 +170,7 @@ interface ICentuariEndpoint {
         uint256 gracePeriodEnds
     );
 
+    event FeesProcessed(uint256 indexed nonce, uint256 totalProtocolRevenue);
     event EngineSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
