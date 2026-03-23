@@ -136,7 +136,6 @@ contract Centuari is
             marketId,
             lender,
             matchedAmount,
-            lenderFee,
             rate,
             maturity,
             bondToken
@@ -151,15 +150,15 @@ contract Centuari is
             maturity
         );
 
-        uint256 netLoanAmountForBorrower = matchedAmount - borrowerFee;
-
         ITreasury(_treasury).settle(
             loanToken,
             lender,
             borrower,
-            netLoanAmountForBorrower,
+            matchedAmount,
             lenderSettlementFee,
-            borrowerSettlementFee
+            borrowerSettlementFee,
+            lenderFee,
+            borrowerFee
         );
 
         if (bondToken != address(0) && cbtAmount > 0) {
@@ -171,11 +170,10 @@ contract Centuari is
 
     // ============ Internal Functions ============
 
-    /// @notice Process the lender's position (fixed-rate CBT = effective principal + day-count interest)
+    /// @notice Process the lender's position (fixed-rate CBT = principal + day-count interest)
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param principal The original matched principal (emitted in event)
-    /// @param lenderFee The fee deducted from the lender; CBT is based on principal - lenderFee
+    /// @param principal The matched principal amount (CBT is based on full principal; fees are deducted from balance by Treasury)
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
     /// @param bondToken The CBT (bond token) contract address for the market
@@ -184,16 +182,14 @@ contract Centuari is
         bytes32 marketId,
         address lender,
         uint256 principal,
-        uint256 lenderFee,
         uint256 rate,
         uint256 maturity,
         address bondToken
     ) internal returns (uint256 cbtAmount) {
-        uint256 effectivePrincipal = principal - lenderFee;
         cbtAmount =
-            effectivePrincipal +
+            principal +
             _interestWithDayCount(
-                effectivePrincipal,
+                principal,
                 rate,
                 block.timestamp,
                 maturity
