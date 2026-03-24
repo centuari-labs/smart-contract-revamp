@@ -46,9 +46,14 @@ contract FlowB_LendOrderMatchTest is Test {
             abi.encodeCall(CentuariEndpoint.initialize, (owner, signer, multisig, address(ledger)))
         )));
 
+        vm.warp(1000);
         vm.startPrank(owner);
-        ledger.setAuthorizedWriter(address(endpoint), true);
-        ledger.setAuthorizedWriter(address(this), true); // for test setup
+        ledger.proposeAuthorizedWriter(address(endpoint), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
+        ledger.proposeAuthorizedWriter(address(this), true);
+        vm.warp(1000 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
         vm.stopPrank();
     }
 

@@ -60,12 +60,19 @@ contract FeeIntegrationTest is Test {
         )));
 
         // Wire up
+        vm.warp(1000);
         vm.startPrank(owner);
-        ledger.setAuthorizedWriter(address(endpoint), true);
-        ledger.setAuthorizedWriter(address(feeController), true);
-        ledger.setAuthorizedWriter(address(this), true);
+        ledger.proposeAuthorizedWriter(address(endpoint), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
+        ledger.proposeAuthorizedWriter(address(feeController), true);
+        vm.warp(1000 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
+        ledger.proposeAuthorizedWriter(address(this), true);
+        vm.warp(1000 + 144 hours + 3);
+        ledger.applyAuthorizedWriter();
         endpoint.proposeAdminAddress("fees", address(feeController));
-        vm.warp(block.timestamp + 48 hours);
+        vm.warp(1000 + 192 hours + 4);
         endpoint.applyAdminAddress("fees");
         vm.stopPrank();
 

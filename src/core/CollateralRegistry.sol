@@ -128,12 +128,21 @@ contract CollateralRegistry is
                         uint256 maxStaleness = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                             .getBehavior(pos.asset).maxStaleness;
                         if (maxStaleness > 0 && block.timestamp - updatedAt > maxStaleness) {
-                            continue; // Skip stale price — leave cached value unchanged
+                            // P1-c FIX: Apply 20% haircut instead of silent skip (Venus Protocol pattern)
+                            emit StalePriceDetected(pos.asset, updatedAt, maxStaleness);
+                            uint256 currentCached = pos.usdValueCached;
+                            if (currentCached > 0) {
+                                ledger.updateCollateralUsdValue(user, pos.asset, (currentCached * 80) / 100);
+                            }
+                            continue;
                         }
                     }
 
                     uint8 feedDecimals = IAggregatorV3(feed).decimals();
-                    usdValue = (pos.amount * uint256(price)) / (10 ** feedDecimals);
+                    // P0 FIX: Normalize to 18-decimal USD (matches RiskModule.getAssetPriceUSD)
+                    uint256 priceNormalized = uint256(price) * (10 ** (18 - feedDecimals));
+                    uint8 tokenDecimals = _getTokenDecimals(pos.asset);
+                    usdValue = (pos.amount * priceNormalized) / (10 ** tokenDecimals);
                 }
 
                 ledger.updateCollateralUsdValue(user, pos.asset, usdValue);
@@ -150,6 +159,25 @@ contract CollateralRegistry is
         uint256 newUsdValue
     ) external override onlyKeeper {
         if (user == address(0)) revert ZeroAddress();
+
+        // P1-d FIX: Validate against oracle (max 50% deviation)
+        address feed = _priceFeeds[asset];
+        if (feed != address(0)) {
+            (, int256 price,,,) = IAggregatorV3(feed).latestRoundData();
+            if (price > 0) {
+                IBalanceLedger.CollateralPosition memory pos =
+                    IBalanceLedger(_balanceLedger).getCollateralByAsset(user, asset);
+                uint8 feedDecimals = IAggregatorV3(feed).decimals();
+                uint256 priceNorm = uint256(price) * (10 ** (18 - feedDecimals));
+                uint8 tokenDecimals = _getTokenDecimals(asset);
+                uint256 oracleValue = (pos.amount * priceNorm) / (10 ** tokenDecimals);
+                require(
+                    newUsdValue <= (oracleValue * 150) / 100 &&
+                    (oracleValue == 0 || newUsdValue >= (oracleValue * 50) / 100),
+                    "CollateralRegistry: value deviates > 50% from oracle"
+                );
+            }
+        }
 
         // Write cached USD value to BalanceLedger — this is what RiskModule reads for HF computation
         IBalanceLedger(_balanceLedger).updateCollateralUsdValue(user, asset, newUsdValue);
@@ -200,7 +228,19 @@ contract CollateralRegistry is
         _assetBehaviorRegistry = registry_;
     }
 
+    // ============ Internal Helpers ============
+
+    /// @notice Get token decimals via staticcall. Defaults to 18 if call fails.
+    function _getTokenDecimals(address token) internal view returns (uint8) {
+        (bool success, bytes memory data) = token.staticcall(
+            abi.encodeWithSignature("decimals()")
+        );
+        if (!success || data.length == 0) return 18;
+        return abi.decode(data, (uint8));
+    }
+
     // ============ Events ============
 
     event CollateralValuesRefreshed(address indexed user);
+    event StalePriceDetected(address indexed asset, uint256 updatedAt, uint256 maxStaleness);
 }

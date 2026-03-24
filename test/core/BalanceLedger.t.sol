@@ -56,8 +56,11 @@ contract BalanceLedgerTest is Test {
         riskModule = new MockRiskModule();
 
         // Configure authorized writer
+        vm.warp(1000);
         vm.startPrank(owner);
-        ledger.setAuthorizedWriter(authorizedWriter, true);
+        ledger.proposeAuthorizedWriter(authorizedWriter, true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
         ledger.setRiskModule(address(riskModule));
         vm.stopPrank();
     }
@@ -329,20 +332,25 @@ contract BalanceLedgerTest is Test {
         assertFalse(ledger.isAuthorizedWriter(newWriter));
 
         // Owner can add
-        vm.prank(owner);
-        ledger.setAuthorizedWriter(newWriter, true);
+        vm.warp(2000);
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedWriter(newWriter, true);
+        vm.warp(2000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
         assertTrue(ledger.isAuthorizedWriter(newWriter));
 
         // Owner can remove
-        vm.prank(owner);
-        ledger.setAuthorizedWriter(newWriter, false);
+        ledger.proposeAuthorizedWriter(newWriter, false);
+        vm.warp(2000 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
+        vm.stopPrank();
         assertFalse(ledger.isAuthorizedWriter(newWriter));
     }
 
     function test_setAuthorizedWriter_reverts_non_owner() public {
         vm.prank(user1);
         vm.expectRevert(); // OwnableUnauthorizedAccount
-        ledger.setAuthorizedWriter(user1, true);
+        ledger.proposeAuthorizedWriter(user1, true);
     }
 
     function test_all_write_functions_revert_unauthorized() public {

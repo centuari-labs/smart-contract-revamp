@@ -201,28 +201,21 @@ contract CentuariRouter is
         emit IntentFilled(intentId, cbtAddress, cbtAmount, filledAmount, rateBPS);
     }
 
-    // ============ ERC-4626 (simplified) ============
+    // ============ ERC-4626 (not yet implemented) ============
 
-    /// @inheritdoc ICentuariRouter
-    function deposit(uint256 assets, address receiver) external override returns (uint256 shares) {
-        // Simplified: 1:1 share ratio with virtual offset
-        shares = assets;
-        _totalManagedAssets += assets;
-        _totalShares += shares;
+    /// @notice P2 FIX: ERC-4626 not yet implemented. Reverts to prevent state corruption.
+    function deposit(uint256, address) external pure override returns (uint256) {
+        revert("CentuariRouter: ERC-4626 not implemented");
     }
 
-    /// @inheritdoc ICentuariRouter
-    function withdraw(uint256 assets, address receiver, address) external override returns (uint256 shares) {
-        shares = assets;
-        _totalManagedAssets -= assets;
-        _totalShares -= shares;
+    /// @notice P2 FIX: ERC-4626 not yet implemented. Reverts to prevent state corruption.
+    function withdraw(uint256, address, address) external pure override returns (uint256) {
+        revert("CentuariRouter: ERC-4626 not implemented");
     }
 
-    /// @inheritdoc ICentuariRouter
-    function redeem(uint256 shares, address receiver, address) external override returns (uint256 assets) {
-        assets = shares;
-        _totalManagedAssets -= assets;
-        _totalShares -= shares;
+    /// @notice P2 FIX: ERC-4626 not yet implemented. Reverts to prevent state corruption.
+    function redeem(uint256, address, address) external pure override returns (uint256) {
+        revert("CentuariRouter: ERC-4626 not implemented");
     }
 
     /// @inheritdoc ICentuariRouter

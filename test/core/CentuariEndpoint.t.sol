@@ -41,12 +41,15 @@ contract CentuariEndpointTest is Test {
         )));
 
         // Authorize endpoint to write to ledger
-        vm.prank(owner);
-        ledger.setAuthorizedWriter(address(endpoint), true);
-
-        // Seed lender balance
-        vm.prank(owner);
-        ledger.setAuthorizedWriter(address(this), true);
+        vm.warp(1000); // Start at a clean timestamp
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedWriter(address(endpoint), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
+        ledger.proposeAuthorizedWriter(address(this), true);
+        vm.warp(1000 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
+        vm.stopPrank();
         ledger.credit(lender, usdc, 100_000e6);
     }
 

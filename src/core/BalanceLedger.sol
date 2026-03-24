@@ -265,9 +265,10 @@ contract BalanceLedger is
     /// @notice Withdraw tokens from the protocol — debits available balance and transfers ERC20
     /// @dev H-01 FIX: Check health factor after debiting. Without this, a borrower could
     ///      withdraw all available balance and drop their HF below 1.0 without liquidation.
+    /// @dev P1-b FIX: No whenNotPaused — users MUST always be able to withdraw (Invariant #21)
     /// @param asset The token to withdraw
     /// @param amount The amount to withdraw
-    function withdraw(address asset, uint256 amount) external whenNotPaused nonReentrant {
+    function withdraw(address asset, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (_balances[msg.sender][asset].available < amount) revert InsufficientAvailable();
 
@@ -321,13 +322,34 @@ contract BalanceLedger is
 
     // ============ Administrative Functions ============
 
-    /// @notice Set authorized writer status (Security Invariant #9)
-    /// @param writer The contract address
-    /// @param authorized Whether to authorize
-    function setAuthorizedWriter(address writer, bool authorized) external onlyOwner {
+    /// @notice P1-e FIX: Propose authorized writer change (48h timelock)
+    /// @dev Most critical admin setter — controls who can modify all user balances.
+    /// @param writer The contract address to authorize or deauthorize
+    /// @param authorized Whether to grant or revoke write access
+    function proposeAuthorizedWriter(address writer, bool authorized) external onlyOwner {
         if (writer == address(0)) revert ZeroAddress();
-        _authorizedWriters[writer] = authorized;
-        emit AuthorizedWriterUpdated(writer, authorized);
+        _pendingWriterAddress = writer;
+        _pendingWriterAuthorized = authorized;
+        _pendingWriterTimelockEnd = block.timestamp + 48 hours;
+        emit AuthorizedWriterProposed(writer, authorized, block.timestamp + 48 hours);
+    }
+
+    /// @notice Apply pending authorized writer change after timelock
+    function applyAuthorizedWriter() external onlyOwner {
+        require(_pendingWriterAddress != address(0), "BalanceLedger: no pending writer");
+        require(block.timestamp >= _pendingWriterTimelockEnd, "BalanceLedger: timelock active");
+        _authorizedWriters[_pendingWriterAddress] = _pendingWriterAuthorized;
+        emit AuthorizedWriterUpdated(_pendingWriterAddress, _pendingWriterAuthorized);
+        delete _pendingWriterAddress;
+        delete _pendingWriterAuthorized;
+        delete _pendingWriterTimelockEnd;
+    }
+
+    /// @notice Cancel pending writer proposal
+    function cancelWriterProposal() external onlyOwner {
+        delete _pendingWriterAddress;
+        delete _pendingWriterAuthorized;
+        delete _pendingWriterTimelockEnd;
     }
 
     /// @notice Set the risk module address

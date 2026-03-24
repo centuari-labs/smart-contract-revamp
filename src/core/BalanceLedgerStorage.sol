@@ -35,8 +35,13 @@ abstract contract BalanceLedgerStorage {
     /// @notice Paused state
     bool internal _paused;
 
+    /// @notice P1-e: Pending authorized writer change with timelock
+    address internal _pendingWriterAddress;
+    bool internal _pendingWriterAuthorized;
+    uint256 internal _pendingWriterTimelockEnd;
+
     // ============ Gap ============
 
-    /// @dev Reserved storage for future upgrades
-    uint256[40] private __gap;
+    /// @dev Reserved storage for future upgrades. Reduced by 3 for the three vars above.
+    uint256[37] private __gap;
 }

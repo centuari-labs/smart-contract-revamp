@@ -71,6 +71,7 @@ contract AssetBehaviorRegistry is
         _behaviors[asset] = _pendingAssets[asset];
         _behaviors[asset].active = true;
         _assetAddedAt[asset] = block.timestamp;
+        _lastUpdateAt[asset] = block.timestamp; // P1-a FIX: enforce timelock from creation
 
         delete _pendingAssets[asset];
         delete _pendingAssetTimestamp[asset];

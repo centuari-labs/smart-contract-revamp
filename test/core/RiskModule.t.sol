@@ -62,6 +62,7 @@ contract RiskModuleTest is Test {
         stockFeed.setPrice(50e8); // $50.00
 
         // Configure registries
+        vm.warp(1);
         vm.startPrank(owner);
         registry.setMarketScheduleRegistry(address(scheduleRegistry));
 
@@ -78,13 +79,15 @@ contract RiskModuleTest is Test {
         ));
 
         // Warp past 48h timelock and execute all
-        vm.warp(block.timestamp + 48 hours + 1);
+        vm.warp(1 + 48 hours + 1);
         registry.executeAddAsset(usdc);
         registry.executeAddAsset(ousg);
         registry.executeAddAsset(stock);
 
         // Authorize the risk module + authorized caller
-        ledger.setAuthorizedWriter(authorized, true);
+        ledger.proposeAuthorizedWriter(authorized, true);
+        vm.warp(1 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
         ledger.setRiskModule(address(riskModule));
         riskModule.setAuthorizedCaller(authorized, true);
 

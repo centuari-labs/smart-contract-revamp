@@ -214,9 +214,11 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_unpauseAsset_requires_timelock() public {
+        vm.warp(1000);
         _proposeAndAddAsset(usdc, _usdcBehavior());
+        // executeAddAsset sets _lastUpdateAt (P1-a fix), currently at ~1000 + 48h
 
-        // Update to set _lastUpdateAt
+        // Wait another 48h to allow updateAsset
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());
@@ -224,12 +226,12 @@ contract AssetBehaviorRegistryTest is Test {
         vm.prank(owner);
         registry.pauseAsset(usdc);
 
-        // Unpause should revert before timelock expires
+        // Unpause should revert before timelock expires (updateAsset just ran)
         vm.prank(owner);
         vm.expectRevert(IAssetBehaviorRegistry.TimelockNotExpired.selector);
         registry.unpauseAsset(usdc);
 
-        // After timelock
+        // After another 48h timelock
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(owner);
         registry.unpauseAsset(usdc);
@@ -323,8 +325,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_liquidator_whitelist_restricts() public {
-        vm.prank(owner);
-        registry.addAsset(ousg, _usdcBehavior());
+        _proposeAndAddAsset(ousg, _usdcBehavior());
 
         vm.prank(owner);
         registry.addLiquidator(ousg, liquidator1);
@@ -334,8 +335,7 @@ contract AssetBehaviorRegistryTest is Test {
     }
 
     function test_liquidator_remove() public {
-        vm.prank(owner);
-        registry.addAsset(ousg, _usdcBehavior());
+        _proposeAndAddAsset(ousg, _usdcBehavior());
 
         vm.prank(owner);
         registry.addLiquidator(ousg, liquidator1);
@@ -349,19 +349,21 @@ contract AssetBehaviorRegistryTest is Test {
     // ============ Timelock Enforcement (Security Invariant #7) ============
 
     function test_updateAsset_respects_timelock() public {
+        vm.warp(1000);
         _proposeAndAddAsset(usdc, _usdcBehavior());
+        // _lastUpdateAt[usdc] now set by executeAddAsset (P1-a fix)
 
-        // First update to set _lastUpdateAt
+        // First update: must wait 48h after executeAddAsset
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());
 
-        // Second update immediately should fail
+        // Second update immediately should fail (just updated)
         vm.prank(owner);
         vm.expectRevert(IAssetBehaviorRegistry.TimelockNotExpired.selector);
         registry.updateAsset(usdc, _usdcBehavior());
 
-        // After timelock, should succeed
+        // After another 48h timelock, should succeed
         vm.warp(block.timestamp + 48 hours + 1);
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());

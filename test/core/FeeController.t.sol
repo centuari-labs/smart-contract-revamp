@@ -42,9 +42,14 @@ contract FeeControllerTest is Test {
         )));
 
         // Authorize FeeController to write to BalanceLedger
+        vm.warp(1000);
         vm.startPrank(owner);
-        ledger.setAuthorizedWriter(address(feeController), true);
-        ledger.setAuthorizedWriter(address(this), true);
+        ledger.proposeAuthorizedWriter(address(feeController), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
+        ledger.proposeAuthorizedWriter(address(this), true);
+        vm.warp(1000 + 96 hours + 2);
+        ledger.applyAuthorizedWriter();
         vm.stopPrank();
 
         // Seed balances

@@ -66,6 +66,7 @@ interface ICentuariEndpoint {
         uint256 newRateBPS;
         uint256 newMaturity;
         uint8 refinanceCount;
+        address lendAsset;   // P0 FIX: debt asset for 18-dec normalization in RiskModule
     }
 
     /// @notice A liquidation being executed

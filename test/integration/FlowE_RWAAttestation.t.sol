@@ -32,9 +32,12 @@ contract FlowE_RWAAttestationTest is Test {
             abi.encodeCall(CollateralRegistry.initialize, (owner, address(ledger)))
         )));
 
+        vm.warp(1000);
         vm.startPrank(owner);
         collateralReg.setLayerZeroReceiver(lzReceiver);
-        ledger.setAuthorizedWriter(address(collateralReg), true);
+        ledger.proposeAuthorizedWriter(address(collateralReg), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
         vm.stopPrank();
     }
 

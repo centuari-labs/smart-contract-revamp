@@ -36,10 +36,13 @@ contract CollateralRegistryTest is Test {
         )));
 
         // Configure
+        vm.warp(1000);
         vm.startPrank(owner);
         registry.setLayerZeroReceiver(lzReceiver);
         registry.setKeeper(keeper, true);
-        ledger.setAuthorizedWriter(address(registry), true);
+        ledger.proposeAuthorizedWriter(address(registry), true);
+        vm.warp(1000 + 48 hours + 1);
+        ledger.applyAuthorizedWriter();
         vm.stopPrank();
     }
 

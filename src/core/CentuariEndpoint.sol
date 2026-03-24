@@ -204,11 +204,18 @@ contract CentuariEndpoint is
 
             // Record borrow debt in RiskModule
             if (_riskModule != address(0)) {
-                IRiskModule(_riskModule).recordUserDebt(m.borrower, m.principal);
+                // P0 FIX: Normalize debt to 18-decimal USD for consistent HF computation.
+                // RiskModule.usdValueCached is 18-dec; debt must match the same scale.
+                // HF = weightedCollateral18 / totalDebt18 — both sides must be 18 decimals.
+                uint8 debtDecimals = _getTokenDecimals(m.lendAsset);
+                uint256 debtNormalized = m.principal * (10 ** (18 - debtDecimals));
+
+                IRiskModule(_riskModule).recordUserDebt(m.borrower, debtNormalized);
+
                 // Record against each collateral asset and check debt ceiling (M-04 FIX)
                 for (uint256 j = 0; j < m.borrowerCollateralAssets.length; j++) {
                     IRiskModule(_riskModule).recordDebtAgainstAsset(
-                        m.borrowerCollateralAssets[j], m.principal
+                        m.borrowerCollateralAssets[j], debtNormalized
                     );
 
                     // M-04 FIX: Enforce per-collateral debt ceiling
@@ -216,6 +223,7 @@ contract CentuariEndpoint is
                         uint256 ceiling = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                             .getBehavior(m.borrowerCollateralAssets[j]).debtCeiling;
                         if (ceiling > 0) {
+                            // getTotalDebtAgainstAsset now returns 18-dec values
                             uint256 totalDebt = IRiskModule(_riskModule)
                                 .getTotalDebtAgainstAsset(m.borrowerCollateralAssets[j]);
                             require(totalDebt <= ceiling, "CentuariEndpoint: debt ceiling exceeded");
@@ -289,8 +297,11 @@ contract CentuariEndpoint is
             // M-02 FIX: Record the new borrow position's full debt.
             // The refinance replaces old debt with new debt (which includes interest for ADD_TO_LOAN).
             // Adjust by the delta so RiskModule accurately tracks the borrower's true debt.
+            // P0 FIX: Normalize debt delta to 18-decimal USD (same scale as usdValueCached).
             if (_riskModule != address(0) && r.newPrincipal > r.oldDebt) {
-                IRiskModule(_riskModule).recordUserDebt(r.borrower, r.newPrincipal - r.oldDebt);
+                uint8 refDecimals = _getTokenDecimals(r.lendAsset);
+                uint256 debtDelta = (r.newPrincipal - r.oldDebt) * (10 ** (18 - refDecimals));
+                IRiskModule(_riskModule).recordUserDebt(r.borrower, debtDelta);
             }
 
             bytes32 newPositionId = keccak256(abi.encode(r.borrower, r.newMaturity, r.refinanceCount));
@@ -316,9 +327,13 @@ contract CentuariEndpoint is
             ledger.reduceCollateral(l.borrower, l.collateralAsset, l.collateralSeized);
 
             // Reduce borrower's debt via RiskModule
+            // P0 FIX: Normalize debtRepaid to 18-decimal USD (same scale as usdValueCached).
+            // debtRepaid is in raw token decimals (e.g. 6 for USDC); RiskModule tracks 18-dec.
             if (_riskModule != address(0)) {
-                IRiskModule(_riskModule).reduceUserDebt(l.borrower, l.debtRepaid);
-                IRiskModule(_riskModule).reduceDebtAgainstAsset(l.collateralAsset, l.debtRepaid);
+                uint8 liqDebtDecimals = _getTokenDecimals(l.debtAsset);
+                uint256 debtRepaidNorm = l.debtRepaid * (10 ** (18 - liqDebtDecimals));
+                IRiskModule(_riskModule).reduceUserDebt(l.borrower, debtRepaidNorm);
+                IRiskModule(_riskModule).reduceDebtAgainstAsset(l.collateralAsset, debtRepaidNorm);
             }
 
             // Credit seized collateral (including bonus) to liquidator
@@ -349,6 +364,21 @@ contract CentuariEndpoint is
 
             emit GracePeriodStarted(g.borrower, g.positionId, g.reason, g.gracePeriodEnds);
         }
+    }
+
+    // ============ Decimal Helpers ============
+
+    /// @notice Fetch the decimals of any ERC20 token via staticcall
+    /// @dev Falls back to 18 if the call fails or returns no data (same pattern as CollateralRegistry).
+    ///      Used to normalize raw token amounts to 18-decimal USD for RiskModule HF computation.
+    /// @param token The ERC20 token address
+    /// @return The token's decimal count (0–18)
+    function _getTokenDecimals(address token) internal view returns (uint8) {
+        (bool success, bytes memory data) = token.staticcall(
+            abi.encodeWithSignature("decimals()")
+        );
+        if (!success || data.length == 0) return 18;
+        return abi.decode(data, (uint8));
     }
 
     // ============ Interest Computation ============
