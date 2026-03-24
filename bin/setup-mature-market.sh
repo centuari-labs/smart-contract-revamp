@@ -119,7 +119,7 @@ cast rpc evm_increaseTime 300 --rpc-url "$RPC_URL" > /dev/null
 cast rpc evm_mine --rpc-url "$RPC_URL" > /dev/null
 
 # cast block returns timestamp as hex, convert to decimal
-BLOCK_TS_HEX=$(cast block latest --rpc-url "$RPC_URL" -j | jq -r '.timestamp')
+BLOCK_TS_HEX=$(cast block latest --rpc-url "$RPC_URL" --json | jq -r '.timestamp')
 BLOCK_TS=$((BLOCK_TS_HEX))
 echo "Current block timestamp: $BLOCK_TS (maturity was: $MATURITY)"
 
