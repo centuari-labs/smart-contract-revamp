@@ -43,6 +43,11 @@ abstract contract CentuariEndpointStorage {
     /// @notice FeeController contract — all fee logic delegated here
     address internal _feeController;
 
+    /// @notice NH-04 FIX: Admin address change timelock
+    /// @dev Maps slot key (e.g., keccak256("riskModule")) to pending address and unlock timestamp.
+    mapping(bytes32 => address) internal _pendingAdminAddresses;
+    mapping(bytes32 => uint256) internal _pendingAdminTimestamps;
+
     /// @notice Timestamp tolerance for batch validation (±60 seconds)
     uint256 internal constant TIMESTAMP_TOLERANCE = 60;
 
@@ -67,5 +72,5 @@ abstract contract CentuariEndpointStorage {
 
     // ============ Gap ============
 
-    uint256[34] private __gap;
+    uint256[32] private __gap;
 }

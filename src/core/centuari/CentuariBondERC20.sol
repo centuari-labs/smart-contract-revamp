@@ -95,42 +95,22 @@ contract CentuariBondERC20 is ERC20, ReentrancyGuard {
         _burn(account, amount);
     }
 
-    // ============ Redemption (MED-06 audit fix) ============
+    // ============ Redemption ============
 
-    /// @notice Redeem CBT for underlying at $1.00/CBT after maturity
-    /// @dev Burns CBT, returns underlying 1:1. Reverts before maturity.
-    ///      No expiry on redemption — callable at any time after maturity.
-    /// @param amount The amount of CBT to redeem
-    /// @return underlyingReturned The amount of underlying returned
-    function redeem(uint256 amount) external nonReentrant returns (uint256 underlyingReturned) {
-        if (block.timestamp < MATURITY) revert NotYetMatured();
-        if (amount == 0) revert ZeroRedeemAmount();
-        if (balanceOf(msg.sender) < amount) revert InsufficientBalance();
-
-        _burn(msg.sender, amount);
-        underlyingReturned = amount; // 1:1 at maturity
-
-        // Transfer underlying from Treasury/holding contract
-        // In production: pulls from BalanceLedger or Treasury
-        // For now: the calling contract handles the actual transfer
-
-        emit Redeemed(msg.sender, msg.sender, amount, underlyingReturned);
+    /// @notice NC-01 FIX: Direct CBT redemption is DISABLED.
+    /// @dev CBT is immutable (no proxy). The correct redemption path is
+    ///      CentuariEndpoint.redeemCBT() which burns CBT via the onlyMinter burn()
+    ///      and transfers underlying from BalanceLedger to the redeemer.
+    ///      Without this revert, calling redeem() burns the user's CBT permanently
+    ///      and transfers NOTHING — permanent fund loss.
+    function redeem(uint256) external pure returns (uint256) {
+        revert UseEndpointRedeem();
     }
 
-    /// @notice Redeem on behalf of owner, send underlying to a different recipient
-    /// @param recipient The address to receive underlying
-    /// @param amount The amount of CBT to redeem
-    /// @return underlyingReturned The amount of underlying returned
-    function redeemTo(address recipient, uint256 amount) external nonReentrant returns (uint256 underlyingReturned) {
-        if (block.timestamp < MATURITY) revert NotYetMatured();
-        if (amount == 0) revert ZeroRedeemAmount();
-        if (recipient == address(0)) revert ZeroAddress();
-        if (balanceOf(msg.sender) < amount) revert InsufficientBalance();
-
-        _burn(msg.sender, amount);
-        underlyingReturned = amount;
-
-        emit Redeemed(msg.sender, recipient, amount, underlyingReturned);
+    /// @notice NC-01 FIX: Direct CBT redemption is DISABLED.
+    /// @dev Use CentuariEndpoint.redeemCBT() instead.
+    function redeemTo(address, uint256) external pure returns (uint256) {
+        revert UseEndpointRedeem();
     }
 
     // ============ CBT-Specific View Functions ============
@@ -158,9 +138,7 @@ contract CentuariBondERC20 is ERC20, ReentrancyGuard {
 
     // ============ Errors ============
 
-    error NotYetMatured();
-    error ZeroRedeemAmount();
-    error InsufficientBalance();
+    error UseEndpointRedeem();
     error ZeroAddress();
 }
 

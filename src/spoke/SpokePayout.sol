@@ -9,6 +9,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @title SpokePayout
 /// @notice Releases withdrawal funds to users on spoke chains
 /// @dev Security Invariant #4: Cannot release without WithdrawalRegistry authorization.
+///      NC-03 FIX: Authorization details (user, asset, amount) are stored at authorize() time
+///      and validated at release() time. Callers cannot substitute their own address.
 contract SpokePayout is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -18,52 +20,106 @@ contract SpokePayout is Ownable, ReentrancyGuard {
     /// @notice Hub WithdrawalRegistry address (source of authorization)
     address public withdrawalRegistry;
 
-    /// @notice Authorized releases (requestId => authorized)
-    mapping(bytes32 => bool) public authorizedReleases;
-
-    /// @notice Queued withdrawals when buffer insufficient
-    struct QueuedWithdrawal {
+    /// @notice NC-03 FIX: Stores the FULL authorization details at authorize() time.
+    ///         release() reads from this — no caller-supplied params for user/asset/amount.
+    struct AuthorizedRelease {
         address user;
         address asset;
         uint256 amount;
+        bool authorized;
         bool released;
     }
-    mapping(bytes32 => QueuedWithdrawal) public queue;
+    mapping(bytes32 => AuthorizedRelease) public authorizations;
+
+    /// @notice Queued withdrawal request IDs for processing after buffer replenishment
+    bytes32[] public queuedRequestIds;
 
     event Released(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
     event Queued(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
+    event QueuedReleaseProcessed(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
 
-    error Unauthorized();
     error NotAuthorized(bytes32 requestId);
     error AlreadyReleased(bytes32 requestId);
-    error InsufficientBuffer();
 
     constructor(address owner_) Ownable(owner_) {}
 
-    /// @notice Authorize a withdrawal release (called by hub via messaging)
-    function authorize(bytes32 requestId) external {
+    /// @notice Authorize a withdrawal release with FULL details stored on-chain
+    /// @dev NC-03 FIX: Stores user, asset, amount at authorization time.
+    ///      release() reads these — caller cannot substitute different values.
+    function authorize(
+        bytes32 requestId,
+        address user,
+        address asset,
+        uint256 amount
+    ) external {
         require(msg.sender == withdrawalRegistry || msg.sender == owner(), "SpokePayout: unauthorized");
-        authorizedReleases[requestId] = true;
+        require(user != address(0), "SpokePayout: zero user");
+        require(amount > 0, "SpokePayout: zero amount");
+
+        authorizations[requestId] = AuthorizedRelease({
+            user: user,
+            asset: asset,
+            amount: amount,
+            authorized: true,
+            released: false
+        });
     }
 
     /// @notice Release funds to user (Security Invariant #4)
-    function release(bytes32 requestId, address user, address asset, uint256 amount) external nonReentrant {
-        if (!authorizedReleases[requestId]) revert NotAuthorized(requestId);
+    /// @dev NC-03 FIX: No caller-supplied user/asset/amount — reads from stored authorization.
+    function release(bytes32 requestId) external nonReentrant {
+        AuthorizedRelease storage auth = authorizations[requestId];
+        if (!auth.authorized) revert NotAuthorized(requestId);
+        if (auth.released) revert AlreadyReleased(requestId);
 
-        QueuedWithdrawal storage q = queue[requestId];
-        if (q.released) revert AlreadyReleased(requestId);
-
-        uint256 balance = IERC20(asset).balanceOf(address(this));
-        if (balance < amount) {
-            // Queue for later when Sweeper replenishes
-            queue[requestId] = QueuedWithdrawal({user: user, asset: asset, amount: amount, released: false});
-            emit Queued(requestId, user, asset, amount);
+        uint256 balance = IERC20(auth.asset).balanceOf(address(this));
+        if (balance < auth.amount) {
+            queuedRequestIds.push(requestId);
+            emit Queued(requestId, auth.user, auth.asset, auth.amount);
             return;
         }
 
-        queue[requestId] = QueuedWithdrawal({user: user, asset: asset, amount: amount, released: true});
-        IERC20(asset).safeTransfer(user, amount);
-        emit Released(requestId, user, asset, amount);
+        auth.released = true;
+        IERC20(auth.asset).safeTransfer(auth.user, auth.amount);
+        emit Released(requestId, auth.user, auth.asset, auth.amount);
+    }
+
+    /// @notice Process queued withdrawals after buffer replenishment
+    /// @dev Called by Sweeper Bot or keeper after depositing funds into this contract.
+    function processQueued() external nonReentrant {
+        uint256 i = 0;
+        while (i < queuedRequestIds.length) {
+            bytes32 requestId = queuedRequestIds[i];
+            AuthorizedRelease storage auth = authorizations[requestId];
+
+            if (auth.released) {
+                _removeFromQueue(i);
+                continue;
+            }
+
+            uint256 balance = IERC20(auth.asset).balanceOf(address(this));
+            if (balance >= auth.amount) {
+                auth.released = true;
+                IERC20(auth.asset).safeTransfer(auth.user, auth.amount);
+                emit QueuedReleaseProcessed(requestId, auth.user, auth.asset, auth.amount);
+                _removeFromQueue(i);
+            } else {
+                i++;
+            }
+        }
+    }
+
+    /// @notice Get the number of queued (unprocessed) withdrawal requests
+    function queueLength() external view returns (uint256) {
+        return queuedRequestIds.length;
+    }
+
+    function _removeFromQueue(uint256 index) internal {
+        uint256 lastIndex = queuedRequestIds.length - 1;
+        if (index != lastIndex) {
+            queuedRequestIds[index] = queuedRequestIds[lastIndex];
+        }
+        queuedRequestIds.pop();
     }
 
     function setSpokeVault(address vault) external onlyOwner { spokeVault = vault; }
