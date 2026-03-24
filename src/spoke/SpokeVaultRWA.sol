@@ -48,13 +48,16 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
         emit AttestationSent(msg.sender, asset, amount, attestationId);
     }
 
-    /// @inheritdoc ISpokeVaultRWA
-    function releaseLiquidation(
+    /// @notice NC-02 FIX: releaseLiquidation is now internal — only callable via lzReceive().
+    /// @dev The external function was vulnerable: onlyLayerZeroFromHub only checked msg.sender
+    ///      but could NOT verify srcEid or sender (those are lzReceive params, not available here).
+    ///      Now all liquidation releases go through lzReceive() which has full verification.
+    function _releaseLiquidation(
         address user,
         address asset,
         uint256 amount,
         address liquidator
-    ) external override onlyLayerZeroFromHub nonReentrant {
+    ) internal {
         if (lockedBalances[user][asset] < amount) revert ZeroAmount();
 
         lockedBalances[user][asset] -= amount;
@@ -93,9 +96,6 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
         (address user, address asset, uint256 amount, address liquidator) = abi.decode(
             message, (address, address, uint256, address)
         );
-        require(lockedBalances[user][asset] >= amount, "SpokeVaultRWA: insufficient locked");
-        lockedBalances[user][asset] -= amount;
-        IERC20(asset).safeTransfer(liquidator, amount);
-        emit LiquidationReleased(user, asset, amount, liquidator);
+        _releaseLiquidation(user, asset, amount, liquidator);
     }
 }

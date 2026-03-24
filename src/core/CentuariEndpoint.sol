@@ -12,6 +12,7 @@ import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {ICentuariRateOracle} from "../interfaces/ICentuariRateOracle.sol";
 import {IFeeController} from "../interfaces/IFeeController.sol";
+import {IAssetBehaviorRegistry} from "../interfaces/IAssetBehaviorRegistry.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICBT} from "../interfaces/ICBT.sol";
@@ -194,14 +195,32 @@ contract CentuariEndpoint is
                 CentuariBondERC20(bondToken).mint(m.lender, m.cbtMintAmount);
             }
 
+            // M-07 FIX: Reject dust positions below minBorrowAmount
+            if (_assetBehaviorRegistry != address(0)) {
+                uint256 minBorrow = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                    .getBehavior(m.lendAsset).minBorrowAmount;
+                require(m.principal >= minBorrow, "CentuariEndpoint: below min borrow");
+            }
+
             // Record borrow debt in RiskModule
             if (_riskModule != address(0)) {
                 IRiskModule(_riskModule).recordUserDebt(m.borrower, m.principal);
-                // Record against each collateral asset
+                // Record against each collateral asset and check debt ceiling (M-04 FIX)
                 for (uint256 j = 0; j < m.borrowerCollateralAssets.length; j++) {
                     IRiskModule(_riskModule).recordDebtAgainstAsset(
                         m.borrowerCollateralAssets[j], m.principal
                     );
+
+                    // M-04 FIX: Enforce per-collateral debt ceiling
+                    if (_assetBehaviorRegistry != address(0)) {
+                        uint256 ceiling = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                            .getBehavior(m.borrowerCollateralAssets[j]).debtCeiling;
+                        if (ceiling > 0) {
+                            uint256 totalDebt = IRiskModule(_riskModule)
+                                .getTotalDebtAgainstAsset(m.borrowerCollateralAssets[j]);
+                            require(totalDebt <= ceiling, "CentuariEndpoint: debt ceiling exceeded");
+                        }
+                    }
                 }
             }
         }
@@ -259,15 +278,19 @@ contract CentuariEndpoint is
 
             // Interest settlement based on method
             if (r.interestMethod == 0) {
-                // ADD_TO_LOAN: newDebt = oldDebt + interest (collateral unchanged)
-                if (_riskModule != address(0)) {
-                    IRiskModule(_riskModule).recordUserDebt(r.borrower, r.interestAccrued);
-                }
+                // ADD_TO_LOAN: collateral unchanged, debt increases by interest
             } else {
                 // DEDUCT_COLLATERAL: sell collateral worth interest amount
                 if (r.deductAsset != address(0) && r.deductAmount > 0) {
                     ledger.reduceCollateral(r.borrower, r.deductAsset, r.deductAmount);
                 }
+            }
+
+            // M-02 FIX: Record the new borrow position's full debt.
+            // The refinance replaces old debt with new debt (which includes interest for ADD_TO_LOAN).
+            // Adjust by the delta so RiskModule accurately tracks the borrower's true debt.
+            if (_riskModule != address(0) && r.newPrincipal > r.oldDebt) {
+                IRiskModule(_riskModule).recordUserDebt(r.borrower, r.newPrincipal - r.oldDebt);
             }
 
             bytes32 newPositionId = keccak256(abi.encode(r.borrower, r.newMaturity, r.refinanceCount));
@@ -301,8 +324,9 @@ contract CentuariEndpoint is
             // Credit seized collateral (including bonus) to liquidator
             ledger.credit(l.liquidator, l.collateralAsset, l.collateralSeized);
 
-            // Credit repaid debt to borrower's available balance (debt is now covered)
-            ledger.credit(l.borrower, l.debtAsset, l.debtRepaid);
+            // NH-01 FIX: Do NOT credit debtRepaid to borrower.
+            // The liquidator's payment stays in BalanceLedger to back CBT redemptions.
+            // Crediting it to the borrower would create value from nothing.
         }
     }
 
@@ -384,32 +408,47 @@ contract CentuariEndpoint is
         }
     }
 
-    // ============ Administrative ============
+    // ============ Administrative (NH-04 FIX: 48h timelock on all admin setters) ============
 
-    function setRiskModule(address riskModule_) external onlyOwner {
-        _riskModule = riskModule_;
+    /// @notice NH-04 FIX: Propose changing an admin address. Takes effect after 48h timelock.
+    /// @param slot The config slot (e.g., "riskModule", "registry", "factory", "multisig", "oracle", "fees")
+    /// @param newAddr The proposed new address
+    function proposeAdminAddress(bytes32 slot, address newAddr) external onlyOwner {
+        if (newAddr == address(0)) revert ZeroAddress();
+        _pendingAdminAddresses[slot] = newAddr;
+        _pendingAdminTimestamps[slot] = block.timestamp + SIGNER_UPDATE_TIMELOCK;
+        emit AdminChangeProposed(slot, newAddr, block.timestamp + SIGNER_UPDATE_TIMELOCK);
     }
 
-    function setAssetBehaviorRegistry(address registry_) external onlyOwner {
-        _assetBehaviorRegistry = registry_;
+    /// @notice NH-04 FIX: Apply a proposed admin address change after timelock expires.
+    /// @param slot The config slot to apply
+    function applyAdminAddress(bytes32 slot) external onlyOwner {
+        require(_pendingAdminAddresses[slot] != address(0), "CentuariEndpoint: no pending");
+        require(block.timestamp >= _pendingAdminTimestamps[slot], "CentuariEndpoint: timelock");
+
+        address newAddr = _pendingAdminAddresses[slot];
+        delete _pendingAdminAddresses[slot];
+        delete _pendingAdminTimestamps[slot];
+
+        if (slot == "riskModule") _riskModule = newAddr;
+        else if (slot == "registry") _assetBehaviorRegistry = newAddr;
+        else if (slot == "factory") _bondTokenFactory = newAddr;
+        else if (slot == "multisig") _multisig = newAddr;
+        else if (slot == "oracle") _rateOracle = newAddr;
+        else if (slot == "fees") _feeController = newAddr;
+        else revert("CentuariEndpoint: invalid slot");
+
+        emit AdminChangeApplied(slot, newAddr);
     }
 
-    function setBondTokenFactory(address factory_) external onlyOwner {
-        _bondTokenFactory = factory_;
+    /// @notice Cancel a pending admin address proposal
+    function cancelAdminProposal(bytes32 slot) external onlyOwner {
+        delete _pendingAdminAddresses[slot];
+        delete _pendingAdminTimestamps[slot];
     }
 
-    function setMultisig(address multisig_) external onlyOwner {
-        if (multisig_ == address(0)) revert ZeroAddress();
-        _multisig = multisig_;
-    }
-
-    function setRateOracle(address rateOracle_) external onlyOwner {
-        _rateOracle = rateOracle_;
-    }
-
-    function setFeeController(address feeController_) external onlyOwner {
-        _feeController = feeController_;
-    }
+    event AdminChangeProposed(bytes32 indexed slot, address newAddr, uint256 unlockTime);
+    event AdminChangeApplied(bytes32 indexed slot, address newAddr);
 
     // ============ CBT Redemption (C-05 FIX) ============
 

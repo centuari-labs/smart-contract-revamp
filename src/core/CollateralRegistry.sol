@@ -7,6 +7,7 @@ import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.so
 
 import {ICollateralRegistry} from "../interfaces/ICollateralRegistry.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
+import {IAssetBehaviorRegistry} from "../interfaces/IAssetBehaviorRegistry.sol";
 import {IPCBT} from "../interfaces/IPCBT.sol";
 import {CollateralRegistryStorage} from "./CollateralRegistryStorage.sol";
 
@@ -120,6 +121,17 @@ contract CollateralRegistry is
                     (, int256 price,, uint256 updatedAt,) = IAggregatorV3(feed).latestRoundData();
                     if (price <= 0) continue;
 
+                    // M-03 FIX: Reject stale price feeds.
+                    // Without this check, a Chainlink feed that hasn't updated in hours
+                    // silently produces incorrect collateral valuations.
+                    if (_assetBehaviorRegistry != address(0)) {
+                        uint256 maxStaleness = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                            .getBehavior(pos.asset).maxStaleness;
+                        if (maxStaleness > 0 && block.timestamp - updatedAt > maxStaleness) {
+                            continue; // Skip stale price — leave cached value unchanged
+                        }
+                    }
+
                     uint8 feedDecimals = IAggregatorV3(feed).decimals();
                     usdValue = (pos.amount * uint256(price)) / (10 ** feedDecimals);
                 }
@@ -182,6 +194,10 @@ contract CollateralRegistry is
 
     function setPCBTVault(address vault, bool isPCBT) external onlyOwner {
         _isPCBTVault[vault] = isPCBT;
+    }
+
+    function setAssetBehaviorRegistry(address registry_) external onlyOwner {
+        _assetBehaviorRegistry = registry_;
     }
 
     // ============ Events ============

@@ -29,7 +29,10 @@ abstract contract CollateralRegistryStorage {
     /// @notice pCBT vault addresses (asset => true if it's a pCBT vault)
     mapping(address => bool) internal _isPCBTVault;
 
+    /// @notice M-03 FIX: AssetBehaviorRegistry for maxStaleness lookup during refresh
+    address internal _assetBehaviorRegistry;
+
     // ============ Gap ============
 
-    uint256[40] private __gap;
+    uint256[39] private __gap;
 }

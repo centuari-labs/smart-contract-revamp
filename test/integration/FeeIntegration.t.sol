@@ -64,7 +64,9 @@ contract FeeIntegrationTest is Test {
         ledger.setAuthorizedWriter(address(endpoint), true);
         ledger.setAuthorizedWriter(address(feeController), true);
         ledger.setAuthorizedWriter(address(this), true);
-        endpoint.setFeeController(address(feeController));
+        endpoint.proposeAdminAddress("fees", address(feeController));
+        vm.warp(block.timestamp + 48 hours);
+        endpoint.applyAdminAddress("fees");
         vm.stopPrank();
 
         // Seed balances
@@ -184,13 +186,32 @@ contract FeeIntegrationTest is Test {
     // ============ Integration: Batch without fee controller (backward compat) ============
 
     function test_batchWithoutFeeController_noFees() public {
-        // Remove fee controller
-        vm.prank(owner);
-        endpoint.setFeeController(address(0));
+        // Deploy a fresh endpoint WITHOUT fee controller set
+        // (feeController defaults to address(0) in storage)
+        CentuariEndpoint noFeeEndpoint = CentuariEndpoint(address(new TransparentUpgradeableProxy(
+            address(new CentuariEndpoint()),
+            owner,
+            abi.encodeCall(CentuariEndpoint.initialize, (owner, signer, address(ledger), multisig))
+        )));
 
         ICentuariEndpoint.SettlementBatch memory batch = _emptyBatch(1);
-        endpoint.submitSettlementBatch(batch, _signBatch(batch));
-        assertEq(endpoint.lastProcessedNonce(), 1);
+        // Use same digest format as _signBatch (nonce first)
+        bytes32 batchDigest = keccak256(abi.encode(
+            batch.nonce,
+            batch.timestamp,
+            keccak256(abi.encode(batch.matches)),
+            keccak256(abi.encode(batch.rollovers)),
+            keccak256(abi.encode(batch.refinances)),
+            keccak256(abi.encode(batch.liquidations)),
+            keccak256(abi.encode(batch.returnSettlements)),
+            keccak256(abi.encode(batch.graceStarts)),
+            keccak256(abi.encode(batch.feeDistributions))
+        ));
+        bytes32 ethHash = MessageHashUtils.toEthSignedMessageHash(batchDigest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, ethHash);
+
+        noFeeEndpoint.submitSettlementBatch(batch, abi.encodePacked(r, s, v));
+        assertEq(noFeeEndpoint.lastProcessedNonce(), 1);
     }
 
     // ============ Integration: Empty fee distributions (no-op) ============

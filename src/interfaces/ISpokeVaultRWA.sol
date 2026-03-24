@@ -12,18 +12,13 @@ interface ISpokeVaultRWA {
     /// @param amount The amount to deposit
     function deposit(address asset, uint256 amount) external;
 
-    /// @notice Release RWA on liquidation command from hub
-    /// @dev ONLY callable via LayerZero from hub LiquidationEngine (Security Invariant #3)
-    /// @param user The user whose collateral to release
-    /// @param asset The RWA token to release
-    /// @param amount The amount to release
-    /// @param liquidator The approved liquidator to receive tokens
-    function releaseLiquidation(
-        address user,
-        address asset,
-        uint256 amount,
-        address liquidator
-    ) external;
+    /// @notice NC-02 FIX: releaseLiquidation is now internal.
+    /// @dev All liquidation releases go through lzReceive() which verifies:
+    ///      (1) msg.sender == layerZeroEndpoint
+    ///      (2) srcEid == hubChainEid
+    ///      (3) sender == hubLiquidationEngine
+    ///      The old external releaseLiquidation() only checked (1), leaving (2) and (3) unverified.
+    ///      Security Invariant #3 now fully enforced.
 
     /// @notice Report that an asset has been frozen by the issuer
     /// @dev Anyone can call — verified by checking transferability
