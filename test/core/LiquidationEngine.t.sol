@@ -14,16 +14,21 @@ contract MockRiskModuleLiq {
     mapping(address => uint256) public mockHF;
     mapping(address => uint256) public mockDebt;
     mapping(address => bool) public mockFresh;
+    mapping(address => uint256) public assetPrices;
 
     function setHF(address user, uint256 hf) external { mockHF[user] = hf; }
     function setDebt(address user, uint256 debt) external { mockDebt[user] = debt; }
     function setFresh(address asset, bool fresh) external { mockFresh[asset] = fresh; }
+    function setAssetPrice(address asset, uint256 price) external { assetPrices[asset] = price; }
 
     function getHealthFactor(address user) external view returns (uint256) { return mockHF[user]; }
     function getTotalDebtUSD(address user) external view returns (uint256) { return mockDebt[user]; }
     function isPriceFresh(address asset) external view returns (bool) { return mockFresh[asset]; }
     function reduceUserDebt(address, uint256) external {}
     function reduceDebtAgainstAsset(address, uint256) external {}
+    function getAssetPriceUSD(address asset) external view returns (uint256, uint256) {
+        return (assetPrices[asset], block.timestamp);
+    }
 }
 
 /// @notice Minimal mock BalanceLedger for liquidation tests
@@ -57,6 +62,10 @@ contract MockBalanceLedgerLiq {
 
     function reduceCollateral(address user, address asset, uint256 amount) external {
         positions[user][asset].amount -= amount;
+    }
+
+    function updateCollateralUsdValue(address user, address asset, uint256 newUsdValue) external {
+        positions[user][asset].usdValueCached = newUsdValue;
     }
 }
 
@@ -110,6 +119,7 @@ contract LiquidationEngineTest is Test {
         // Setup: borrower has OUSG collateral, is undercollateralized
         assetRegistry.setBehavior(ousg, 800); // 8% bonus (Tier 2)
         riskModule.setFresh(ousg, true);
+        riskModule.setAssetPrice(ousg, 100e18); // $100 per OUSG token
     }
 
     // ============ Successful Liquidation ============
