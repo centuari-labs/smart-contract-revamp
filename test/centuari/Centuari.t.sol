@@ -1048,7 +1048,7 @@ contract CentuariTest is Test {
         emit Repaid(marketId, borrower, repayAmount);
 
         vm.prank(operator);
-        centuari.repay(borrower, loanToken, maturity, repayAmount);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, repayAmount);
 
         assertEq(
             centuari.getBorrowPosition(marketId, borrower),
@@ -1085,7 +1085,7 @@ contract CentuariTest is Test {
 
         vm.prank(user);
         vm.expectRevert(ICentuari.Unauthorized.selector);
-        centuari.repay(borrower, loanToken, maturity, 100 ether);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, 100 ether);
     }
 
     function test_Repay_MoreThanDebt_Capped() public {
@@ -1120,7 +1120,7 @@ contract CentuariTest is Test {
         uint256 repayAmountRequested = debtInAssets + 1000 ether;
 
         vm.prank(operator);
-        centuari.repay(borrower, loanToken, maturity, repayAmountRequested);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, repayAmountRequested);
 
         assertEq(centuari.getBorrowPosition(marketId, borrower), 0);
         assertEq(mockTreasury.lastRepayAmount(), debtInAssets);
@@ -1155,7 +1155,7 @@ contract CentuariTest is Test {
         uint256 debtInAssets = centuari.getBorrowPosition(marketId, borrower);
 
         vm.prank(operator);
-        centuari.repay(borrower, loanToken, maturity, debtInAssets);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, debtInAssets);
 
         assertEq(centuari.getBorrowPosition(marketId, borrower), 0);
     }
@@ -1169,7 +1169,7 @@ contract CentuariTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
-        centuari.repay(borrower, loanToken, maturity, 100 ether);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, 100 ether);
     }
 
     function test_Repay_RevertZeroAmount() public {
@@ -1197,7 +1197,7 @@ contract CentuariTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
-        centuari.repay(borrower, loanToken, maturity, 0);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, 0);
     }
 
     function test_Repay_RevertZeroBorrower() public {
@@ -1207,9 +1207,9 @@ contract CentuariTest is Test {
         vm.prank(operator);
         vm.expectRevert(ICentuari.ZeroAddress.selector);
         centuari.repay(
+            _getMarketId(loanToken, block.timestamp + 365 days),
             address(0),
             loanToken,
-            block.timestamp + 365 days,
             100 ether
         );
     }
@@ -1244,7 +1244,7 @@ contract CentuariTest is Test {
 
         vm.prank(operator);
         vm.expectRevert(ICentuari.ContractPaused.selector);
-        centuari.repay(borrower, loanToken, maturity, 100 ether);
+        centuari.repay(_getMarketId(loanToken, maturity), borrower, loanToken, 100 ether);
     }
 
     // ============ WithdrawLendPosition Tests ============
@@ -1286,7 +1286,7 @@ contract CentuariTest is Test {
         emit LendPositionWithdrawn(marketId, lender, cbtToRedeem, cbtToRedeem);
 
         vm.prank(lender);
-        centuari.withdrawLendPosition(loanToken, maturity, cbtToRedeem);
+        centuari.withdrawLendPosition(_getMarketId(loanToken, maturity), loanToken, maturity, cbtToRedeem);
 
         assertEq(
             centuari.getLendPositionCbtAmount(marketId, lender),
@@ -1330,7 +1330,7 @@ contract CentuariTest is Test {
         vm.warp(maturity);
         vm.prank(lender);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
-        centuari.withdrawLendPosition(loanToken, maturity, 0);
+        centuari.withdrawLendPosition(_getMarketId(loanToken, maturity), loanToken, maturity, 0);
     }
 
     function test_WithdrawLendPosition_RevertBondTokenNotFound_NoFactory()
@@ -1356,6 +1356,7 @@ contract CentuariTest is Test {
         vm.prank(makeAddr("lender"));
         vm.expectRevert(ICentuari.BondTokenNotFound.selector);
         centuariNoFactory.withdrawLendPosition(
+            _getMarketId(loanToken, block.timestamp + 365 days),
             loanToken,
             block.timestamp + 365 days,
             100 ether
@@ -1390,6 +1391,7 @@ contract CentuariTest is Test {
         vm.prank(lender);
         vm.expectRevert(ICentuari.InvalidAmount.selector);
         centuari.withdrawLendPosition(
+            _getMarketId(loanToken, maturity),
             loanToken,
             maturity,
             cbtBalance + 1 ether
@@ -1422,7 +1424,7 @@ contract CentuariTest is Test {
 
         vm.prank(lender);
         vm.expectRevert(ICentuari.NotYetMatured.selector);
-        centuari.withdrawLendPosition(loanToken, maturity, 100 ether);
+        centuari.withdrawLendPosition(_getMarketId(loanToken, maturity), loanToken, maturity, 100 ether);
     }
 
     function test_WithdrawLendPosition_RevertWhenPaused() public {
@@ -1455,7 +1457,7 @@ contract CentuariTest is Test {
         vm.warp(maturity);
         vm.prank(lender);
         vm.expectRevert(ICentuari.ContractPaused.selector);
-        centuari.withdrawLendPosition(loanToken, maturity, 100 ether);
+        centuari.withdrawLendPosition(_getMarketId(loanToken, maturity), loanToken, maturity, 100 ether);
     }
 
     function _deployCentuariWithoutBondFactory() internal returns (Centuari) {

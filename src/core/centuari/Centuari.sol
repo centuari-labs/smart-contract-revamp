@@ -232,15 +232,14 @@ contract Centuari is
 
     /// @inheritdoc ICentuari
     function repay(
+        bytes32 marketId,
         address borrower,
         address loanToken,
-        uint256 maturity,
         uint256 amount
     ) external onlyOperator whenNotPaused nonReentrant {
         if (borrower == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidAmount();
 
-        bytes32 marketId = _getMarketId(loanToken, maturity);
         uint256 debt = _borrowDebt[marketId][borrower];
 
         if (debt == 0) revert InvalidAmount();
@@ -259,6 +258,7 @@ contract Centuari is
     /// @dev `cbtAmount` is denominated in CBT units, which are 1:1 with the
     ///      withdrawable loan token amount at maturity for this market.
     function withdrawLendPosition(
+        bytes32 marketId,
         address loanToken,
         uint256 maturity,
         uint256 cbtAmount
@@ -271,8 +271,6 @@ contract Centuari is
         if (bondToken == address(0)) revert BondTokenNotFound();
 
         if (block.timestamp < maturity) revert NotYetMatured();
-
-        bytes32 marketId = _getMarketId(loanToken, maturity);
 
         if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount)
             revert InvalidAmount();

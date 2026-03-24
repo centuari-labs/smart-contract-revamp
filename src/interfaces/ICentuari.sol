@@ -155,24 +155,26 @@ interface ICentuari {
     ) external;
 
     /// @notice Repay debt for a borrower in a given market. Only callable by operator (backend).
+    /// @param marketId The market identifier (bytes32)
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
-    /// @param maturity The maturity timestamp (identifies the market)
     /// @param amount The amount to repay (capped to current debt)
     function repay(
+        bytes32 marketId,
         address borrower,
         address loanToken,
-        uint256 maturity,
         uint256 amount
     ) external;
 
     /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from caller and credits loan tokens to caller's Treasury balance.
     /// @dev Caller must have approved Centuari to spend at least cbtAmount of the market's bond token.
     ///      Withdrawable amount is limited by Treasury's available balance (from repayments).
+    /// @param marketId The market identifier (bytes32)
     /// @param loanToken The loan token address
-    /// @param maturity The maturity timestamp (identifies the market)
+    /// @param maturity The maturity timestamp (used for bond token lookup and maturity check)
     /// @param cbtAmount The amount of CBT (bond token) to redeem
     function withdrawLendPosition(
+        bytes32 marketId,
         address loanToken,
         uint256 maturity,
         uint256 cbtAmount
