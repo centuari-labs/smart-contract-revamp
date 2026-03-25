@@ -89,7 +89,9 @@ contract RiskModuleTest is Test {
         vm.warp(1 + 96 hours + 2);
         ledger.applyAuthorizedWriter();
         ledger.setRiskModule(address(riskModule));
-        riskModule.setAuthorizedCaller(authorized, true);
+        riskModule.proposeAuthorizedCaller(authorized, true);
+        vm.warp(1 + 144 hours + 3);
+        riskModule.applyAuthorizedCaller();
 
         vm.stopPrank();
 

@@ -67,6 +67,22 @@ contract MockBalanceLedgerLiq {
     function updateCollateralUsdValue(address user, address asset, uint256 newUsdValue) external {
         positions[user][asset].usdValueCached = newUsdValue;
     }
+
+    // CRIT-01 FIX: LiquidationEngine now debits liquidator and credits collateral
+    mapping(address => mapping(address => uint256)) public available;
+
+    function setAvailable(address user, address asset, uint256 amount) external {
+        available[user][asset] = amount;
+    }
+
+    function debit(address user, address asset, uint256 amount) external {
+        require(available[user][asset] >= amount, "MockLedger: insufficient");
+        available[user][asset] -= amount;
+    }
+
+    function addCollateral(address user, address asset, uint256 amount, uint256) external {
+        positions[user][asset].amount += amount;
+    }
 }
 
 /// @notice Minimal mock AssetBehaviorRegistry
@@ -120,6 +136,9 @@ contract LiquidationEngineTest is Test {
         assetRegistry.setBehavior(ousg, 800); // 8% bonus (Tier 2)
         riskModule.setFresh(ousg, true);
         riskModule.setAssetPrice(ousg, 100e18); // $100 per OUSG token
+
+        // CRIT-01 FIX: Liquidator must have debt asset balance to pay
+        ledger.setAvailable(liquidator, usdc, 100_000e18);
     }
 
     // ============ Successful Liquidation ============

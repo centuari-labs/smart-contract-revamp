@@ -88,9 +88,13 @@ contract FlowF_LiquidationTest is Test {
         vm.warp(100000 + 144 hours + 3); // T3
         ledger.applyAuthorizedWriter();
 
-        // 3. RiskModule: authorize engine + test
-        riskModule.setAuthorizedCaller(address(engine), true);
-        riskModule.setAuthorizedCaller(address(this), true);
+        // 3. RiskModule: authorize engine + test (now timelocked)
+        riskModule.proposeAuthorizedCaller(address(engine), true);
+        vm.warp(100000 + 192 hours + 4);
+        riskModule.applyAuthorizedCaller();
+        riskModule.proposeAuthorizedCaller(address(this), true);
+        vm.warp(100000 + 240 hours + 5);
+        riskModule.applyAuthorizedCaller();
 
         // 4. BalanceLedger: set risk module
         ledger.setRiskModule(address(riskModule));
@@ -102,6 +106,18 @@ contract FlowF_LiquidationTest is Test {
 
         // Refresh oracle price at current timestamp so isPriceFresh passes
         wethFeed.setPrice(3000e8); // $3,000 per WETH
+
+        // CRIT-01 FIX: Liquidator must have debt asset balance to pay for liquidation.
+        // Seed the liquidator with USDC in BalanceLedger.
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedWriter(address(this), true);
+        vm.warp(100000 + 288 hours + 6);
+        ledger.applyAuthorizedWriter();
+        vm.stopPrank();
+        // Credit liquidator with ample USDC balance for debt repayment
+        ledger.credit(liquidator, address(usdc), 100_000e18);
+        // Refresh price again after warp
+        wethFeed.setPrice(3000e8);
     }
 
     // ============ Helpers ============
