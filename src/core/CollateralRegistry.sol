@@ -217,14 +217,9 @@ contract CollateralRegistry is
     }
 
     /// @notice HIGH-03 FIX: setPriceFeed now requires 48h timelock.
-    /// @dev A compromised owner setting a malicious price feed could inflate collateral values
+    /// @dev CRIT-2 FIX: Timelock vars moved to CollateralRegistryStorage.sol to prevent storage corruption.
+    ///      A compromised owner setting a malicious price feed could inflate collateral values
     ///      and drain the protocol. The 48h delay gives the community time to detect and respond.
-    ///      Reference: Venus ($200M at risk) — compromised oracle feed.
-    ///      Reference: Mango Markets ($115M) — manipulated oracle price.
-    mapping(address => address) internal _pendingPriceFeed;
-    mapping(address => uint256) internal _pendingPriceFeedTimestamp;
-    uint256 internal constant PRICE_FEED_TIMELOCK = 48 hours;
-
     function proposePriceFeed(address asset, address feed) external onlyOwner {
         _pendingPriceFeed[asset] = feed;
         _pendingPriceFeedTimestamp[asset] = block.timestamp + PRICE_FEED_TIMELOCK;

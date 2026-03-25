@@ -242,9 +242,26 @@ contract CentuariRouter is
 
     // ============ Admin ============
 
-    function setEndpoint(address endpoint_) external onlyOwner {
+    /// @notice HIGH-3 FIX: setEndpoint now requires 48h timelock.
+    /// @dev The endpoint controls Invariant #12 (onIntentFilled access).
+    ///      Instant change would let a compromised owner redirect intent fills.
+    function proposeEndpoint(address endpoint_) external onlyOwner {
         if (endpoint_ == address(0)) revert ZeroAddress();
-        _endpoint = endpoint_;
+        _pendingEndpoint = endpoint_;
+        _pendingEndpointTimelockEnd = block.timestamp + 48 hours;
+    }
+
+    function applyEndpoint() external onlyOwner {
+        require(_pendingEndpoint != address(0), "CentuariRouter: no pending endpoint");
+        require(block.timestamp >= _pendingEndpointTimelockEnd, "CentuariRouter: timelock active");
+        _endpoint = _pendingEndpoint;
+        delete _pendingEndpoint;
+        delete _pendingEndpointTimelockEnd;
+    }
+
+    function cancelEndpointProposal() external onlyOwner {
+        delete _pendingEndpoint;
+        delete _pendingEndpointTimelockEnd;
     }
 
     function setRateOracle(address oracle_) external onlyOwner { _rateOracle = oracle_; }

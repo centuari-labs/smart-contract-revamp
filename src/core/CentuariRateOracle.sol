@@ -65,19 +65,33 @@ contract CentuariRateOracle is
     }
 
     /// @inheritdoc ICentuariRateOracle
+    /// @dev HIGH-4 FIX: Added monotonic nonce per (asset, maturity) for replay prevention,
+    ///      and ±500 bps bounds check vs previous snapshot to prevent rate manipulation.
     function commitRateSnapshot(
         address asset,
         uint256 maturity,
         uint256 vwapBPS,
         bytes calldata engineSig
     ) external override {
-        bytes32 digest = keccak256(abi.encode("commitRateSnapshot", asset, maturity, vwapBPS, block.timestamp));
+        // Include nonce in digest for replay prevention
+        uint256 currentNonce = _snapshotNonce[asset][maturity];
+        bytes32 digest = keccak256(abi.encode("commitRateSnapshot", asset, maturity, vwapBPS, currentNonce));
         _verifySig(digest, engineSig);
+
+        // HIGH-4 FIX: Rate bounds check vs previous snapshot
+        RateSnapshot storage prev = _rateSnapshots[asset][maturity];
+        if (prev.committedAt > 0 && prev.vwapBPS > 0) {
+            uint256 rateChange = vwapBPS > prev.vwapBPS
+                ? vwapBPS - prev.vwapBPS
+                : prev.vwapBPS - vwapBPS;
+            require(rateChange <= MAX_RATE_CHANGE_BPS, "CentuariRateOracle: rate change too large");
+        }
 
         _rateSnapshots[asset][maturity] = RateSnapshot({
             vwapBPS: vwapBPS,
             committedAt: block.timestamp
         });
+        _snapshotNonce[asset][maturity] = currentNonce + 1;
 
         emit RateSnapshotCommitted(asset, maturity, vwapBPS, block.timestamp);
     }
@@ -146,6 +160,11 @@ contract CentuariRateOracle is
     /// @inheritdoc ICentuariRateOracle
     function getAnchorRate(address asset, uint256 currentMaturity, uint256 nextMaturity) external view override returns (uint256) {
         return _anchorRates[asset][currentMaturity][nextMaturity].anchorRateBPS;
+    }
+
+    /// @notice Get the current snapshot nonce for a (asset, maturity) pair
+    function getSnapshotNonce(address asset, uint256 maturity) external view returns (uint256) {
+        return _snapshotNonce[asset][maturity];
     }
 
     // ============ Admin ============

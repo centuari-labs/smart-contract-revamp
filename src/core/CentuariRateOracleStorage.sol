@@ -32,6 +32,12 @@ abstract contract CentuariRateOracleStorage {
     address internal _pendingOracleSigner;
     uint256 internal _oracleSignerTimelockEnd;
 
+    /// @notice HIGH-4 FIX: Monotonic nonce per (asset, maturity) for snapshot replay prevention
+    mapping(address => mapping(uint256 => uint256)) internal _snapshotNonce;
+
+    /// @notice Maximum rate change per snapshot (±500 bps)
+    uint256 internal constant MAX_RATE_CHANGE_BPS = 500;
+
     /// @notice BPS denominator
     uint256 internal constant BPS_DENOMINATOR = 10000;
 
@@ -40,5 +46,5 @@ abstract contract CentuariRateOracleStorage {
 
     // ============ Gap ============
 
-    uint256[42] private __gap;
+    uint256[40] private __gap;
 }

@@ -228,14 +228,9 @@ contract RiskModule is
     // ============ Administrative ============
 
     /// @notice HIGH-03 FIX: setAuthorizedCaller with 48h timelock.
-    /// @dev An authorized caller can record/reduce arbitrary debt amounts.
+    /// @dev CRIT-2 FIX: Timelock vars moved to RiskModuleStorage.sol to prevent storage corruption on upgrade.
+    ///      An authorized caller can record/reduce arbitrary debt amounts.
     ///      Instant granting enables "position assassination" — inflate a user's debt to trigger liquidation.
-    ///      Reference: any protocol where debt manipulation = fund theft.
-    address internal _pendingAuthorizedCaller;
-    bool internal _pendingCallerAuthorized;
-    uint256 internal _pendingCallerTimelockEnd;
-    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
-
     function proposeAuthorizedCaller(address caller, bool authorized) external onlyOwner {
         require(caller != address(0), "RiskModule: zero address");
         _pendingAuthorizedCaller = caller;

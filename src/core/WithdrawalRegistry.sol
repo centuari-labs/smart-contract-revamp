@@ -90,12 +90,21 @@ contract WithdrawalRegistry is
     }
 
     /// @inheritdoc IWithdrawalRegistry
+    /// @dev CRIT-5 FIX: For same-chain (hub) withdrawals, users should call BalanceLedger.withdraw() directly.
+    ///      WithdrawalRegistry is for CROSS-CHAIN withdrawals that need SpokePayout coordination.
+    ///      complete() marks state but does NOT transfer tokens — the actual transfer happens via
+    ///      SpokePayout.release() on the target spoke chain. For hub withdrawals, this function
+    ///      is a no-op that would lock user funds if they rely on it for token receipt.
     function complete(bytes32 requestId) external override onlyAuthorized {
         WithdrawalRequest storage req = _requests[requestId];
         if (req.requestedAt == 0) revert WithdrawalNotFound(requestId);
         if (req.state != WithdrawalState.PROCESSING) {
             revert InvalidState(requestId, req.state, WithdrawalState.PROCESSING);
         }
+
+        // CRIT-5 FIX: Revert for same-chain (targetChainId == 0 or hub chain).
+        // Same-chain withdrawals must use BalanceLedger.withdraw() which performs the ERC20 transfer.
+        require(req.targetChainId != 0, "WithdrawalRegistry: use BalanceLedger.withdraw() for hub chain");
 
         req.state = WithdrawalState.COMPLETED;
         emit WithdrawalCompleted(requestId);

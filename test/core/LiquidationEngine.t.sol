@@ -203,7 +203,7 @@ contract LiquidationEngineTest is Test {
         ledger.setPosition(borrower, ousg, 100e18, 10_000e18);
 
         // Set grace period (6 hours)
-        bytes32 positionId = keccak256(abi.encode(borrower, usdc));
+        bytes32 positionId = keccak256(abi.encode(borrower, usdc, ousg));
         vm.prank(authorized);
         engine.setGracePeriod(positionId, 6, 0); // 6 hours, HF_TOO_LOW
 
@@ -218,7 +218,7 @@ contract LiquidationEngineTest is Test {
         riskModule.setDebt(borrower, 10_000e18);
         ledger.setPosition(borrower, ousg, 100e18, 10_000e18);
 
-        bytes32 positionId = keccak256(abi.encode(borrower, usdc));
+        bytes32 positionId = keccak256(abi.encode(borrower, usdc, ousg));
         vm.prank(authorized);
         engine.setGracePeriod(positionId, 6, 0);
 

@@ -47,7 +47,9 @@ contract CentuariRateOracleTest is Test {
         uint256 mat,
         uint256 vwapBPS
     ) internal view returns (bytes memory) {
-        bytes32 digest = keccak256(abi.encode("commitRateSnapshot", asset, mat, vwapBPS, block.timestamp));
+        // HIGH-4 FIX: digest now includes nonce for replay prevention
+        uint256 nonce = oracle.getSnapshotNonce(asset, mat);
+        bytes32 digest = keccak256(abi.encode("commitRateSnapshot", asset, mat, vwapBPS, nonce));
         bytes32 ethHash = digest.toEthSignedMessageHash();
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, ethHash);
         return abi.encodePacked(r, s, v);

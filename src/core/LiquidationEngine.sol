@@ -82,7 +82,9 @@ contract LiquidationEngine is
 
         // 2. Check grace period not active
         // (Positions in grace period cannot be liquidated until deadline passes)
-        bytes32 positionId = keccak256(abi.encode(borrower, debtAsset));
+        // HIGH-2 FIX: Include collateralAsset in positionId to prevent grace period bypass.
+        // Without this, attacker uses different debtAsset to get a different key → no grace period.
+        bytes32 positionId = keccak256(abi.encode(borrower, debtAsset, collateralAsset));
         GracePeriodState storage grace = _gracePeriods[positionId];
         if (grace.deadlineTimestamp > 0 && block.timestamp < grace.deadlineTimestamp) {
             revert GracePeriodNotExpired(grace.deadlineTimestamp, block.timestamp);
@@ -136,8 +138,13 @@ contract LiquidationEngine is
         ledger.addCollateral(msg.sender, collateralAsset, collateralToSeize, block.chainid);
 
         // 8d. Reduce borrower's debt in RiskModule
-        riskModule.reduceUserDebt(borrower, debtToCover);
-        riskModule.reduceDebtAgainstAsset(collateralAsset, debtToCover);
+        // CRIT-1 FIX: Normalize debt to 18 decimals before passing to RiskModule.
+        // RiskModule tracks debt in 18-decimal USD. debtToCover is in asset-native decimals
+        // (e.g., 6 for USDC). Without normalization, each liquidation reduces debt by 10^-12
+        // of the correct amount, allowing loop-draining of all collateral.
+        uint256 debtNormalized18 = _normalizeToUSD18(debtAsset, debtToCover);
+        riskModule.reduceUserDebt(borrower, debtNormalized18);
+        riskModule.reduceDebtAgainstAsset(collateralAsset, debtNormalized18);
 
         // Clear grace period if it was set
         if (grace.deadlineTimestamp > 0) {
@@ -235,5 +242,14 @@ contract LiquidationEngine is
         // Include bonus: seize = (debtToCover / collateralPricePerUnit) * (1 + bonus)
         uint256 debtWithBonus = debtToCover * (BPS_DENOMINATOR + bonusBPS) / BPS_DENOMINATOR;
         return (debtWithBonus * collateralAmount) / collateralUsdValue;
+    }
+
+    /// @notice CRIT-1 FIX: Normalize asset-native amount to 18-decimal USD.
+    /// @dev USDC (6 dec) → multiply by 10^12. ETH (18 dec) → multiply by 10^0.
+    function _normalizeToUSD18(address asset, uint256 amount) internal view returns (uint256) {
+        (bool success, bytes memory data) = asset.staticcall(abi.encodeWithSignature("decimals()"));
+        uint8 decimals = success && data.length >= 32 ? abi.decode(data, (uint8)) : 18;
+        if (decimals >= 18) return amount;
+        return amount * (10 ** (18 - decimals));
     }
 }
