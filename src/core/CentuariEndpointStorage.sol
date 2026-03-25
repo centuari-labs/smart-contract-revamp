@@ -70,6 +70,9 @@ abstract contract CentuariEndpointStorage {
     /// @notice Signer update timelock duration (48 hours)
     uint256 internal constant SIGNER_UPDATE_TIMELOCK = 48 hours;
 
+    /// @notice 2H FIX: Maximum operations per settlement batch (arch §2.6)
+    uint256 internal constant MAX_BATCH_SIZE = 180;
+
     // ============ Gap ============
 
     uint256[32] private __gap;

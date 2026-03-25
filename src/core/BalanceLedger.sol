@@ -253,13 +253,18 @@ contract BalanceLedger is
     /// @notice Deposit tokens into the protocol — transfers ERC20 and credits available balance
     /// @param asset The token to deposit
     /// @param amount The amount to deposit
+    /// @dev 2I FIX: Uses before/after balanceOf to handle fee-on-transfer tokens.
+    ///      Credits actual received amount, not requested amount.
     function deposit(address asset, uint256 amount) external whenNotPaused nonReentrant {
         if (amount == 0) revert ZeroAmount();
 
+        uint256 balBefore = IERC20(asset).balanceOf(address(this));
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        _balances[msg.sender][asset].available += amount;
+        uint256 received = IERC20(asset).balanceOf(address(this)) - balBefore;
 
-        emit BalanceCredited(msg.sender, asset, amount);
+        _balances[msg.sender][asset].available += received;
+
+        emit BalanceCredited(msg.sender, asset, received);
     }
 
     /// @notice Withdraw tokens from the protocol — debits available balance and transfers ERC20

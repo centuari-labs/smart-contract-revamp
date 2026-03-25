@@ -113,6 +113,14 @@ contract CentuariEndpoint is
             revert TimestampDrift(batch.timestamp, block.timestamp);
         }
 
+        // 2H FIX: Enforce maximum batch size to prevent gas DoS
+        {
+            uint256 totalOps = batch.matches.length + batch.rollovers.length
+                + batch.refinances.length + batch.liquidations.length
+                + batch.returnSettlements.length + batch.graceStarts.length;
+            require(totalOps <= MAX_BATCH_SIZE, "CentuariEndpoint: batch too large");
+        }
+
         // STEP 4-11: Process operations in order (12-step execution)
         // Step 4: Process liquidations first (frees collateral)
         _processLiquidations(batch.liquidations);

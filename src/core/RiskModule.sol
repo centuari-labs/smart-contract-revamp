@@ -315,7 +315,11 @@ contract RiskModule is
             abi.encodeWithSignature("latestRoundData()")
         );
         require(success, "RiskModule: price feed call failed");
-        return abi.decode(data, (uint80, int256, uint256, uint256, uint80));
+        (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) =
+            abi.decode(data, (uint80, int256, uint256, uint256, uint80));
+        // 2G FIX: Validate answeredInRound to detect stale Chainlink rounds during feed migrations
+        require(answeredInRound >= roundId, "RiskModule: stale round");
+        return (roundId, answer, startedAt, updatedAt, answeredInRound);
     }
 
     function _feedDecimals(address feed) internal view returns (uint8) {

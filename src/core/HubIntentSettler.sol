@@ -8,6 +8,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {IHubIntentSettler} from "../interfaces/IHubIntentSettler.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
+import {ISettlementLedger} from "../interfaces/ISettlementLedger.sol";
 
 /// @title HubIntentSettler
 /// @notice ERC-7683 hub side — credits BalanceLedger when solver fills a deposit intent
@@ -42,6 +43,11 @@ contract HubIntentSettler is IHubIntentSettler, Ownable, ReentrancyGuard {
 
         // Credit BalanceLedger
         IBalanceLedger(balanceLedger).credit(user, asset, amount);
+
+        // 1D FIX: Register solver fill for async reimbursement tracking (arch §6.4.1)
+        if (settlementLedger != address(0)) {
+            ISettlementLedger(settlementLedger).register(orderId, msg.sender, amount);
+        }
 
         emit SolverFillRegistered(orderId, msg.sender, user, asset, amount);
     }
