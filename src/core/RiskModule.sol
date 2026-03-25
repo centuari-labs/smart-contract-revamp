@@ -183,6 +183,18 @@ contract RiskModule is
 
     /// @inheritdoc IRiskModule
     function getAssetPriceUSD(address asset) external view override returns (uint256 priceUSD, uint256 updatedAt) {
+        return _getAssetPriceUSDInternal(asset);
+    }
+
+    /// @notice HIGH-01 FIX: Internal oracle read shared by getAssetPriceUSD AND _getWeightedCollateralUSD.
+    /// @dev Before this fix, getAssetPriceUSD was external-only. _getWeightedCollateralUSD used stale
+    ///      usdValueCached for HF computation, meaning withdraw() and setAsCollateral() relied on
+    ///      keeper-refreshed prices that could be hours old. With this fix, HF always uses live oracle
+    ///      prices when a Chainlink feed is configured, falling back to cache only for attestation-only
+    ///      assets (RWAs without on-chain price feeds).
+    ///      Reference: Loopscale ($5.8M, 2025) — stale oracle during HF check enabled undercollateralized borrows.
+    ///      Reference: Venus ($200M at risk, 2021) — stale XVS price allowed massive overborrowing.
+    function _getAssetPriceUSDInternal(address asset) internal view returns (uint256 priceUSD, uint256 updatedAt) {
         IAssetBehaviorRegistry.AssetBehavior memory behavior = IAssetBehaviorRegistry(_assetBehaviorRegistry)
             .getBehavior(asset);
 
@@ -193,8 +205,7 @@ contract RiskModule is
         // Call Chainlink AggregatorV3Interface
         (,int256 answer,,uint256 updatedAt_,) = _latestRoundData(behavior.priceFeed);
 
-        // C-02 FIX: Reject non-positive prices. Negative int256 wraps to ~2^255
-        // as uint256, corrupting all HF calculations and enabling unlimited borrowing.
+        // C-02 FIX: Reject non-positive prices.
         require(answer > 0, "RiskModule: non-positive price");
 
         // Convert to 18 decimals
@@ -216,8 +227,35 @@ contract RiskModule is
 
     // ============ Administrative ============
 
-    function setAuthorizedCaller(address caller, bool authorized) external onlyOwner {
-        _authorizedCallers[caller] = authorized;
+    /// @notice HIGH-03 FIX: setAuthorizedCaller with 48h timelock.
+    /// @dev An authorized caller can record/reduce arbitrary debt amounts.
+    ///      Instant granting enables "position assassination" — inflate a user's debt to trigger liquidation.
+    ///      Reference: any protocol where debt manipulation = fund theft.
+    address internal _pendingAuthorizedCaller;
+    bool internal _pendingCallerAuthorized;
+    uint256 internal _pendingCallerTimelockEnd;
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    function proposeAuthorizedCaller(address caller, bool authorized) external onlyOwner {
+        require(caller != address(0), "RiskModule: zero address");
+        _pendingAuthorizedCaller = caller;
+        _pendingCallerAuthorized = authorized;
+        _pendingCallerTimelockEnd = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyAuthorizedCaller() external onlyOwner {
+        require(_pendingAuthorizedCaller != address(0), "RiskModule: no pending");
+        require(block.timestamp >= _pendingCallerTimelockEnd, "RiskModule: timelock active");
+        _authorizedCallers[_pendingAuthorizedCaller] = _pendingCallerAuthorized;
+        delete _pendingAuthorizedCaller;
+        delete _pendingCallerAuthorized;
+        delete _pendingCallerTimelockEnd;
+    }
+
+    function cancelAuthorizedCallerProposal() external onlyOwner {
+        delete _pendingAuthorizedCaller;
+        delete _pendingCallerAuthorized;
+        delete _pendingCallerTimelockEnd;
     }
 
     function setBalanceLedger(address balanceLedger_) external onlyOwner {
@@ -230,6 +268,12 @@ contract RiskModule is
 
     // ============ Internal ============
 
+    /// @notice HIGH-01 FIX: Uses LIVE oracle prices for HF computation, not stale usdValueCached.
+    /// @dev Before this fix, HF used keeper-refreshed cached values that could be hours old.
+    ///      Now reads Chainlink directly for each collateral asset. Falls back to usdValueCached
+    ///      only when no price feed is configured (attestation-only RWA assets).
+    ///      Gas impact: ~2400 gas per oracle read per collateral asset. Acceptable for security-critical
+    ///      operations (withdraw, setAsCollateral, validateBorrow).
     function _getWeightedCollateralUSD(address user) internal view returns (uint256 weightedUSD) {
         IBalanceLedger.CollateralPosition[] memory positions = IBalanceLedger(_balanceLedger).getCollateral(user);
 
@@ -237,12 +281,36 @@ contract RiskModule is
             if (positions[i].state != IBalanceLedger.CollateralState.ACTIVE) continue;
             if (!IBalanceLedger(_balanceLedger).getIsUsedAsCollateral(user, positions[i].asset)) continue;
 
-            uint256 usdValue = positions[i].usdValueCached;
+            uint256 usdValue;
+
+            // Try live oracle price first; fall back to cache for attestation-only assets
+            (uint256 livePrice,) = _getAssetPriceUSDInternal(positions[i].asset);
+            if (livePrice > 0 && positions[i].amount > 0) {
+                // livePrice is per-unit in 18 decimals. Convert to total position value.
+                // Need token decimals to normalize: totalUSD = (price18 * amount) / 10^tokenDecimals
+                uint8 tokenDecimals = _getTokenDecimals(positions[i].asset);
+                usdValue = (livePrice * positions[i].amount) / (10 ** tokenDecimals);
+            } else {
+                // No oracle configured (attestation-only RWA) — use cached value
+                usdValue = positions[i].usdValueCached;
+            }
+
             uint256 liqThreshold = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                 .getEffectiveLiqThreshold(positions[i].asset);
 
             weightedUSD += (usdValue * liqThreshold) / BPS_DENOMINATOR;
         }
+    }
+
+    /// @notice Get token decimals via staticcall with 18-decimal fallback
+    function _getTokenDecimals(address token) internal view returns (uint8) {
+        (bool success, bytes memory data) = token.staticcall(
+            abi.encodeWithSignature("decimals()")
+        );
+        if (success && data.length >= 32) {
+            return abi.decode(data, (uint8));
+        }
+        return 18; // Default fallback
     }
 
     function _latestRoundData(address feed) internal view returns (

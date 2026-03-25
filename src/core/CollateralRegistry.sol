@@ -216,9 +216,37 @@ contract CollateralRegistry is
         _balanceLedger = balanceLedger_;
     }
 
-    function setPriceFeed(address asset, address feed) external onlyOwner {
-        _priceFeeds[asset] = feed;
+    /// @notice HIGH-03 FIX: setPriceFeed now requires 48h timelock.
+    /// @dev A compromised owner setting a malicious price feed could inflate collateral values
+    ///      and drain the protocol. The 48h delay gives the community time to detect and respond.
+    ///      Reference: Venus ($200M at risk) — compromised oracle feed.
+    ///      Reference: Mango Markets ($115M) — manipulated oracle price.
+    mapping(address => address) internal _pendingPriceFeed;
+    mapping(address => uint256) internal _pendingPriceFeedTimestamp;
+    uint256 internal constant PRICE_FEED_TIMELOCK = 48 hours;
+
+    function proposePriceFeed(address asset, address feed) external onlyOwner {
+        _pendingPriceFeed[asset] = feed;
+        _pendingPriceFeedTimestamp[asset] = block.timestamp + PRICE_FEED_TIMELOCK;
+        emit PriceFeedProposed(asset, feed, block.timestamp + PRICE_FEED_TIMELOCK);
     }
+
+    function applyPriceFeed(address asset) external onlyOwner {
+        require(_pendingPriceFeedTimestamp[asset] > 0, "CollateralRegistry: no pending feed");
+        require(block.timestamp >= _pendingPriceFeedTimestamp[asset], "CollateralRegistry: timelock active");
+        _priceFeeds[asset] = _pendingPriceFeed[asset];
+        emit PriceFeedUpdated(asset, _pendingPriceFeed[asset]);
+        delete _pendingPriceFeed[asset];
+        delete _pendingPriceFeedTimestamp[asset];
+    }
+
+    function cancelPriceFeedProposal(address asset) external onlyOwner {
+        delete _pendingPriceFeed[asset];
+        delete _pendingPriceFeedTimestamp[asset];
+    }
+
+    event PriceFeedProposed(address indexed asset, address feed, uint256 unlockTime);
+    event PriceFeedUpdated(address indexed asset, address feed);
 
     function setPCBTVault(address vault, bool isPCBT) external onlyOwner {
         _isPCBTVault[vault] = isPCBT;

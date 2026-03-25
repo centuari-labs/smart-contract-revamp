@@ -121,10 +121,21 @@ contract LiquidationEngine is
         ledger.updateCollateralUsdValue(borrower, collateralAsset, freshCollateralUsdValue);
 
         // 8. Execute liquidation (hub-native path)
-        // Reduce collateral
+        // CRIT-01 FIX: The permissionless liquidate() must enforce full token flows.
+        // Without this, a liquidator receives collateral without paying anything.
+        // Pattern: Aave V3 LiquidationLogic — liquidator pays debt, receives collateral.
+
+        // 8a. Debit debt repayment FROM liquidator's BalanceLedger available balance.
+        // The liquidator must have deposited the debt asset beforehand.
+        ledger.debit(msg.sender, debtAsset, debtToCover);
+
+        // 8b. Reduce borrower's collateral
         ledger.reduceCollateral(borrower, collateralAsset, collateralToSeize);
 
-        // Reduce borrower's debt
+        // 8c. Credit seized collateral (including bonus) TO liquidator
+        ledger.addCollateral(msg.sender, collateralAsset, collateralToSeize, block.chainid);
+
+        // 8d. Reduce borrower's debt in RiskModule
         riskModule.reduceUserDebt(borrower, debtToCover);
         riskModule.reduceDebtAgainstAsset(collateralAsset, debtToCover);
 

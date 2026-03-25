@@ -212,10 +212,23 @@ contract CentuariEndpoint is
 
                 IRiskModule(_riskModule).recordUserDebt(m.borrower, debtNormalized);
 
-                // Record against each collateral asset and check debt ceiling (M-04 FIX)
-                for (uint256 j = 0; j < m.borrowerCollateralAssets.length; j++) {
+                // HIGH-02 FIX: Record debt against each collateral asset using a SPLIT share,
+                // not the full amount. The old code recorded the FULL debt against EVERY collateral
+                // asset, causing N-times inflation of per-collateral debt ceiling counters.
+                // E.g., a $10k borrow with 3 collateral assets recorded $30k total across ceilings.
+                //
+                // New approach: distribute debt evenly across collateral assets.
+                // This matches Aave V3's pattern where debt is tracked per-market, not duplicated.
+                uint256 numCollateral = m.borrowerCollateralAssets.length;
+                uint256 debtPerCollateral = numCollateral > 0 ? debtNormalized / numCollateral : 0;
+                uint256 debtRemainder = numCollateral > 0 ? debtNormalized - (debtPerCollateral * numCollateral) : 0;
+
+                for (uint256 j = 0; j < numCollateral; j++) {
+                    // First asset gets the remainder from integer division (rounding favors protocol)
+                    uint256 debtShare = debtPerCollateral + (j == 0 ? debtRemainder : 0);
+
                     IRiskModule(_riskModule).recordDebtAgainstAsset(
-                        m.borrowerCollateralAssets[j], debtNormalized
+                        m.borrowerCollateralAssets[j], debtShare
                     );
 
                     // M-04 FIX: Enforce per-collateral debt ceiling
@@ -223,7 +236,6 @@ contract CentuariEndpoint is
                         uint256 ceiling = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                             .getBehavior(m.borrowerCollateralAssets[j]).debtCeiling;
                         if (ceiling > 0) {
-                            // getTotalDebtAgainstAsset now returns 18-dec values
                             uint256 totalDebt = IRiskModule(_riskModule)
                                 .getTotalDebtAgainstAsset(m.borrowerCollateralAssets[j]);
                             require(totalDebt <= ceiling, "CentuariEndpoint: debt ceiling exceeded");
