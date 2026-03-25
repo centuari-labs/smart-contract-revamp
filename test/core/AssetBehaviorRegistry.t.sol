@@ -216,12 +216,13 @@ contract AssetBehaviorRegistryTest is Test {
     function test_unpauseAsset_requires_timelock() public {
         vm.warp(1000);
         _proposeAndAddAsset(usdc, _usdcBehavior());
-        // executeAddAsset sets _lastUpdateAt (P1-a fix), currently at ~1000 + 48h
+        // executeAddAsset sets _lastUpdateAt at ~173801
 
-        // Wait another 48h to allow updateAsset
-        vm.warp(block.timestamp + 48 hours + 1);
+        // Wait 48h to allow updateAsset
+        vm.warp(400000); // well past 173801 + 48h
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());
+        // _lastUpdateAt = 400000
 
         vm.prank(owner);
         registry.pauseAsset(usdc);
@@ -232,7 +233,7 @@ contract AssetBehaviorRegistryTest is Test {
         registry.unpauseAsset(usdc);
 
         // After another 48h timelock
-        vm.warp(block.timestamp + 48 hours + 1);
+        vm.warp(600000); // well past 400000 + 48h
         vm.prank(owner);
         registry.unpauseAsset(usdc);
         assertFalse(registry.isAssetPaused(usdc));
@@ -351,12 +352,13 @@ contract AssetBehaviorRegistryTest is Test {
     function test_updateAsset_respects_timelock() public {
         vm.warp(1000);
         _proposeAndAddAsset(usdc, _usdcBehavior());
-        // _lastUpdateAt[usdc] now set by executeAddAsset (P1-a fix)
+        // _lastUpdateAt[usdc] now set by executeAddAsset at ~173801
 
         // First update: must wait 48h after executeAddAsset
-        vm.warp(block.timestamp + 48 hours + 1);
+        vm.warp(400000); // well past 173801 + 48h
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());
+        // _lastUpdateAt[usdc] = 400000
 
         // Second update immediately should fail (just updated)
         vm.prank(owner);
@@ -364,7 +366,7 @@ contract AssetBehaviorRegistryTest is Test {
         registry.updateAsset(usdc, _usdcBehavior());
 
         // After another 48h timelock, should succeed
-        vm.warp(block.timestamp + 48 hours + 1);
+        vm.warp(600000); // well past 400000 + 48h
         vm.prank(owner);
         registry.updateAsset(usdc, _usdcBehavior());
     }
