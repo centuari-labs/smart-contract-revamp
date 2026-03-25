@@ -219,7 +219,7 @@ contract FlowF_LiquidationTest is Test {
 
         // Set 6-hour grace period
         bytes32 positionId = keccak256(abi.encode(borrower, address(usdc)));
-        engine.setGracePeriod(positionId, 6, 0);
+        engine.setGracePeriod(positionId, 6, 0, 1600);
 
         // Liquidation reverts during grace period
         vm.prank(liquidator);

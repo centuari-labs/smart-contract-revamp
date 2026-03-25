@@ -166,10 +166,14 @@ contract LiquidationEngine is
     // ============ Grace Period ============
 
     /// @inheritdoc ILiquidationEngine
+    /// @dev 1C FIX: penaltyRateBPS is now a parameter, computed off-chain as 2x VWAP
+    ///      from CentuariRateOracle.getLatestVWAP(). This eliminates free optionality
+    ///      during grace period — borrowers pay for the delay.
     function setGracePeriod(
         bytes32 positionId,
         uint256 gracePeriodHours,
-        uint8 reason
+        uint8 reason,
+        uint256 penaltyRateBPS
     ) external override onlyAuthorized {
         if (gracePeriodHours > _MAX_GRACE_PERIOD_HOURS) {
             revert ExceedsMaxGracePeriod(gracePeriodHours, _MAX_GRACE_PERIOD_HOURS);
@@ -179,7 +183,7 @@ contract LiquidationEngine is
             startTimestamp: block.timestamp,
             deadlineTimestamp: block.timestamp + (gracePeriodHours * 1 hours),
             reason: reason,
-            penaltyRateBPS: 0, // Set by maturity engine based on 2x VWAP
+            penaltyRateBPS: penaltyRateBPS,
             accruedPenalty: 0
         });
 

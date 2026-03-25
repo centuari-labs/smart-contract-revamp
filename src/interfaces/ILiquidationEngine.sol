@@ -47,10 +47,12 @@ interface ILiquidationEngine {
     /// @param positionId The borrow position ID
     /// @param gracePeriodHours Duration in hours (max 24)
     /// @param reason The reason code
+    /// @dev 1C FIX: penaltyRateBPS parameter added. Off-chain engine computes 2x VWAP.
     function setGracePeriod(
         bytes32 positionId,
         uint256 gracePeriodHours,
-        uint8 reason
+        uint8 reason,
+        uint256 penaltyRateBPS
     ) external;
 
     /// @notice Flag a position as liquidatable after grace period expiry
