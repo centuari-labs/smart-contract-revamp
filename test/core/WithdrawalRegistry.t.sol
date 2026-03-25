@@ -122,9 +122,9 @@ contract WithdrawalRegistryTest is Test {
         ledger.setBalance(user, address(usdc), AMOUNT);
 
         vm.prank(user);
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit(false, true, true, true); // skip requestId check (computed on-chain)
         emit IWithdrawalRegistry.WithdrawalRequested(
-            bytes32(0), // requestId — computed on-chain, not checked here (first topic is indexed)
+            bytes32(0), // requestId placeholder — not checked (first bool = false)
             user,
             address(usdc),
             AMOUNT,

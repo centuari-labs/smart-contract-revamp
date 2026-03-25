@@ -92,6 +92,11 @@ contract RiskModuleTest is Test {
         riskModule.setAuthorizedCaller(authorized, true);
 
         vm.stopPrank();
+
+        // Refresh feeds at current timestamp so isPriceFresh returns true
+        usdcFeed.setPrice(1e8);
+        ousgFeed.setPrice(100e8);
+        stockFeed.setPrice(50e8);
     }
 
     // ============ Helpers ============

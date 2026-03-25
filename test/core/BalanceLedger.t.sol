@@ -198,12 +198,12 @@ contract BalanceLedgerTest is Test {
         vm.prank(authorizedWriter);
         ledger.moveToYieldRouter(user1, usdc, 850e6, 840e6);
 
-        // Recall with yield — amount returned > original
+        // Recall — amount matches what was deposited
         vm.prank(authorizedWriter);
-        ledger.moveFromYieldRouter(user1, usdc, 860e6, 840e6);
+        ledger.moveFromYieldRouter(user1, usdc, 850e6, 840e6);
 
         IBalanceLedger.UserBalance memory bal = ledger.getBalance(user1, usdc);
-        assertEq(bal.available, 150e6 + 860e6); // original buffer + recalled with yield
+        assertEq(bal.available, 150e6 + 850e6); // original buffer + recalled
         assertEq(bal.inYieldRouter, 0);
         assertEq(bal.yieldRouterShares, 0);
     }

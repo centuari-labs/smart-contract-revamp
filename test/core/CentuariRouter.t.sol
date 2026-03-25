@@ -20,10 +20,16 @@ contract MockCBT is MockToken {
     constructor() MockToken("Mock CBT", "mCBT", 6, 0) {}
 }
 
+/// @dev Mock that successfully implements onIntentFilled (no-op)
+contract MockSuccessCallback {
+    function onIntentFilled(bytes32, address, uint256, uint256, uint256) external {}
+}
+
 contract CentuariRouterTest is Test {
     CentuariRouter public router;
     MockToken public usdc;
     MockCBT public cbt;
+    MockSuccessCallback public successCallback;
 
     address public owner = address(0x1);
     address public endpoint = address(0x2);
@@ -35,9 +41,10 @@ contract CentuariRouterTest is Test {
     uint256 public constant MATURITY_HINT = 0;
 
     function setUp() public {
-        // Deploy mock tokens
+        // Deploy mock tokens and callback
         usdc = new MockToken("USD Coin", "USDC", 6, 0);
         cbt = new MockCBT();
+        successCallback = new MockSuccessCallback();
 
         // Deploy CentuariRouter behind proxy
         router = CentuariRouter(
@@ -72,7 +79,7 @@ contract CentuariRouterTest is Test {
     function _submitLendIntent(address caller, uint256 amount) internal returns (bytes32 intentId) {
         vm.startPrank(caller);
         IERC20(address(usdc)).approve(address(router), amount);
-        intentId = router.submitLendIntent(address(usdc), amount, MIN_RATE_BPS, MATURITY_HINT, _deadline(), address(0));
+        intentId = router.submitLendIntent(address(usdc), amount, MIN_RATE_BPS, MATURITY_HINT, _deadline(), address(successCallback));
         vm.stopPrank();
     }
 
