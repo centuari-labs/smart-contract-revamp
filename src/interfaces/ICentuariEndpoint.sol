@@ -66,7 +66,8 @@ interface ICentuariEndpoint {
         uint256 newRateBPS;
         uint256 newMaturity;
         uint8 refinanceCount;
-        address lendAsset;   // P0 FIX: debt asset for 18-dec normalization in RiskModule
+        address lendAsset;    // P0 FIX: debt asset for 18-dec normalization in RiskModule
+        uint256 anchorRateBPS; // MED-1 FIX: anchor rate for bounds check (same as rollovers)
     }
 
     /// @notice A liquidation being executed

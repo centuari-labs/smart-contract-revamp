@@ -43,7 +43,11 @@ abstract contract CentuariRouterStorage {
     uint256 internal _totalShares;
     address internal _vaultAsset; // e.g., USDC
 
+    /// @notice HIGH-3 FIX: Endpoint timelock vars
+    address internal _pendingEndpoint;
+    uint256 internal _pendingEndpointTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[36] private __gap;
+    uint256[34] private __gap;
 }

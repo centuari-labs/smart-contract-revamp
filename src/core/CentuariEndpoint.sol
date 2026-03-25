@@ -255,8 +255,11 @@ contract CentuariEndpoint is
                 revert CBTMintMismatch(0, r.newRateBPS);
             }
 
-            // M-01 FIX: Verify rate within anchor bounds (±50 bps) — Invariant #15
-            if (r.anchorRateBPS > 0) {
+            // HIGH-1 FIX: Anchor rate check is now UNCONDITIONAL — Invariant #15.
+            // The old `if (anchorRateBPS > 0)` allowed the engine to bypass bounds by submitting 0.
+            // A compromised HSM signer could roll positions at arbitrary rates.
+            require(r.anchorRateBPS > 0, "CentuariEndpoint: anchor rate required for rollover");
+            {
                 uint256 rateDiff = r.newRateBPS > r.anchorRateBPS
                     ? r.newRateBPS - r.anchorRateBPS
                     : r.anchorRateBPS - r.newRateBPS;
@@ -295,6 +298,17 @@ contract CentuariEndpoint is
 
         for (uint256 i = 0; i < refinances.length; i++) {
             RefinanceSettlement calldata r = refinances[i];
+
+            // MED-1 FIX: Verify refinance rate within anchor bounds (±50 bps).
+            // Rollovers already check this (HIGH-1). Refinances must be consistent.
+            if (r.anchorRateBPS > 0) {
+                uint256 refRateDiff = r.newRateBPS > r.anchorRateBPS
+                    ? r.newRateBPS - r.anchorRateBPS
+                    : r.anchorRateBPS - r.newRateBPS;
+                if (refRateDiff > ANCHOR_RATE_TOLERANCE_BPS) {
+                    revert CBTMintMismatch(r.anchorRateBPS, r.newRateBPS);
+                }
+            }
 
             // Interest settlement based on method
             if (r.interestMethod == 0) {
@@ -516,9 +530,15 @@ contract CentuariEndpoint is
         // so it can call burn(address, uint256) added in C-06 fix
         cbt.burn(msg.sender, amount);
 
-        // Transfer underlying from BalanceLedger to caller
-        // BalanceLedger.transferOut() releases ERC20 tokens held by the ledger contract
+        // CRIT-3 FIX: Verify BalanceLedger has sufficient underlying before transfer.
+        // Without this check, redemptions could drain tokens backing user deposits.
+        // If underlying is deployed in YieldRouter, this reverts with a clear error
+        // instead of silently consuming other users' funds.
         address underlying = cbt.LOAN_TOKEN();
+        uint256 ledgerBalance = IERC20(underlying).balanceOf(_balanceLedger);
+        require(ledgerBalance >= amount, "CentuariEndpoint: insufficient redemption liquidity");
+
+        // Transfer underlying from BalanceLedger to caller
         IBalanceLedger(_balanceLedger).transferOut(underlying, msg.sender, amount);
 
         emit CBTRedeemed(msg.sender, cbtAddress, underlying, amount);

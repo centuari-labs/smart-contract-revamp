@@ -125,6 +125,12 @@ contract FeeController is
                 revert InvalidOperationType(dist.operationType);
             }
 
+            // CRIT-4 FIX: Cap transfer count per distribution.
+            // Without this, the engine could inject extra credit entries beyond what the fee model produces.
+            // Match fees produce max 4 transfers (borrower debit, lender credit/debit, treasury credit).
+            // Rollover/refinance produce max 3. Cap at 5 for safety with referral splits.
+            require(dist.transfers.length <= 5, "FeeController: too many transfers in distribution");
+
             // Execute all transfers for this distribution
             for (uint256 j = 0; j < dist.transfers.length; j++) {
                 FeeTransfer calldata t = dist.transfers[j];

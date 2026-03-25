@@ -22,13 +22,22 @@ abstract contract RiskModuleStorage {
     /// @notice Authorized callers for debt recording
     mapping(address => bool) internal _authorizedCallers;
 
+    /// @notice CRIT-2 FIX: Timelock vars for setAuthorizedCaller — moved from RiskModule.sol
+    /// @dev These were declared after __gap in the implementation, which would corrupt storage on upgrade.
+    address internal _pendingAuthorizedCaller;
+    bool internal _pendingCallerAuthorized;
+    uint256 internal _pendingCallerTimelockEnd;
+
     /// @notice Health factor precision (1e18 = HF 1.0)
     uint256 internal constant HF_PRECISION = 1e18;
 
     /// @notice BPS denominator
     uint256 internal constant BPS_DENOMINATOR = 10000;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
     // ============ Gap ============
 
-    uint256[42] private __gap;
+    uint256[39] private __gap;
 }

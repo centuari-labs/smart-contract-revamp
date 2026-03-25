@@ -32,7 +32,14 @@ abstract contract CollateralRegistryStorage {
     /// @notice M-03 FIX: AssetBehaviorRegistry for maxStaleness lookup during refresh
     address internal _assetBehaviorRegistry;
 
+    /// @notice CRIT-2 FIX: Timelock vars for setPriceFeed — moved from CollateralRegistry.sol
+    mapping(address => address) internal _pendingPriceFeed;
+    mapping(address => uint256) internal _pendingPriceFeedTimestamp;
+
+    /// @notice Price feed timelock duration
+    uint256 internal constant PRICE_FEED_TIMELOCK = 48 hours;
+
     // ============ Gap ============
 
-    uint256[39] private __gap;
+    uint256[37] private __gap;
 }
