@@ -43,7 +43,15 @@ abstract contract RiskModuleStorage {
     /// @notice Timelock end timestamps for pending admin address changes
     mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
 
+    /// @notice PRE-AUDIT FIX: Arbitrum L2 Sequencer Uptime Feed address
+    /// @dev Chainlink sequencer feed on Arbitrum: 0xFdB631F5EE196F0ed6FAa767959853A9F217697D
+    ///      When sequencer is down/recovering, all oracle reads should be paused.
+    address internal _sequencerUptimeFeed;
+
+    /// @notice Grace period after sequencer comes back online (default: 1 hour)
+    uint256 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
+
     // ============ Gap ============
 
-    uint256[37] private __gap;
+    uint256[36] private __gap;
 }

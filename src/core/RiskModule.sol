@@ -380,6 +380,13 @@ contract RiskModule is
         delete _pendingAdminTimelockEnd[key];
     }
 
+    /// @notice PRE-AUDIT FIX: Set the L2 sequencer uptime feed address
+    /// @dev On Arbitrum: 0xFdB631F5EE196F0ed6FAa767959853A9F217697D
+    ///      Set to address(0) to disable the check (for testing or non-L2 deployment).
+    function setSequencerUptimeFeed(address feed) external onlyOwner {
+        _sequencerUptimeFeed = feed;
+    }
+
     // ============ Internal ============
 
     /// @notice HIGH-01 FIX: Uses LIVE oracle prices for HF computation, not stale usdValueCached.
@@ -440,6 +447,27 @@ contract RiskModule is
     function _latestRoundData(address feed) internal view returns (
         uint80, int256, uint256, uint256, uint80
     ) {
+        // PRE-AUDIT FIX: Check Arbitrum L2 sequencer uptime before accepting oracle data.
+        // After sequencer downtime, Chainlink feeds report fresh updatedAt but prices are stale.
+        // Without this, liquidations could execute at stale prices after sequencer recovery.
+        // Reference: Chainlink L2 Sequencer Uptime Feeds documentation.
+        if (_sequencerUptimeFeed != address(0)) {
+            (bool seqSuccess, bytes memory seqData) = _sequencerUptimeFeed.staticcall(
+                abi.encodeWithSignature("latestRoundData()")
+            );
+            if (seqSuccess && seqData.length >= 160) {
+                (, int256 seqAnswer,, uint256 seqStartedAt,) =
+                    abi.decode(seqData, (uint80, int256, uint256, uint256, uint80));
+                // seqAnswer == 0 means sequencer is UP, == 1 means DOWN
+                require(seqAnswer == 0, "RiskModule: L2 sequencer is down");
+                // Grace period: don't trust prices for SEQUENCER_GRACE_PERIOD after recovery
+                require(
+                    block.timestamp - seqStartedAt > SEQUENCER_GRACE_PERIOD,
+                    "RiskModule: L2 sequencer grace period"
+                );
+            }
+        }
+
         (bool success, bytes memory data) = feed.staticcall(
             abi.encodeWithSignature("latestRoundData()")
         );

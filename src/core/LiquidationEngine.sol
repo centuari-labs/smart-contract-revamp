@@ -116,7 +116,13 @@ contract LiquidationEngine is
         uint256 bonusBPS = behavior.liquidationBonusBPS;
         (uint256 pricePerUnit18,) = riskModule.getAssetPriceUSD(collateralAsset);
         uint256 freshCollateralUsdValue = (pricePerUnit18 * collPos.amount) / 1e18;
-        uint256 collateralToSeize = _computeSeizure(debtToCover, freshCollateralUsdValue, collPos.amount, bonusBPS);
+
+        // PRE-AUDIT FIX: Normalize debtToCover to 18-decimal USD for seizure computation.
+        // The permissionless liquidate() path receives debtToCover in raw token decimals
+        // (e.g., 6 for USDC). _computeSeizure expects 18-decimal USD on both sides.
+        // Without this, seizure rounds to near-zero for 6-decimal tokens.
+        uint256 debtToCover18 = _normalizeToUSD18(debtAsset, debtToCover);
+        uint256 collateralToSeize = _computeSeizure(debtToCover18, freshCollateralUsdValue, collPos.amount, bonusBPS);
 
         if (collateralToSeize > collPos.amount) revert InsufficientCollateral();
 
