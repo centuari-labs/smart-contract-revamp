@@ -72,7 +72,12 @@ abstract contract YieldRouterStorage {
     /// @notice C2 FIX: Quick lookup to avoid duplicate entries in _deployedAssets
     mapping(address => bool) internal _isDeployedAsset;
 
+    /// @notice M-01 FIX: Pending adapter registration with 48h timelock
+    /// @dev Moved from YieldRouter.sol implementation to prevent storage corruption on upgrade.
+    address internal _pendingAdapter;
+    uint256 internal _pendingAdapterTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[33] private __gap;
+    uint256[31] private __gap;
 }
