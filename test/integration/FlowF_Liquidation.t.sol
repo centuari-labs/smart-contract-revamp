@@ -71,7 +71,9 @@ contract FlowF_LiquidationTest is Test {
         vm.startPrank(owner);
 
         // 1. AssetBehaviorRegistry: set schedule registry + propose WETH
-        registry.setMarketScheduleRegistry(address(scheduleRegistry));
+        registry.proposeMarketScheduleRegistry(address(scheduleRegistry));
+        vm.warp(100000 + 48 hours + 1);
+        registry.applyMarketScheduleRegistry();
         registry.proposeAsset(address(weth), _wethBehavior());
 
         // 2. BalanceLedger writers: engine, riskModule, test contract

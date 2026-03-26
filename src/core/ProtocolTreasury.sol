@@ -24,8 +24,17 @@ contract ProtocolTreasury is
     /// @notice BalanceLedger contract
     address internal _balanceLedger;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
     /// @dev Reserved storage for future upgrades
-    uint256[48] private __gap;
+    uint256[46] private __gap;
 
     // ============ Events ============
 
@@ -80,11 +89,29 @@ contract ProtocolTreasury is
 
     // ============ Administrative ============
 
-    function setBalanceLedger(address ledger_) external onlyOwner {
+    /// @notice Propose a BalanceLedger change with 48h timelock.
+    function proposeBalanceLedger(address ledger_) external onlyOwner {
         if (ledger_ == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("balanceLedger");
+        _pendingAdminAddress[key] = ledger_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyBalanceLedger() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        require(_pendingAdminAddress[key] != address(0), "ProtocolTreasury: no pending ledger");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "ProtocolTreasury: timelock active");
         address old = _balanceLedger;
-        _balanceLedger = ledger_;
-        emit BalanceLedgerUpdated(old, ledger_);
+        _balanceLedger = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        emit BalanceLedgerUpdated(old, _balanceLedger);
+    }
+
+    function cancelBalanceLedgerProposal() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     // ============ View ============

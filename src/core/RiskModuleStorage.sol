@@ -37,7 +37,13 @@ abstract contract RiskModuleStorage {
     /// @notice Admin timelock duration
     uint256 internal constant ADMIN_TIMELOCK = 48 hours;
 
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[39] private __gap;
+    uint256[37] private __gap;
 }

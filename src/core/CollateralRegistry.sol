@@ -203,17 +203,82 @@ contract CollateralRegistry is
 
     // ============ Administrative ============
 
-    function setLayerZeroReceiver(address receiver) external onlyOwner {
+    /// @notice Propose a LayerZero receiver change with 48h timelock.
+    function proposeLayerZeroReceiver(address receiver) external onlyOwner {
         if (receiver == address(0)) revert ZeroAddress();
-        _layerZeroReceiver = receiver;
+        bytes32 key = keccak256("layerZeroReceiver");
+        _pendingAdminAddress[key] = receiver;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
     }
 
-    function setKeeper(address keeper, bool authorized) external onlyOwner {
-        _authorizedKeepers[keeper] = authorized;
+    /// @notice Apply a pending LayerZero receiver change after the 48h timelock has elapsed.
+    function applyLayerZeroReceiver() external onlyOwner {
+        bytes32 key = keccak256("layerZeroReceiver");
+        require(_pendingAdminAddress[key] != address(0), "CollateralRegistry: no pending receiver");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CollateralRegistry: timelock active");
+        _layerZeroReceiver = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
-    function setBalanceLedger(address balanceLedger_) external onlyOwner {
-        _balanceLedger = balanceLedger_;
+    /// @notice Cancel a pending LayerZero receiver change.
+    function cancelLayerZeroReceiverProposal() external onlyOwner {
+        bytes32 key = keccak256("layerZeroReceiver");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Propose a keeper authorization change with 48h timelock.
+    function proposeKeeperChange(address keeper, bool authorized) external onlyOwner {
+        if (keeper == address(0)) revert ZeroAddress();
+        bytes32 key = bytes32(uint256(uint160(keeper)));
+        _pendingAdminAddress[key] = keeper;
+        _pendingAdminBool[keeper] = authorized;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    /// @notice Apply a pending keeper authorization change after the 48h timelock has elapsed.
+    function applyKeeperChange(address keeper) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(keeper)));
+        require(_pendingAdminAddress[key] != address(0), "CollateralRegistry: no pending keeper change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CollateralRegistry: timelock active");
+        _authorizedKeepers[keeper] = _pendingAdminBool[keeper];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[keeper];
+    }
+
+    /// @notice Cancel a pending keeper authorization change.
+    function cancelKeeperChange(address keeper) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(keeper)));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[keeper];
+    }
+
+    /// @notice Propose a BalanceLedger address change with 48h timelock.
+    function proposeBalanceLedger(address balanceLedger_) external onlyOwner {
+        if (balanceLedger_ == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("balanceLedger");
+        _pendingAdminAddress[key] = balanceLedger_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    /// @notice Apply a pending BalanceLedger address change after the 48h timelock has elapsed.
+    function applyBalanceLedger() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        require(_pendingAdminAddress[key] != address(0), "CollateralRegistry: no pending balance ledger");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CollateralRegistry: timelock active");
+        _balanceLedger = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Cancel a pending BalanceLedger address change.
+    function cancelBalanceLedgerProposal() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     /// @notice HIGH-03 FIX: setPriceFeed now requires 48h timelock.
@@ -243,12 +308,57 @@ contract CollateralRegistry is
     event PriceFeedProposed(address indexed asset, address feed, uint256 unlockTime);
     event PriceFeedUpdated(address indexed asset, address feed);
 
-    function setPCBTVault(address vault, bool isPCBT) external onlyOwner {
-        _isPCBTVault[vault] = isPCBT;
+    /// @notice Propose a pCBT vault status change with 48h timelock.
+    function proposePCBTVault(address vault, bool isPCBT) external onlyOwner {
+        if (vault == address(0)) revert ZeroAddress();
+        bytes32 key = bytes32(uint256(uint160(vault)));
+        _pendingAdminAddress[key] = vault;
+        _pendingAdminBool[vault] = isPCBT;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
     }
 
-    function setAssetBehaviorRegistry(address registry_) external onlyOwner {
-        _assetBehaviorRegistry = registry_;
+    /// @notice Apply a pending pCBT vault status change after the 48h timelock has elapsed.
+    function applyPCBTVault(address vault) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(vault)));
+        require(_pendingAdminAddress[key] != address(0), "CollateralRegistry: no pending pCBT vault change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CollateralRegistry: timelock active");
+        _isPCBTVault[vault] = _pendingAdminBool[vault];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[vault];
+    }
+
+    /// @notice Cancel a pending pCBT vault status change.
+    function cancelPCBTVaultProposal(address vault) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(vault)));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[vault];
+    }
+
+    /// @notice Propose an AssetBehaviorRegistry address change with 48h timelock.
+    function proposeAssetBehaviorRegistry(address registry_) external onlyOwner {
+        if (registry_ == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        _pendingAdminAddress[key] = registry_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    /// @notice Apply a pending AssetBehaviorRegistry address change after the 48h timelock has elapsed.
+    function applyAssetBehaviorRegistry() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        require(_pendingAdminAddress[key] != address(0), "CollateralRegistry: no pending registry");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CollateralRegistry: timelock active");
+        _assetBehaviorRegistry = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Cancel a pending AssetBehaviorRegistry address change.
+    function cancelAssetBehaviorRegistryProposal() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     // ============ Internal Helpers ============

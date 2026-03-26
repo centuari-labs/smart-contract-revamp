@@ -44,7 +44,16 @@ abstract contract CentuariRateOracleStorage {
     /// @notice Seconds per year
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending active maturities awaiting timelock
+    mapping(address => uint256[]) internal _pendingActiveMaturities;
+
+    /// @notice Timelock end timestamps for pending active maturities
+    mapping(address => uint256) internal _pendingActiveMaturitiesTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[40] private __gap;
+    uint256[38] private __gap;
 }

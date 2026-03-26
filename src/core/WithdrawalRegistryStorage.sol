@@ -11,6 +11,7 @@ abstract contract WithdrawalRegistryStorage {
     address internal _yieldRouter;
     mapping(address => bool) internal _authorizedCallers;
     uint256 internal constant _MAX_WITHDRAWAL_QUEUE_HOURS = 4;
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
     uint256 internal _requestCounter;
 
     /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)

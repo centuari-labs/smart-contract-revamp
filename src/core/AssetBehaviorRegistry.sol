@@ -201,8 +201,27 @@ contract AssetBehaviorRegistry is
 
     // ============ Administrative ============
 
-    function setMarketScheduleRegistry(address registry) external onlyOwner {
-        _marketScheduleRegistry = registry;
+    /// @notice Propose a market schedule registry change with 48h timelock.
+    function proposeMarketScheduleRegistry(address registry) external onlyOwner {
+        if (registry == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("marketScheduleRegistry");
+        _pendingAdminAddress[key] = registry;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyMarketScheduleRegistry() external onlyOwner {
+        bytes32 key = keccak256("marketScheduleRegistry");
+        require(_pendingAdminAddress[key] != address(0), "AssetBehaviorRegistry: no pending registry");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "AssetBehaviorRegistry: timelock active");
+        _marketScheduleRegistry = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelMarketScheduleRegistryProposal() external onlyOwner {
+        bytes32 key = keccak256("marketScheduleRegistry");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     function pause() external onlyOwner {

@@ -34,9 +34,11 @@ contract FlowE_RWAAttestationTest is Test {
 
         vm.warp(1000);
         vm.startPrank(owner);
-        collateralReg.setLayerZeroReceiver(lzReceiver);
-        ledger.proposeAuthorizedWriter(address(collateralReg), true);
+        collateralReg.proposeLayerZeroReceiver(lzReceiver);
         vm.warp(1000 + 48 hours + 1);
+        collateralReg.applyLayerZeroReceiver();
+        ledger.proposeAuthorizedWriter(address(collateralReg), true);
+        vm.warp(1000 + 96 hours + 2);
         ledger.applyAuthorizedWriter();
         vm.stopPrank();
     }

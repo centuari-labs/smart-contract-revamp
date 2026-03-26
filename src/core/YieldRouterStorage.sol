@@ -54,6 +54,7 @@ abstract contract YieldRouterStorage {
 
     /// @notice Adapter pause duration (72 hours)
     uint256 internal constant ADAPTER_PAUSE_DURATION = 72 hours;
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
 
     /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
     mapping(bytes32 => address) internal _pendingAdminAddress;

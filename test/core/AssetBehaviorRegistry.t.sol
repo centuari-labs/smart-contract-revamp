@@ -39,8 +39,12 @@ contract AssetBehaviorRegistryTest is Test {
 
         mockSchedule = new MockMarketScheduleRegistry();
 
-        vm.prank(owner);
-        registry.setMarketScheduleRegistry(address(mockSchedule));
+        vm.warp(100000);
+        vm.startPrank(owner);
+        registry.proposeMarketScheduleRegistry(address(mockSchedule));
+        vm.warp(100000 + 48 hours + 1);
+        registry.applyMarketScheduleRegistry();
+        vm.stopPrank();
     }
 
     // ============ Helper ============

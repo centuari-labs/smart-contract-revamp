@@ -328,12 +328,56 @@ contract RiskModule is
         delete _pendingCallerTimelockEnd;
     }
 
-    function setBalanceLedger(address balanceLedger_) external onlyOwner {
-        _balanceLedger = balanceLedger_;
+    /// @notice Propose a BalanceLedger address change with 48h timelock
+    /// @param balanceLedger_ The new BalanceLedger address
+    function proposeBalanceLedger(address balanceLedger_) external onlyOwner {
+        if (balanceLedger_ == address(0)) revert Unauthorized();
+        bytes32 key = keccak256("balanceLedger");
+        _pendingAdminAddress[key] = balanceLedger_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
     }
 
-    function setAssetBehaviorRegistry(address registry_) external onlyOwner {
-        _assetBehaviorRegistry = registry_;
+    /// @notice Apply a pending BalanceLedger change after the 48h timelock has elapsed
+    function applyBalanceLedger() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        require(_pendingAdminAddress[key] != address(0), "RiskModule: no pending balanceLedger");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "RiskModule: timelock active");
+        _balanceLedger = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Cancel a pending BalanceLedger change
+    function cancelBalanceLedger() external onlyOwner {
+        bytes32 key = keccak256("balanceLedger");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Propose an AssetBehaviorRegistry address change with 48h timelock
+    /// @param registry_ The new AssetBehaviorRegistry address
+    function proposeAssetBehaviorRegistry(address registry_) external onlyOwner {
+        if (registry_ == address(0)) revert Unauthorized();
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        _pendingAdminAddress[key] = registry_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    /// @notice Apply a pending AssetBehaviorRegistry change after the 48h timelock has elapsed
+    function applyAssetBehaviorRegistry() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        require(_pendingAdminAddress[key] != address(0), "RiskModule: no pending assetBehaviorRegistry");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "RiskModule: timelock active");
+        _assetBehaviorRegistry = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Cancel a pending AssetBehaviorRegistry change
+    function cancelAssetBehaviorRegistry() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     // ============ Internal ============

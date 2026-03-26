@@ -217,9 +217,11 @@ contract SecurityInvariantsTest is Test {
         address lzReceiver = address(0x77);
         vm.warp(100000);
         vm.startPrank(owner);
-        registry.setLayerZeroReceiver(lzReceiver);
-        ledger.proposeAuthorizedWriter(address(registry), true);
+        registry.proposeLayerZeroReceiver(lzReceiver);
         vm.warp(100000 + 48 hours + 1);
+        registry.applyLayerZeroReceiver();
+        ledger.proposeAuthorizedWriter(address(registry), true);
+        vm.warp(100000 + 96 hours + 2);
         ledger.applyAuthorizedWriter();
         vm.stopPrank();
 

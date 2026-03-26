@@ -378,9 +378,26 @@ contract YieldRouter is
         delete _pendingAdminBool[caller];
     }
 
-    function setMultisig(address multisig_) external onlyOwner {
+    function proposeMultisig(address multisig_) external onlyOwner {
         if (multisig_ == address(0)) revert ZeroAddress();
-        _multisig = multisig_;
+        bytes32 key = keccak256("multisig");
+        _pendingAdminAddress[key] = multisig_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyMultisig() external onlyOwner {
+        bytes32 key = keccak256("multisig");
+        require(_pendingAdminAddress[key] != address(0), "YieldRouter: no pending multisig");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "YieldRouter: timelock active");
+        _multisig = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelMultisigProposal() external onlyOwner {
+        bytes32 key = keccak256("multisig");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     /// @notice Register an adapter for recall iteration

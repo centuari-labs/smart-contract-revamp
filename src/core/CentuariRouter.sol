@@ -328,6 +328,49 @@ contract CentuariRouter is
         delete _pendingEndpointTimelockEnd;
     }
 
-    function setRateOracle(address oracle_) external onlyOwner { _rateOracle = oracle_; }
-    function setAssetBehaviorRegistry(address reg_) external onlyOwner { _assetBehaviorRegistry = reg_; }
+    /// @notice Propose a rate oracle change with 48h timelock.
+    function proposeRateOracle(address oracle_) external onlyOwner {
+        if (oracle_ == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("rateOracle");
+        _pendingAdminAddress[key] = oracle_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyRateOracle() external onlyOwner {
+        bytes32 key = keccak256("rateOracle");
+        require(_pendingAdminAddress[key] != address(0), "CentuariRouter: no pending rate oracle");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CentuariRouter: timelock active");
+        _rateOracle = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelRateOracleProposal() external onlyOwner {
+        bytes32 key = keccak256("rateOracle");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Propose an asset behavior registry change with 48h timelock.
+    function proposeAssetBehaviorRegistry(address reg_) external onlyOwner {
+        if (reg_ == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        _pendingAdminAddress[key] = reg_;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyAssetBehaviorRegistry() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        require(_pendingAdminAddress[key] != address(0), "CentuariRouter: no pending registry");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "CentuariRouter: timelock active");
+        _assetBehaviorRegistry = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelAssetBehaviorRegistryProposal() external onlyOwner {
+        bytes32 key = keccak256("assetBehaviorRegistry");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
 }

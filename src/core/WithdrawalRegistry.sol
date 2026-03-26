@@ -171,7 +171,26 @@ contract WithdrawalRegistry is
         delete _pendingAdminBool[caller];
     }
 
-    function setYieldRouter(address yr) external onlyOwner {
-        _yieldRouter = yr;
+    /// @notice Propose a YieldRouter change with 48h timelock.
+    function proposeYieldRouter(address yr) external onlyOwner {
+        if (yr == address(0)) revert ZeroAddress();
+        bytes32 key = keccak256("yieldRouter");
+        _pendingAdminAddress[key] = yr;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyYieldRouter() external onlyOwner {
+        bytes32 key = keccak256("yieldRouter");
+        require(_pendingAdminAddress[key] != address(0), "WithdrawalRegistry: no pending yieldRouter");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "WithdrawalRegistry: timelock active");
+        _yieldRouter = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelYieldRouterProposal() external onlyOwner {
+        bytes32 key = keccak256("yieldRouter");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 }
