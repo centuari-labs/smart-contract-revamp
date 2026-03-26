@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {ISpokeVaultRWA} from "../interfaces/ISpokeVaultRWA.sol";
+import {ILayerZeroEndpointV2} from "../interfaces/ILayerZeroEndpointV2.sol";
 
 /// @title SpokeVaultRWA
 /// @notice Spoke chain vault for compliance-restricted RWA tokens
@@ -34,15 +35,29 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
     }
 
     /// @inheritdoc ISpokeVaultRWA
-    function deposit(address asset, uint256 amount) external override nonReentrant {
+    function deposit(address asset, uint256 amount) external payable override nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (frozenAssets[asset]) revert AssetFrozen(asset);
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         lockedBalances[msg.sender][asset] += amount;
 
-        // Construct and "send" attestation (in production: via LayerZero)
+        // Construct attestation ID
         bytes32 attestationId = keccak256(abi.encode(msg.sender, asset, amount, ++attestationNonce));
+
+        // B2 FIX: Send attestation to hub CollateralRegistry via LayerZero V2.
+        // The hub's CollateralRegistry.processAttestation() validates and credits collateral.
+        if (layerZeroEndpoint != address(0) && hubChainEid != 0) {
+            bytes memory payload = abi.encode(attestationId, msg.sender, asset, amount, block.timestamp, block.chainid);
+            ILayerZeroEndpointV2.MessagingParams memory params = ILayerZeroEndpointV2.MessagingParams({
+                dstEid: hubChainEid,
+                receiver: bytes32(uint256(uint160(hubLiquidationEngine))), // Reusing as hub target
+                message: payload,
+                options: bytes(""),
+                payInLzToken: false
+            });
+            ILayerZeroEndpointV2(layerZeroEndpoint).send{value: msg.value}(params, msg.sender);
+        }
 
         emit RWADeposited(msg.sender, asset, amount);
         emit AttestationSent(msg.sender, asset, amount, attestationId);
