@@ -104,6 +104,12 @@ contract YieldRouter is
         _totalDeployed[asset] += amount;
         _userAdapterShares[msg.sender][asset][adapter] += shares;
 
+        // C2 FIX: Track deployed assets for aggregate reserve verification
+        if (!_isDeployedAsset[asset]) {
+            _deployedAssets.push(asset);
+            _isDeployedAsset[asset] = true;
+        }
+
         // Update BalanceLedger
         IBalanceLedger(_balanceLedger).moveToYieldRouter(msg.sender, asset, amount, shares);
 
@@ -187,10 +193,91 @@ contract YieldRouter is
     }
 
     /// @inheritdoc IYieldRouter
+    /// @dev C1 FIX: Real rebalance implementation. For each adapter, checks current deployment
+    ///      against equal-weight target. Recalls from over-allocated adapters and deploys to
+    ///      under-allocated ones. Respects per-protocol cap (60%) and reserve ratio (10%).
+    ///      Reference: Aave V3 PoolLogic rebalancing, Yearn V3 strategy allocation.
     function rebalance(address user, address asset) external override onlyAuthorized nonReentrant {
-        // Simple rebalance: check each adapter's share vs target, trim/deploy as needed
-        // Full implementation would use AllocationConfig targets
+        uint256 numAdapters = _registeredAdapters.length;
+        if (numAdapters == 0) {
+            emit Rebalanced(user, asset);
+            return;
+        }
+
+        uint256 totalForAsset = _totalDeployed[asset];
+        if (totalForAsset == 0) {
+            emit Rebalanced(user, asset);
+            return;
+        }
+
+        // Target: equal weight across non-paused adapters (simple strategy)
+        // A full AllocationConfig struct could specify custom weights per adapter
+        uint256 activeAdapters = 0;
+        for (uint256 i = 0; i < numAdapters; i++) {
+            if (!_isAdapterPaused(_registeredAdapters[i])) {
+                activeAdapters++;
+            }
+        }
+        if (activeAdapters == 0) {
+            emit Rebalanced(user, asset);
+            return;
+        }
+
+        uint256 targetPerAdapter = totalForAsset / activeAdapters;
+        // Cap at MAX_PER_PROTOCOL_BPS (60%)
+        uint256 maxPerAdapter = (totalForAsset * _MAX_PER_PROTOCOL_BPS) / BPS_DENOMINATOR;
+        if (targetPerAdapter > maxPerAdapter) {
+            targetPerAdapter = maxPerAdapter;
+        }
+
+        // Pass 1: Recall from over-allocated adapters (> target + 5%)
+        uint256 driftThresholdBPS = 500; // 5% drift triggers rebalance
+        for (uint256 i = 0; i < numAdapters; i++) {
+            address adapter = _registeredAdapters[i];
+            if (_isAdapterPaused(adapter)) continue;
+
+            uint256 currentDeployed = _adapterDeployed[adapter][asset];
+            uint256 driftBPS = currentDeployed > targetPerAdapter
+                ? ((currentDeployed - targetPerAdapter) * BPS_DENOMINATOR) / targetPerAdapter
+                : 0;
+
+            if (driftBPS > driftThresholdBPS && currentDeployed > targetPerAdapter) {
+                uint256 excess = currentDeployed - targetPerAdapter;
+                IYieldAdapter(adapter).recall(asset, excess);
+                _adapterDeployed[adapter][asset] -= excess;
+                _totalDeployed[asset] -= excess;
+            }
+        }
+
+        // Pass 2: Deploy to under-allocated adapters
+        // Recalculate total after recalls
+        totalForAsset = _totalDeployed[asset];
+        if (activeAdapters > 0) {
+            targetPerAdapter = totalForAsset / activeAdapters;
+        }
+
+        for (uint256 i = 0; i < numAdapters; i++) {
+            address adapter = _registeredAdapters[i];
+            if (_isAdapterPaused(adapter)) continue;
+
+            uint256 currentDeployed = _adapterDeployed[adapter][asset];
+            if (currentDeployed < targetPerAdapter) {
+                uint256 deficit = targetPerAdapter - currentDeployed;
+                // Only deploy if we have available capital and reserve ratio is maintained
+                if (_wouldMaintainReserve(asset, deficit)) {
+                    IYieldAdapter(adapter).deploy(asset, deficit);
+                    _adapterDeployed[adapter][asset] += deficit;
+                    _totalDeployed[asset] += deficit;
+                }
+            }
+        }
+
         emit Rebalanced(user, asset);
+    }
+
+    /// @notice Check if an adapter is currently paused
+    function _isAdapterPaused(address adapter) internal view returns (bool) {
+        return block.timestamp < _adapterPauseExpiry[adapter];
     }
 
     // ============ User Controls ============
@@ -211,17 +298,20 @@ contract YieldRouter is
     /// @inheritdoc IYieldRouter
     /// @dev H-06 FIX: Actually verify reserve ratio instead of returning true.
     ///      Checks if InsuranceReserve >= MIN_RESERVE_RATIO_BPS for each deployed asset.
+    /// @dev C2 FIX: Real aggregate reserve ratio verification.
+    ///      Iterates all deployed assets and checks each against MIN_RESERVE_RATIO_BPS (10%).
+    ///      Returns false if ANY asset's reserve is below the threshold.
     function verifyReserveRatio() external view override returns (bool) {
-        for (uint256 i = 0; i < _registeredAdapters.length; i++) {
-            address adapter = _registeredAdapters[i];
-            // Check each adapter's deployed assets against reserve
-            // _totalDeployed tracks per-asset totals, _insuranceReserve tracks per-asset reserves
-            // We check the aggregate: for any asset where totalDeployed > 0,
-            // insuranceReserve must be >= MIN_RESERVE_RATIO_BPS of totalDeployed
+        for (uint256 i = 0; i < _deployedAssets.length; i++) {
+            address asset = _deployedAssets[i];
+            uint256 deployed = _totalDeployed[asset];
+            if (deployed == 0) continue;
+
+            uint256 reserve = _insuranceReserve[asset];
+            if ((reserve * BPS_DENOMINATOR) / deployed < _MIN_RESERVE_RATIO_BPS) {
+                return false;
+            }
         }
-        // Aggregate check across all assets is complex without an asset list.
-        // Use the per-deployment _wouldMaintainReserve() check as primary enforcement,
-        // and this function as a spot-check for any asset the caller queries.
         return true;
     }
 

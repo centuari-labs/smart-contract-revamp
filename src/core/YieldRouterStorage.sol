@@ -64,7 +64,14 @@ abstract contract YieldRouterStorage {
     /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
     mapping(address => bool) internal _pendingAdminBool;
 
+    /// @notice C2 FIX: Track all assets that have been deployed to any adapter
+    /// @dev Used by verifyReserveRatio() to iterate and check all deployed assets
+    address[] internal _deployedAssets;
+
+    /// @notice C2 FIX: Quick lookup to avoid duplicate entries in _deployedAssets
+    mapping(address => bool) internal _isDeployedAsset;
+
     // ============ Gap ============
 
-    uint256[35] private __gap;
+    uint256[33] private __gap;
 }
