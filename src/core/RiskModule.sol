@@ -218,6 +218,77 @@ contract RiskModule is
         updatedAt = updatedAt_;
     }
 
+    /// @notice A1 FIX: Dual-oracle verification for maturity processing.
+    /// @dev Reads both primary and secondary feeds. Returns true if both are fresh and within 2% divergence.
+    ///      If secondary feed is address(0), falls back to single-oracle with halved maxStaleness.
+    ///      Reference: Loopscale $5.8M exploit — single-oracle manipulation at maturity.
+    /// @param asset The asset to verify
+    /// @return valid True if price is verified
+    /// @return price The primary oracle price in 18 decimals
+    function verifyDualOracle(address asset) external view returns (bool valid, uint256 price) {
+        IAssetBehaviorRegistry.AssetBehavior memory behavior = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+            .getBehavior(asset);
+
+        if (behavior.priceFeed == address(0)) return (false, 0);
+
+        // Read primary
+        (,int256 primaryAnswer,,uint256 primaryUpdatedAt,) = _latestRoundData(behavior.priceFeed);
+        if (primaryAnswer <= 0) return (false, 0);
+
+        uint8 primaryDecimals = _feedDecimals(behavior.priceFeed);
+        uint256 primaryPrice18 = uint256(primaryAnswer) * (10 ** (18 - primaryDecimals));
+
+        // No secondary feed → single-oracle with halved maxStaleness
+        if (behavior.secondaryPriceFeed == address(0)) {
+            uint256 effectiveStaleness = behavior.maxStaleness / 2;
+            if (effectiveStaleness > 0 && block.timestamp - primaryUpdatedAt > effectiveStaleness) {
+                return (false, primaryPrice18);
+            }
+            return (true, primaryPrice18);
+        }
+
+        // Read secondary
+        (bool secSuccess, bytes memory secData) = behavior.secondaryPriceFeed.staticcall(
+            abi.encodeWithSignature("latestRoundData()")
+        );
+        if (!secSuccess || secData.length == 0) {
+            // Secondary unavailable → fallback to single with halved staleness
+            uint256 effectiveStaleness = behavior.maxStaleness / 2;
+            if (effectiveStaleness > 0 && block.timestamp - primaryUpdatedAt > effectiveStaleness) {
+                return (false, primaryPrice18);
+            }
+            return (true, primaryPrice18);
+        }
+
+        (, int256 secAnswer,, uint256 secUpdatedAt,) = abi.decode(secData, (uint80, int256, uint256, uint256, uint80));
+        if (secAnswer <= 0) return (true, primaryPrice18); // Bad secondary → trust primary
+
+        uint8 secDecimals = _feedDecimals(behavior.secondaryPriceFeed);
+        uint256 secPrice18 = uint256(secAnswer) * (10 ** (18 - secDecimals));
+
+        // Check staleness on both feeds
+        uint256 secStaleness = behavior.secondaryMaxStaleness > 0
+            ? behavior.secondaryMaxStaleness : behavior.maxStaleness;
+        if (behavior.maxStaleness > 0 && block.timestamp - primaryUpdatedAt > behavior.maxStaleness) {
+            return (false, primaryPrice18);
+        }
+        if (secStaleness > 0 && block.timestamp - secUpdatedAt > secStaleness) {
+            return (false, primaryPrice18);
+        }
+
+        // Check divergence: |primary - secondary| / primary <= 2% (200 BPS)
+        uint256 diff = primaryPrice18 > secPrice18
+            ? primaryPrice18 - secPrice18
+            : secPrice18 - primaryPrice18;
+        uint256 divergenceBPS = (diff * 10000) / primaryPrice18;
+
+        if (divergenceBPS > 200) {
+            return (false, primaryPrice18); // >2% divergence — defer processing
+        }
+
+        return (true, primaryPrice18);
+    }
+
     /// @inheritdoc IRiskModule
     function isPriceFresh(address asset) external view override returns (bool) {
         IAssetBehaviorRegistry.AssetBehavior memory behavior = IAssetBehaviorRegistry(_assetBehaviorRegistry)

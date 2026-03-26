@@ -57,6 +57,9 @@ interface IAssetBehaviorRegistry {
         uint256 maxStaleness;     // seconds — reject price older than this
         uint256 minPrice;         // minimum acceptable price in 18-decimal units (0 = no bound enforced)
         uint256 maxPrice;         // maximum acceptable price in 18-decimal units (0 = no bound enforced)
+        // Dual-oracle verification (A1 — Loopscale $5.8M defense)
+        address secondaryPriceFeed;   // secondary oracle (Redstone, Pyth) for cross-validation (0 = single oracle)
+        uint256 secondaryMaxStaleness; // staleness for secondary feed (0 = use primary maxStaleness)
         // Risk parameters
         uint256 maxLTV;                // basis points (e.g., 8000 = 80%)
         uint256 liquidationThreshold;  // basis points (e.g., 8500 = 85%)

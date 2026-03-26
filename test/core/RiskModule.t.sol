@@ -127,6 +127,8 @@ contract RiskModuleTest is Test {
             maxStaleness: 3600,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: maxLTV,
             liquidationThreshold: liqThreshold,
             hasMarketHours: hasMarketHours,
