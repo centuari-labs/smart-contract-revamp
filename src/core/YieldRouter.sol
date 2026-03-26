@@ -330,6 +330,22 @@ contract YieldRouter is
         _insuranceReserve[asset] += amount;
     }
 
+    /// @notice Draw from the InsuranceReserve (§8.6 — bad debt absorption or recall failure coverage)
+    /// @dev Only authorized callers (CentuariEndpoint, keeper) can withdraw.
+    ///      Used when: (1) recall fails and reserve covers the gap, (2) bad debt waterfall §3.11.
+    /// @param asset The reserve asset to withdraw
+    /// @param amount The amount to withdraw
+    /// @param to The recipient address
+    function withdrawFromReserve(address asset, uint256 amount, address to) external onlyAuthorized nonReentrant {
+        require(_insuranceReserve[asset] >= amount, "YieldRouter: insufficient reserve");
+        require(to != address(0), "YieldRouter: zero address");
+        _insuranceReserve[asset] -= amount;
+        IERC20(asset).safeTransfer(to, amount);
+        emit ReserveWithdrawn(asset, amount, to);
+    }
+
+    event ReserveWithdrawn(address indexed asset, uint256 amount, address indexed to);
+
     // ============ Adapter Management ============
 
     /// @inheritdoc IYieldRouter
