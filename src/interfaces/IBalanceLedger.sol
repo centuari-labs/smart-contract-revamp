@@ -165,6 +165,9 @@ interface IBalanceLedger {
     event CollateralFrozen(address indexed user, address indexed asset, uint256 amount);
     event AuthorizedWriterUpdated(address indexed writer, bool authorized);
     event AuthorizedWriterProposed(address indexed writer, bool authorized, uint256 unlockTime);
+    event AdminChangeProposed(bytes32 indexed key, address indexed newAddr, uint256 unlockTime);
+    event AdminChangeApplied(bytes32 indexed key, address indexed newAddr);
+    event AdminChangeCancelled(bytes32 indexed key);
 
     // ============ Errors ============
 

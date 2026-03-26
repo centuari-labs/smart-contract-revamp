@@ -138,8 +138,37 @@ contract WithdrawalRegistry is
 
     // ============ Admin ============
 
-    function setAuthorizedCaller(address caller, bool authorized_) external onlyOwner {
-        _authorizedCallers[caller] = authorized_;
+    /// @notice Propose an authorized-caller change with 48h timelock
+    /// @param caller The address whose authorization is being changed
+    /// @param authorized Whether to grant or revoke caller access
+    function proposeAuthorizedCallerChange(address caller, bool authorized) external onlyOwner {
+        if (caller == address(0)) revert ZeroAddress();
+        _pendingAdminAddress[bytes32(uint256(uint160(caller)))] = caller;
+        _pendingAdminBool[caller] = authorized;
+        _pendingAdminTimelockEnd[bytes32(uint256(uint160(caller)))] = block.timestamp + 48 hours;
+    }
+
+    /// @notice Apply a pending authorized-caller change after the 48h timelock has elapsed
+    /// @param caller The address whose authorization is being applied
+    function applyAuthorizedCallerChange(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        require(_pendingAdminAddress[key] != address(0), "WithdrawalRegistry: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "WithdrawalRegistry: timelock active");
+
+        _authorizedCallers[caller] = _pendingAdminBool[caller];
+
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
+    }
+
+    /// @notice Cancel a pending authorized-caller change
+    /// @param caller The address whose pending change is being cancelled
+    function cancelAuthorizedCallerChange(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
     }
 
     function setYieldRouter(address yr) external onlyOwner {

@@ -88,9 +88,11 @@ contract RiskModuleTest is Test {
         ledger.proposeAuthorizedWriter(authorized, true);
         vm.warp(1 + 96 hours + 2);
         ledger.applyAuthorizedWriter();
-        ledger.setRiskModule(address(riskModule));
-        riskModule.proposeAuthorizedCaller(authorized, true);
+        ledger.proposeAdminChange("riskModule", address(riskModule));
         vm.warp(1 + 144 hours + 3);
+        ledger.applyAdminChange("riskModule");
+        riskModule.proposeAuthorizedCaller(authorized, true);
+        vm.warp(1 + 192 hours + 4);
         riskModule.applyAuthorizedCaller();
 
         vm.stopPrank();
@@ -123,6 +125,8 @@ contract RiskModuleTest is Test {
             trackBySharePrice: false,
             priceFeed: priceFeed,
             maxStaleness: 3600,
+            minPrice: 0,
+            maxPrice: 0,
             maxLTV: maxLTV,
             liquidationThreshold: liqThreshold,
             hasMarketHours: hasMarketHours,

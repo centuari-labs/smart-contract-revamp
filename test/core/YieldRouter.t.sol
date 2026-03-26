@@ -107,8 +107,11 @@ contract YieldRouterTest is Test {
         )));
 
         // Configuration
+        vm.warp(100000);
         vm.startPrank(owner);
-        router.setAuthorizedCaller(authorizedCaller, true);
+        router.proposeAuthorizedCallerChange(authorizedCaller, true);
+        vm.warp(100000 + 48 hours + 1);
+        router.applyAuthorizedCallerChange(authorizedCaller);
         router.registerAdapter(address(adapter));
         vm.stopPrank();
 

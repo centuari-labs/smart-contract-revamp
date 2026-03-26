@@ -357,14 +357,44 @@ contract BalanceLedger is
         delete _pendingWriterTimelockEnd;
     }
 
-    /// @notice Set the risk module address
-    function setRiskModule(address riskModule_) external onlyOwner {
-        _riskModule = riskModule_;
+    /// @notice Propose an admin address change with 48h timelock
+    /// @dev Used for setRiskModule and setAssetBehaviorRegistry.
+    ///      Keys: keccak256("riskModule") and keccak256("assetBehaviorRegistry")
+    /// @param key  A bytes32 identifier for the parameter being changed
+    /// @param newAddr The new address to set after the timelock
+    function proposeAdminChange(bytes32 key, address newAddr) external onlyOwner {
+        if (newAddr == address(0)) revert ZeroAddress();
+        _pendingAdminAddress[key] = newAddr;
+        _pendingAdminTimelockEnd[key] = block.timestamp + 48 hours;
+        emit AdminChangeProposed(key, newAddr, block.timestamp + 48 hours);
     }
 
-    /// @notice Set the asset behavior registry address
-    function setAssetBehaviorRegistry(address registry_) external onlyOwner {
-        _assetBehaviorRegistry = registry_;
+    /// @notice Apply a pending admin address change after the 48h timelock has elapsed
+    /// @param key The bytes32 identifier used in proposeAdminChange
+    function applyAdminChange(bytes32 key) external onlyOwner {
+        address newAddr = _pendingAdminAddress[key];
+        require(newAddr != address(0), "BalanceLedger: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "BalanceLedger: timelock active");
+
+        if (key == keccak256("riskModule")) {
+            _riskModule = newAddr;
+        } else if (key == keccak256("assetBehaviorRegistry")) {
+            _assetBehaviorRegistry = newAddr;
+        } else {
+            revert("BalanceLedger: unknown key");
+        }
+
+        emit AdminChangeApplied(key, newAddr);
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Cancel a pending admin address change
+    /// @param key The bytes32 identifier used in proposeAdminChange
+    function cancelAdminChange(bytes32 key) external onlyOwner {
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        emit AdminChangeCancelled(key);
     }
 
     /// @notice Pause the contract

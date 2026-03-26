@@ -166,10 +166,14 @@ contract LiquidationEngine is
     // ============ Grace Period ============
 
     /// @inheritdoc ILiquidationEngine
+    /// @dev 1C FIX: penaltyRateBPS is now a parameter, computed off-chain as 2x VWAP
+    ///      from CentuariRateOracle.getLatestVWAP(). This eliminates free optionality
+    ///      during grace period — borrowers pay for the delay.
     function setGracePeriod(
         bytes32 positionId,
         uint256 gracePeriodHours,
-        uint8 reason
+        uint8 reason,
+        uint256 penaltyRateBPS
     ) external override onlyAuthorized {
         if (gracePeriodHours > _MAX_GRACE_PERIOD_HOURS) {
             revert ExceedsMaxGracePeriod(gracePeriodHours, _MAX_GRACE_PERIOD_HOURS);
@@ -179,7 +183,7 @@ contract LiquidationEngine is
             startTimestamp: block.timestamp,
             deadlineTimestamp: block.timestamp + (gracePeriodHours * 1 hours),
             reason: reason,
-            penaltyRateBPS: 0, // Set by maturity engine based on 2x VWAP
+            penaltyRateBPS: penaltyRateBPS,
             accruedPenalty: 0
         });
 
@@ -213,16 +217,73 @@ contract LiquidationEngine is
 
     // ============ Administrative ============
 
-    function setAuthorizedCaller(address caller, bool authorized) external onlyOwner {
-        _authorizedCallers[caller] = authorized;
+    /// @notice Propose an address-type admin change with 48h timelock
+    /// @dev Keys: keccak256("rateOracle") and keccak256("layerZeroEndpoint")
+    /// @param key  A bytes32 identifier for the parameter being changed
+    /// @param newAddr The new address to set after the timelock
+    function proposeAdminChange(bytes32 key, address newAddr) external onlyOwner {
+        if (newAddr == address(0)) revert Unauthorized();
+        _pendingAdminAddress[key] = newAddr;
+        _pendingAdminTimelockEnd[key] = block.timestamp + 48 hours;
     }
 
-    function setRateOracle(address rateOracle_) external onlyOwner {
-        _rateOracle = rateOracle_;
+    /// @notice Apply a pending address-type admin change after the 48h timelock has elapsed
+    /// @param key The bytes32 identifier used in proposeAdminChange
+    function applyAdminChange(bytes32 key) external onlyOwner {
+        address newAddr = _pendingAdminAddress[key];
+        require(newAddr != address(0), "LiquidationEngine: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "LiquidationEngine: timelock active");
+
+        if (key == keccak256("rateOracle")) {
+            _rateOracle = newAddr;
+        } else if (key == keccak256("layerZeroEndpoint")) {
+            _layerZeroEndpoint = newAddr;
+        } else {
+            revert("LiquidationEngine: unknown key");
+        }
+
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
-    function setLayerZeroEndpoint(address endpoint_) external onlyOwner {
-        _layerZeroEndpoint = endpoint_;
+    /// @notice Cancel a pending address-type admin change
+    /// @param key The bytes32 identifier used in proposeAdminChange
+    function cancelAdminChange(bytes32 key) external onlyOwner {
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    /// @notice Propose an authorized-caller change with 48h timelock
+    /// @param caller The address whose authorization is being changed
+    /// @param authorized Whether to grant or revoke caller access
+    function proposeAuthorizedCallerChange(address caller, bool authorized) external onlyOwner {
+        if (caller == address(0)) revert Unauthorized();
+        _pendingAdminAddress[bytes32(uint256(uint160(caller)))] = caller;
+        _pendingAdminBool[caller] = authorized;
+        _pendingAdminTimelockEnd[bytes32(uint256(uint160(caller)))] = block.timestamp + 48 hours;
+    }
+
+    /// @notice Apply a pending authorized-caller change after the 48h timelock has elapsed
+    /// @param caller The address whose authorization is being applied
+    function applyAuthorizedCallerChange(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        require(_pendingAdminAddress[key] != address(0), "LiquidationEngine: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "LiquidationEngine: timelock active");
+
+        _authorizedCallers[caller] = _pendingAdminBool[caller];
+
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
+    }
+
+    /// @notice Cancel a pending authorized-caller change
+    /// @param caller The address whose pending change is being cancelled
+    function cancelAuthorizedCallerChange(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
     }
 
     // ============ Internal ============

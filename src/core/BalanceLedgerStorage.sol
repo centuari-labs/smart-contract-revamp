@@ -40,8 +40,14 @@ abstract contract BalanceLedgerStorage {
     bool internal _pendingWriterAuthorized;
     uint256 internal _pendingWriterTimelockEnd;
 
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
     // ============ Gap ============
 
-    /// @dev Reserved storage for future upgrades. Reduced by 3 for the three vars above.
-    uint256[37] private __gap;
+    /// @dev Reserved storage for future upgrades. Reduced by 5 for the five vars above.
+    uint256[35] private __gap;
 }

@@ -61,7 +61,9 @@ contract BalanceLedgerTest is Test {
         ledger.proposeAuthorizedWriter(authorizedWriter, true);
         vm.warp(1000 + 48 hours + 1);
         ledger.applyAuthorizedWriter();
-        ledger.setRiskModule(address(riskModule));
+        ledger.proposeAdminChange("riskModule", address(riskModule));
+        vm.warp(1000 + 96 hours + 2);
+        ledger.applyAdminChange("riskModule");
         vm.stopPrank();
     }
 

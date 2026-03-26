@@ -208,6 +208,10 @@ contract RiskModule is
         // C-02 FIX: Reject non-positive prices.
         require(answer > 0, "RiskModule: non-positive price");
 
+        // 2F FIX: Enforce per-asset price sanity bounds (0 = no bound enforced).
+        if (behavior.minPrice > 0) require(uint256(answer) >= behavior.minPrice, "RiskModule: price below min");
+        if (behavior.maxPrice > 0) require(uint256(answer) <= behavior.maxPrice, "RiskModule: price above max");
+
         // Convert to 18 decimals
         uint8 feedDecimals = _feedDecimals(behavior.priceFeed);
         priceUSD = uint256(answer) * (10 ** (18 - feedDecimals));
@@ -278,16 +282,26 @@ contract RiskModule is
 
             uint256 usdValue;
 
-            // Try live oracle price first; fall back to cache for attestation-only assets
-            (uint256 livePrice,) = _getAssetPriceUSDInternal(positions[i].asset);
-            if (livePrice > 0 && positions[i].amount > 0) {
-                // livePrice is per-unit in 18 decimals. Convert to total position value.
-                // Need token decimals to normalize: totalUSD = (price18 * amount) / 10^tokenDecimals
+            // 2J FIX: Capture updatedAt from oracle to detect staleness.
+            // When oracle data is stale or no feed is configured, apply a 20% haircut
+            // to the cached USD value as a conservative fallback.
+            (uint256 livePrice, uint256 oracleUpdatedAt) = _getAssetPriceUSDInternal(positions[i].asset);
+            IAssetBehaviorRegistry.AssetBehavior memory behavior = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                .getBehavior(positions[i].asset);
+
+            bool priceIsStale = oracleUpdatedAt > 0
+                && behavior.maxStaleness > 0
+                && block.timestamp - oracleUpdatedAt > behavior.maxStaleness;
+
+            if (livePrice > 0 && positions[i].amount > 0 && !priceIsStale) {
+                // Fresh live price: compute full position value.
+                // livePrice is per-unit in 18 decimals; normalize by token decimals.
                 uint8 tokenDecimals = _getTokenDecimals(positions[i].asset);
                 usdValue = (livePrice * positions[i].amount) / (10 ** tokenDecimals);
             } else {
-                // No oracle configured (attestation-only RWA) — use cached value
-                usdValue = positions[i].usdValueCached;
+                // Stale oracle or no feed configured (attestation-only RWA).
+                // Apply 20% haircut to cached value as conservative estimate.
+                usdValue = positions[i].usdValueCached * 80 / 100;
             }
 
             uint256 liqThreshold = IAssetBehaviorRegistry(_assetBehaviorRegistry)

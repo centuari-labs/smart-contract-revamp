@@ -55,6 +55,8 @@ interface IAssetBehaviorRegistry {
         // Price and staleness
         address priceFeed;        // Chainlink price feed address
         uint256 maxStaleness;     // seconds — reject price older than this
+        uint256 minPrice;         // minimum acceptable price in 18-decimal units (0 = no bound enforced)
+        uint256 maxPrice;         // maximum acceptable price in 18-decimal units (0 = no bound enforced)
         // Risk parameters
         uint256 maxLTV;                // basis points (e.g., 8000 = 80%)
         uint256 liquidationThreshold;  // basis points (e.g., 8500 = 85%)

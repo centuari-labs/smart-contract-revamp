@@ -129,8 +129,12 @@ contract LiquidationEngineTest is Test {
             ))
         )));
 
-        vm.prank(owner);
-        engine.setAuthorizedCaller(authorized, true);
+        vm.warp(100000);
+        vm.startPrank(owner);
+        engine.proposeAuthorizedCallerChange(authorized, true);
+        vm.warp(100000 + 48 hours + 1);
+        engine.applyAuthorizedCallerChange(authorized);
+        vm.stopPrank();
 
         // Setup: borrower has OUSG collateral, is undercollateralized
         assetRegistry.setBehavior(ousg, 800); // 8% bonus (Tier 2)
@@ -205,7 +209,7 @@ contract LiquidationEngineTest is Test {
         // Set grace period (6 hours)
         bytes32 positionId = keccak256(abi.encode(borrower, usdc, ousg));
         vm.prank(authorized);
-        engine.setGracePeriod(positionId, 6, 0); // 6 hours, HF_TOO_LOW
+        engine.setGracePeriod(positionId, 6, 0, 1600); // 6 hours, HF_TOO_LOW
 
         // Liquidation should revert during grace period
         vm.prank(liquidator);
@@ -220,7 +224,7 @@ contract LiquidationEngineTest is Test {
 
         bytes32 positionId = keccak256(abi.encode(borrower, usdc, ousg));
         vm.prank(authorized);
-        engine.setGracePeriod(positionId, 6, 0);
+        engine.setGracePeriod(positionId, 6, 0, 1600);
 
         // Warp past grace period
         vm.warp(block.timestamp + 7 hours);
@@ -234,12 +238,12 @@ contract LiquidationEngineTest is Test {
         bytes32 positionId = keccak256("test-pos");
 
         vm.prank(authorized);
-        engine.setGracePeriod(positionId, 24, 0); // max allowed
+        engine.setGracePeriod(positionId, 24, 0, 1600); // max allowed
 
         // Exceeds max
         vm.prank(authorized);
         vm.expectRevert(abi.encodeWithSelector(ILiquidationEngine.ExceedsMaxGracePeriod.selector, 25, 24));
-        engine.setGracePeriod(positionId, 25, 0);
+        engine.setGracePeriod(positionId, 25, 0, 1600);
     }
 
     function test_isInGracePeriod() public {
@@ -248,7 +252,7 @@ contract LiquidationEngineTest is Test {
         assertFalse(engine.isInGracePeriod(positionId));
 
         vm.prank(authorized);
-        engine.setGracePeriod(positionId, 6, 0);
+        engine.setGracePeriod(positionId, 6, 0, 1600);
 
         assertTrue(engine.isInGracePeriod(positionId));
 
@@ -260,7 +264,7 @@ contract LiquidationEngineTest is Test {
         bytes32 positionId = keccak256("test-pos");
 
         vm.prank(authorized);
-        engine.setGracePeriod(positionId, 1, 0);
+        engine.setGracePeriod(positionId, 1, 0, 1600);
 
         vm.warp(block.timestamp + 2 hours);
 

@@ -13,5 +13,14 @@ abstract contract WithdrawalRegistryStorage {
     uint256 internal constant _MAX_WITHDRAWAL_QUEUE_HOURS = 4;
     uint256 internal _requestCounter;
 
-    uint256[44] private __gap;
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
+    /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
+    mapping(address => bool) internal _pendingAdminBool;
+
+    uint256[41] private __gap;
 }
