@@ -64,7 +64,9 @@ contract RiskModuleTest is Test {
         // Configure registries
         vm.warp(1);
         vm.startPrank(owner);
-        registry.setMarketScheduleRegistry(address(scheduleRegistry));
+        registry.proposeMarketScheduleRegistry(address(scheduleRegistry));
+        vm.warp(1 + 48 hours + 1);
+        registry.applyMarketScheduleRegistry();
 
         // Add USDC (Class C, lendable, collateral) — via propose/execute timelock
         registry.proposeAsset(usdc, _behavior(
@@ -127,6 +129,8 @@ contract RiskModuleTest is Test {
             maxStaleness: 3600,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: maxLTV,
             liquidationThreshold: liqThreshold,
             hasMarketHours: hasMarketHours,

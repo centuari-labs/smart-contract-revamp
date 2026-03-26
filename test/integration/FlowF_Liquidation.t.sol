@@ -71,7 +71,9 @@ contract FlowF_LiquidationTest is Test {
         vm.startPrank(owner);
 
         // 1. AssetBehaviorRegistry: set schedule registry + propose WETH
-        registry.setMarketScheduleRegistry(address(scheduleRegistry));
+        registry.proposeMarketScheduleRegistry(address(scheduleRegistry));
+        vm.warp(100000 + 48 hours + 1);
+        registry.applyMarketScheduleRegistry();
         registry.proposeAsset(address(weth), _wethBehavior());
 
         // 2. BalanceLedger writers: engine, riskModule, test contract
@@ -138,6 +140,8 @@ contract FlowF_LiquidationTest is Test {
             maxStaleness: 3600,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: 8000,
             liquidationThreshold: 8500,
             hasMarketHours: false,

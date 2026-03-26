@@ -18,6 +18,18 @@ contract SettlementLedger is ISettlementLedger, Ownable {
     mapping(bytes32 => PendingFill) internal _fills;
     mapping(address => bool) internal _authorizedCallers;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
+    /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
+    mapping(address => bool) internal _pendingAdminBool;
+
     constructor(address owner_) Ownable(owner_) {}
 
     modifier onlyAuthorized() {
@@ -53,7 +65,29 @@ contract SettlementLedger is ISettlementLedger, Ownable {
         return (fill.solver, fill.amount);
     }
 
-    function setAuthorizedCaller(address caller, bool authorized) external onlyOwner {
-        _authorizedCallers[caller] = authorized;
+    /// @notice Propose an authorized-caller change with 48h timelock.
+    function proposeAuthorizedCaller(address caller, bool authorized) external onlyOwner {
+        if (caller == address(0)) revert Unauthorized();
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        _pendingAdminAddress[key] = caller;
+        _pendingAdminTimelockEnd[key] = block.timestamp + ADMIN_TIMELOCK;
+        _pendingAdminBool[caller] = authorized;
+    }
+
+    function applyAuthorizedCaller(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        require(_pendingAdminAddress[key] != address(0), "SettlementLedger: no pending caller");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "SettlementLedger: timelock active");
+        _authorizedCallers[caller] = _pendingAdminBool[caller];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
+    }
+
+    function cancelAuthorizedCallerChange(address caller) external onlyOwner {
+        bytes32 key = bytes32(uint256(uint160(caller)));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+        delete _pendingAdminBool[caller];
     }
 }

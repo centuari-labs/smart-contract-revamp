@@ -51,7 +51,24 @@ abstract contract LiquidationEngineStorage {
     /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
     mapping(address => bool) internal _pendingAdminBool;
 
+    /// @notice B1 FIX: Pending cross-chain liquidation requests for retry
+    struct PendingCrossChainLiq {
+        address borrower;
+        address collateralAsset;
+        uint256 collateralToSeize;
+        address liquidator;
+        uint32 spokeChainEid;
+        bool completed;
+    }
+    mapping(bytes32 => PendingCrossChainLiq) internal _pendingCrossChainLiqs;
+
+    /// @notice B1 FIX: SpokeVaultRWA address per spoke chain EID
+    mapping(uint32 => address) internal _spokeVaultRWA;
+
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
     // ============ Gap ============
 
-    uint256[37] private __gap;
+    uint256[35] private __gap;
 }

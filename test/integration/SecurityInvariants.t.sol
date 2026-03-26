@@ -217,9 +217,11 @@ contract SecurityInvariantsTest is Test {
         address lzReceiver = address(0x77);
         vm.warp(100000);
         vm.startPrank(owner);
-        registry.setLayerZeroReceiver(lzReceiver);
-        ledger.proposeAuthorizedWriter(address(registry), true);
+        registry.proposeLayerZeroReceiver(lzReceiver);
         vm.warp(100000 + 48 hours + 1);
+        registry.applyLayerZeroReceiver();
+        ledger.proposeAuthorizedWriter(address(registry), true);
+        vm.warp(100000 + 96 hours + 2);
         ledger.applyAuthorizedWriter();
         vm.stopPrank();
 
@@ -384,6 +386,8 @@ contract SecurityInvariantsTest is Test {
             maxStaleness: 3600,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: 8000,
             liquidationThreshold: 8500,
             hasMarketHours: false,

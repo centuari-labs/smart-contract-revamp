@@ -19,8 +19,12 @@ contract SettlementLedgerTest is Test {
     function setUp() public {
         ledger = new SettlementLedger(owner);
 
-        vm.prank(owner);
-        ledger.setAuthorizedCaller(authorizedCaller, true);
+        vm.warp(100000);
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedCaller(authorizedCaller, true);
+        vm.warp(100000 + 48 hours + 1);
+        ledger.applyAuthorizedCaller(authorizedCaller);
+        vm.stopPrank();
     }
 
     // ============ register ============
@@ -120,10 +124,13 @@ contract SettlementLedgerTest is Test {
         ledger.matchFill(ORDER_ID_A, 1000e6);
     }
 
-    function test_owner_can_set_authorized_caller() public {
+    function test_owner_can_propose_authorized_caller() public {
         address newCaller = address(0x99);
-        vm.prank(owner);
-        ledger.setAuthorizedCaller(newCaller, true);
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedCaller(newCaller, true);
+        vm.warp(block.timestamp + 48 hours + 1);
+        ledger.applyAuthorizedCaller(newCaller);
+        vm.stopPrank();
 
         // Should now succeed
         vm.prank(newCaller);
@@ -132,8 +139,11 @@ contract SettlementLedgerTest is Test {
     }
 
     function test_revoke_authorized_caller_blocks_access() public {
-        vm.prank(owner);
-        ledger.setAuthorizedCaller(authorizedCaller, false);
+        vm.startPrank(owner);
+        ledger.proposeAuthorizedCaller(authorizedCaller, false);
+        vm.warp(block.timestamp + 48 hours + 1);
+        ledger.applyAuthorizedCaller(authorizedCaller);
+        vm.stopPrank();
 
         vm.prank(authorizedCaller);
         vm.expectRevert(ISettlementLedger.Unauthorized.selector);

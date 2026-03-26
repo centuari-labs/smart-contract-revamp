@@ -54,6 +54,7 @@ abstract contract YieldRouterStorage {
 
     /// @notice Adapter pause duration (72 hours)
     uint256 internal constant ADAPTER_PAUSE_DURATION = 72 hours;
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
 
     /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
     mapping(bytes32 => address) internal _pendingAdminAddress;
@@ -64,7 +65,14 @@ abstract contract YieldRouterStorage {
     /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
     mapping(address => bool) internal _pendingAdminBool;
 
+    /// @notice C2 FIX: Track all assets that have been deployed to any adapter
+    /// @dev Used by verifyReserveRatio() to iterate and check all deployed assets
+    address[] internal _deployedAssets;
+
+    /// @notice C2 FIX: Quick lookup to avoid duplicate entries in _deployedAssets
+    mapping(address => bool) internal _isDeployedAsset;
+
     // ============ Gap ============
 
-    uint256[35] private __gap;
+    uint256[33] private __gap;
 }

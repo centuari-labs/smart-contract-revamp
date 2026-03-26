@@ -52,7 +52,16 @@ abstract contract AssetBehaviorRegistryStorage {
     /// @notice H-03 FIX: Timelock end timestamps for pending asset proposals
     mapping(address => uint256) internal _pendingAssetTimestamp;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[38] private __gap;
+    uint256[36] private __gap;
 }

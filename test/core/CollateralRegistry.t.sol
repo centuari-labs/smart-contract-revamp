@@ -38,10 +38,14 @@ contract CollateralRegistryTest is Test {
         // Configure
         vm.warp(1000);
         vm.startPrank(owner);
-        registry.setLayerZeroReceiver(lzReceiver);
-        registry.setKeeper(keeper, true);
-        ledger.proposeAuthorizedWriter(address(registry), true);
+        registry.proposeLayerZeroReceiver(lzReceiver);
         vm.warp(1000 + 48 hours + 1);
+        registry.applyLayerZeroReceiver();
+        registry.proposeKeeperChange(keeper, true);
+        vm.warp(1000 + 96 hours + 2);
+        registry.applyKeeperChange(keeper);
+        ledger.proposeAuthorizedWriter(address(registry), true);
+        vm.warp(1000 + 144 hours + 3);
         ledger.applyAuthorizedWriter();
         vm.stopPrank();
     }
@@ -173,10 +177,13 @@ contract CollateralRegistryTest is Test {
 
     // ============ Administrative Tests ============
 
-    function test_setLayerZeroReceiver() public {
+    function test_proposeLayerZeroReceiver() public {
         address newReceiver = address(0x999);
-        vm.prank(owner);
-        registry.setLayerZeroReceiver(newReceiver);
+        vm.startPrank(owner);
+        registry.proposeLayerZeroReceiver(newReceiver);
+        vm.warp(block.timestamp + 48 hours + 1);
+        registry.applyLayerZeroReceiver();
+        vm.stopPrank();
 
         // Old receiver should no longer work
         vm.prank(lzReceiver);

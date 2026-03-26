@@ -212,8 +212,11 @@ contract CentuariRateOracleTest is Test {
         mats[1] = 1_752_678_400;
         mats[2] = 1_755_356_800;
 
-        vm.prank(owner);
-        oracle.setActiveMaturities(usdc, mats);
+        vm.startPrank(owner);
+        oracle.proposeActiveMaturities(usdc, mats);
+        vm.warp(block.timestamp + 48 hours + 1);
+        oracle.applyActiveMaturities(usdc);
+        vm.stopPrank();
 
         uint256[] memory result = oracle.getActiveMaturities(usdc);
         assertEq(result.length, 3);
@@ -349,8 +352,11 @@ contract CentuariRateOracleTest is Test {
         mats[0] = maturity;
         mats[1] = nextMaturity;
 
-        vm.prank(owner);
-        oracle.setActiveMaturities(usdc, mats);
+        vm.startPrank(owner);
+        oracle.proposeActiveMaturities(usdc, mats);
+        vm.warp(block.timestamp + 48 hours + 1);
+        oracle.applyActiveMaturities(usdc);
+        vm.stopPrank();
 
         bytes memory sig1 = _signRateSnapshot(usdc, maturity, 800);
         oracle.commitRateSnapshot(usdc, maturity, 800, sig1);
@@ -371,15 +377,15 @@ contract CentuariRateOracleTest is Test {
         assertGt(committedAts[1], 0);
     }
 
-    // ============ Test: setActiveMaturities — only owner ============
+    // ============ Test: proposeActiveMaturities -- only owner ============
 
-    function test_setActiveMaturities_reverts_non_owner() public {
+    function test_proposeActiveMaturities_reverts_non_owner() public {
         uint256[] memory mats = new uint256[](1);
         mats[0] = maturity;
 
         vm.prank(address(0x999));
         vm.expectRevert();
-        oracle.setActiveMaturities(usdc, mats);
+        oracle.proposeActiveMaturities(usdc, mats);
     }
 
     // ============ Test: updateSigner DEPRECATED reverts ============

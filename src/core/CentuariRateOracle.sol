@@ -169,8 +169,24 @@ contract CentuariRateOracle is
 
     // ============ Admin ============
 
-    function setActiveMaturities(address asset, uint256[] calldata maturities) external onlyOwner {
-        _activeMaturities[asset] = maturities;
+    /// @notice Propose active maturities for an asset with 48h timelock.
+    function proposeActiveMaturities(address asset, uint256[] calldata maturities) external onlyOwner {
+        if (asset == address(0)) revert ZeroAddress();
+        _pendingActiveMaturities[asset] = maturities;
+        _pendingActiveMaturitiesTimelockEnd[asset] = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyActiveMaturities(address asset) external onlyOwner {
+        require(_pendingActiveMaturitiesTimelockEnd[asset] != 0, "CentuariRateOracle: no pending maturities");
+        require(block.timestamp >= _pendingActiveMaturitiesTimelockEnd[asset], "CentuariRateOracle: timelock active");
+        _activeMaturities[asset] = _pendingActiveMaturities[asset];
+        delete _pendingActiveMaturities[asset];
+        delete _pendingActiveMaturitiesTimelockEnd[asset];
+    }
+
+    function cancelActiveMaturitiesProposal(address asset) external onlyOwner {
+        delete _pendingActiveMaturities[asset];
+        delete _pendingActiveMaturitiesTimelockEnd[asset];
     }
 
     /// @notice H-04 FIX: Propose a new oracle signer — starts 48h timelock

@@ -10,6 +10,7 @@ import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {IAssetBehaviorRegistry} from "../interfaces/IAssetBehaviorRegistry.sol";
 import {LiquidationEngineStorage} from "./LiquidationEngineStorage.sol";
+import {ILayerZeroEndpointV2} from "../interfaces/ILayerZeroEndpointV2.sol";
 
 /// @title LiquidationEngine
 /// @notice Executes liquidations for undercollateralized positions
@@ -158,9 +159,46 @@ contract LiquidationEngine is
     }
 
     /// @inheritdoc ILiquidationEngine
+    /// @dev B1 FIX: Real cross-chain liquidation retry via LayerZero V2.
+    ///      Re-sends the stored liquidation message if the original delivery failed.
     function retryLiquidation(bytes32 requestId) external override onlyAuthorized {
-        // Cross-chain retry via LayerZero — placeholder for spoke integration
-        emit CrossChainLiquidationInitiated(requestId, address(0), address(0), 0);
+        PendingCrossChainLiq storage pending = _pendingCrossChainLiqs[requestId];
+        require(pending.borrower != address(0), "LiquidationEngine: no pending liquidation");
+        require(!pending.completed, "LiquidationEngine: already completed");
+
+        _sendCrossChainLiquidation(
+            requestId, pending.borrower, pending.collateralAsset,
+            pending.collateralToSeize, pending.liquidator, pending.spokeChainEid
+        );
+    }
+
+    /// @notice B1 FIX: Internal cross-chain liquidation via LayerZero V2.
+    /// @dev Sends a message to SpokeVaultRWA on the spoke chain to release collateral.
+    ///      The spoke's lzReceive() verifies sender + chain before releasing.
+    function _sendCrossChainLiquidation(
+        bytes32 requestId,
+        address borrower,
+        address collateralAsset,
+        uint256 collateralToSeize,
+        address liquidator,
+        uint32 spokeChainEid
+    ) internal {
+        require(_layerZeroEndpoint != address(0), "LiquidationEngine: LZ endpoint not set");
+
+        bytes memory payload = abi.encode(borrower, collateralAsset, collateralToSeize, liquidator);
+
+        // Build LZ V2 messaging params
+        ILayerZeroEndpointV2.MessagingParams memory params = ILayerZeroEndpointV2.MessagingParams({
+            dstEid: spokeChainEid,
+            receiver: bytes32(uint256(uint160(_spokeVaultRWA[spokeChainEid]))),
+            message: payload,
+            options: bytes(""), // Default options — gas paid by protocol
+            payInLzToken: false
+        });
+
+        ILayerZeroEndpointV2(_layerZeroEndpoint).send{value: msg.value}(params, msg.sender);
+
+        emit CrossChainLiquidationInitiated(requestId, borrower, collateralAsset, collateralToSeize);
     }
 
     // ============ Grace Period ============
@@ -284,6 +322,12 @@ contract LiquidationEngine is
         delete _pendingAdminAddress[key];
         delete _pendingAdminTimelockEnd[key];
         delete _pendingAdminBool[caller];
+    }
+
+    /// @notice B1 FIX: Set SpokeVaultRWA address for a spoke chain
+    /// @dev Used for cross-chain liquidation message routing
+    function setSpokeVaultRWA(uint32 spokeEid, address vault) external onlyOwner {
+        _spokeVaultRWA[spokeEid] = vault;
     }
 
     // ============ Internal ============

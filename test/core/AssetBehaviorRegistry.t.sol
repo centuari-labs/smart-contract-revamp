@@ -39,8 +39,12 @@ contract AssetBehaviorRegistryTest is Test {
 
         mockSchedule = new MockMarketScheduleRegistry();
 
-        vm.prank(owner);
-        registry.setMarketScheduleRegistry(address(mockSchedule));
+        vm.warp(100000);
+        vm.startPrank(owner);
+        registry.proposeMarketScheduleRegistry(address(mockSchedule));
+        vm.warp(100000 + 48 hours + 1);
+        registry.applyMarketScheduleRegistry();
+        vm.stopPrank();
     }
 
     // ============ Helper ============
@@ -57,6 +61,8 @@ contract AssetBehaviorRegistryTest is Test {
             maxStaleness: 3600,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: 8000,
             liquidationThreshold: 8500,
             hasMarketHours: false,
@@ -89,6 +95,8 @@ contract AssetBehaviorRegistryTest is Test {
             maxStaleness: 1800,
             minPrice: 0,
             maxPrice: 0,
+            secondaryPriceFeed: address(0),
+            secondaryMaxStaleness: 0,
             maxLTV: 5000,
             liquidationThreshold: 5700,
             hasMarketHours: true,

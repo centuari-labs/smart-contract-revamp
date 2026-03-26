@@ -10,7 +10,7 @@ interface ISpokeVaultRWA {
     /// @dev Requires: user approved by issuer KYC whitelist
     /// @param asset The RWA token address
     /// @param amount The amount to deposit
-    function deposit(address asset, uint256 amount) external;
+    function deposit(address asset, uint256 amount) external payable;
 
     /// @notice NC-02 FIX: releaseLiquidation is now internal.
     /// @dev All liquidation releases go through lzReceive() which verifies:

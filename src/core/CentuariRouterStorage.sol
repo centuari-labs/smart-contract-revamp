@@ -47,7 +47,16 @@ abstract contract CentuariRouterStorage {
     address internal _pendingEndpoint;
     uint256 internal _pendingEndpointTimelockEnd;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
     // ============ Gap ============
 
-    uint256[34] private __gap;
+    uint256[32] private __gap;
 }

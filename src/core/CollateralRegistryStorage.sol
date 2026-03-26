@@ -39,7 +39,19 @@ abstract contract CollateralRegistryStorage {
     /// @notice Price feed timelock duration
     uint256 internal constant PRICE_FEED_TIMELOCK = 48 hours;
 
+    /// @notice Admin timelock duration
+    uint256 internal constant ADMIN_TIMELOCK = 48 hours;
+
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
+    /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
+    mapping(address => bool) internal _pendingAdminBool;
+
     // ============ Gap ============
 
-    uint256[37] private __gap;
+    uint256[34] private __gap;
 }
