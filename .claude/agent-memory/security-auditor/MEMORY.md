@@ -28,5 +28,8 @@
 ## Arithmetic / Oracle / Economic Deep-Dive
 - [audit_arithmetic_oracle_2026-03-25.md](audit_arithmetic_oracle_2026-03-25.md) — Deep-dive on integer arithmetic, oracle security, economic attacks. 2 CRITICAL (LiquidationEngine decimal mismatches in seizure and cap), 4 HIGH (stale HF oracle, refinance anchor bypass, unbacked returns, instant admin setters), 5 MEDIUM. Recurring patterns #1, #4, #6, #7 confirmed again.
 
+## Final Pre-Professional-Audit Review
+- [audit_final_preaudit_2026-03-26.md](audit_final_preaudit_2026-03-26.md) — FINAL review before third-party audit. 0 CRITICAL, 0 HIGH, 3 MEDIUM, 4 LOW, 5 INFO. All 25 invariants PASS. All 8 past-audit regressions PASS. VERDICT: READY (conditional on M-01 decimal fix in LiquidationEngine.liquidate and M-02 refinance anchor bypass).
+
 ## Recurring Patterns
 - [recurring_patterns.md](recurring_patterns.md) — Cross-audit vulnerability patterns: incomplete fix propagation, accounting without token transfer, queue without escrow, missing timelocks, stale cached oracle values.

@@ -416,9 +416,34 @@ contract YieldRouter is
         delete _pendingAdminTimelockEnd[key];
     }
 
-    /// @notice Register an adapter for recall iteration
-    function registerAdapter(address adapter) external onlyOwner {
-        _registeredAdapters.push(adapter);
+    /// @notice PRE-AUDIT FIX: Register adapter with 48h timelock.
+    /// @dev A malicious adapter could drain all deployed capital via deploy().
+    ///      Without timelock, a compromised owner registers a drainer instantly.
+    address internal _pendingAdapter;
+    uint256 internal _pendingAdapterTimelockEnd;
+
+    function proposeAdapter(address adapter) external onlyOwner {
+        require(adapter != address(0), "YieldRouter: zero address");
+        _pendingAdapter = adapter;
+        _pendingAdapterTimelockEnd = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyAdapter() external onlyOwner {
+        require(_pendingAdapter != address(0), "YieldRouter: no pending adapter");
+        require(block.timestamp >= _pendingAdapterTimelockEnd, "YieldRouter: timelock active");
+        _registeredAdapters.push(_pendingAdapter);
+        delete _pendingAdapter;
+        delete _pendingAdapterTimelockEnd;
+    }
+
+    function cancelAdapterProposal() external onlyOwner {
+        delete _pendingAdapter;
+        delete _pendingAdapterTimelockEnd;
+    }
+
+    /// @notice DEPRECATED — use proposeAdapter() + applyAdapter() instead.
+    function registerAdapter(address) external view onlyOwner {
+        revert("YieldRouter: use proposeAdapter");
     }
 
     // ============ Internal ============
