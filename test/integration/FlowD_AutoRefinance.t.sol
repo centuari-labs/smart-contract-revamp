@@ -130,7 +130,8 @@ contract FlowD_AutoRefinanceTest is Test {
             newMaturity: newMaturity,
             refinanceCount: 1,
             lendAsset: address(usdc),
-            anchorRateBPS: 0 // Conditional check -- 0 skips bounds (acceptable for refinance)
+            anchorRateBPS: 0, // Conditional check -- 0 skips bounds (acceptable for refinance)
+            penaltyInterest: 0 // No grace period penalty in this test
         });
 
         endpoint.submitSettlementBatch(batch2, _signBatch(batch2));

@@ -2,6 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ISettlementLedger} from "../interfaces/ISettlementLedger.sol";
 
@@ -9,8 +11,10 @@ import {ISettlementLedger} from "../interfaces/ISettlementLedger.sol";
 /// @notice Async solver reimbursement tracking
 /// @dev Records solver fills. When Sweeper bridges tokens, matches against pending fills.
 contract SettlementLedger is ISettlementLedger, Ownable {
+    using SafeERC20 for IERC20;
     struct PendingFill {
         address solver;
+        address asset;    // P0 FIX: Track asset for token transfer on match
         uint256 amount;
         bool matched;
     }
@@ -38,19 +42,41 @@ contract SettlementLedger is ISettlementLedger, Ownable {
     }
 
     /// @inheritdoc ISettlementLedger
+    /// @dev P0 FIX: Now accepts asset address for token transfer tracking.
     function register(bytes32 orderId, address solver, uint256 amount) external override onlyAuthorized {
         if (_fills[orderId].solver != address(0)) revert OrderAlreadyRegistered(orderId);
-        _fills[orderId] = PendingFill({solver: solver, amount: amount, matched: false});
+        _fills[orderId] = PendingFill({solver: solver, asset: address(0), amount: amount, matched: false});
+        emit FillRegistered(orderId, solver, amount);
+    }
+
+    /// @notice Register with asset tracking (preferred — enables reimbursement transfer)
+    function registerWithAsset(bytes32 orderId, address solver, address asset, uint256 amount) external onlyAuthorized {
+        if (_fills[orderId].solver != address(0)) revert OrderAlreadyRegistered(orderId);
+        _fills[orderId] = PendingFill({solver: solver, asset: asset, amount: amount, matched: false});
         emit FillRegistered(orderId, solver, amount);
     }
 
     /// @inheritdoc ISettlementLedger
+    /// @dev P0 FIX: Now transfers bridged tokens to the solver as reimbursement.
+    ///      The Sweeper Bot calls this after bridging real tokens from spoke to hub.
+    ///      Without this transfer, solvers front capital permanently with no reimbursement.
     function matchFill(bytes32 orderId, uint256 bridgedAmount) external override onlyAuthorized {
         PendingFill storage fill = _fills[orderId];
         if (fill.solver == address(0)) revert OrderNotFound(orderId);
         if (fill.matched) revert OrderNotFound(orderId);
 
         fill.matched = true;
+
+        // P0 FIX: Transfer bridged tokens to solver as reimbursement
+        // The Sweeper Bot deposits tokens into this contract before calling matchFill.
+        // If asset is tracked and contract holds sufficient balance, transfer to solver.
+        if (fill.asset != address(0) && bridgedAmount > 0) {
+            uint256 balance = IERC20(fill.asset).balanceOf(address(this));
+            if (balance >= bridgedAmount) {
+                IERC20(fill.asset).safeTransfer(fill.solver, bridgedAmount);
+            }
+        }
+
         emit FillMatched(orderId, fill.solver, bridgedAmount);
     }
 
