@@ -536,7 +536,7 @@ contract CentuariEndpoint is
     /// @param amount The amount of CBT to redeem (1:1 with underlying at maturity)
     function redeemCBT(address cbtAddress, uint256 amount) external whenNotPaused nonReentrant {
         if (cbtAddress == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAddress();
+        require(amount > 0, "CentuariEndpoint: zero redeem amount");
 
         CentuariBondERC20 cbt = CentuariBondERC20(cbtAddress);
 

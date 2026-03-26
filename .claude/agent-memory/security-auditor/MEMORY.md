@@ -31,5 +31,8 @@
 ## Final Pre-Professional-Audit Review
 - [audit_final_preaudit_2026-03-26.md](audit_final_preaudit_2026-03-26.md) — FINAL review before third-party audit. 0 CRITICAL, 0 HIGH, 3 MEDIUM, 4 LOW, 5 INFO. All 25 invariants PASS. All 8 past-audit regressions PASS. VERDICT: READY (conditional on M-01 decimal fix in LiquidationEngine.liquidate and M-02 refinance anchor bypass).
 
+## Absolute Final Audit
+- [audit_final_absolute_2026-03-26.md](audit_final_absolute_2026-03-26.md) — ABSOLUTE FINAL audit of all 15 core contracts + storage. 0 CRITICAL, 0 HIGH, 2 MEDIUM (YieldRouter storage after __gap, setSpokeVaultRWA no timelock), 3 LOW. All 25 invariants PASS. All 10 specific checks PASS. VERDICT: CLEAN FOR AUDIT.
+
 ## Recurring Patterns
 - [recurring_patterns.md](recurring_patterns.md) — Cross-audit vulnerability patterns: incomplete fix propagation, accounting without token transfer, queue without escrow, missing timelocks, stale cached oracle values.

@@ -419,8 +419,8 @@ contract YieldRouter is
     /// @notice PRE-AUDIT FIX: Register adapter with 48h timelock.
     /// @dev A malicious adapter could drain all deployed capital via deploy().
     ///      Without timelock, a compromised owner registers a drainer instantly.
-    address internal _pendingAdapter;
-    uint256 internal _pendingAdapterTimelockEnd;
+    ///      M-01 FIX: _pendingAdapter vars moved to YieldRouterStorage.sol to prevent
+    ///      storage corruption on upgrade (same class as CRIT-2 in RiskModule).
 
     function proposeAdapter(address adapter) external onlyOwner {
         require(adapter != address(0), "YieldRouter: zero address");

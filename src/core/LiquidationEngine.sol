@@ -92,9 +92,13 @@ contract LiquidationEngine is
         }
 
         // 3. Verify debt coverage <= 50%
+        // L-02 FIX: Normalize debtToCover to 18-dec USD for consistent comparison.
+        // totalDebt is 18-dec USD from RiskModule. debtToCover is raw token decimals (6 for USDC).
+        // Without normalization, the 50% cap never triggers for 6-decimal tokens.
         uint256 totalDebt = riskModule.getTotalDebtUSD(borrower);
+        uint256 debtToCoverNorm = _normalizeToUSD18(debtAsset, debtToCover);
         uint256 maxCoverage = (totalDebt * MAX_DEBT_COVERAGE_BPS) / BPS_DENOMINATOR;
-        if (debtToCover > maxCoverage) revert ExceedsMaxDebtCoverage(debtToCover, maxCoverage);
+        if (debtToCoverNorm > maxCoverage) revert ExceedsMaxDebtCoverage(debtToCoverNorm, maxCoverage);
 
         // 4. Verify oracle freshness (Security Invariant #11)
         if (!riskModule.isPriceFresh(collateralAsset)) revert PriceFeedStale();
