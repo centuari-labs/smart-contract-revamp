@@ -376,9 +376,9 @@ contract BalanceLedger is
         require(newAddr != address(0), "BalanceLedger: no pending change");
         require(block.timestamp >= _pendingAdminTimelockEnd[key], "BalanceLedger: timelock active");
 
-        if (key == keccak256("riskModule")) {
+        if (key == "riskModule") {
             _riskModule = newAddr;
-        } else if (key == keccak256("assetBehaviorRegistry")) {
+        } else if (key == "registry") {
             _assetBehaviorRegistry = newAddr;
         } else {
             revert("BalanceLedger: unknown key");
