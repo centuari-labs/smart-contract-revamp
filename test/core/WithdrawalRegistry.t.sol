@@ -58,9 +58,14 @@ contract WithdrawalRegistryTest is Test {
         );
 
         // Authorize the test contract and authorizedCaller
+        vm.warp(100000);
         vm.startPrank(owner);
-        registry.setAuthorizedCaller(authorizedCaller, true);
-        registry.setAuthorizedCaller(address(this), true);
+        registry.proposeAuthorizedCallerChange(authorizedCaller, true);
+        vm.warp(100000 + 48 hours + 1);
+        registry.applyAuthorizedCallerChange(authorizedCaller);
+        registry.proposeAuthorizedCallerChange(address(this), true);
+        vm.warp(100000 + 96 hours + 2);
+        registry.applyAuthorizedCallerChange(address(this));
         vm.stopPrank();
 
         vm.label(address(registry), "WithdrawalRegistry");
@@ -252,10 +257,10 @@ contract WithdrawalRegistryTest is Test {
 
     // ── Test: setAuthorizedCaller only owner ───────────────────────────────
 
-    function test_setAuthorizedCaller_only_owner() public {
+    function test_proposeAuthorizedCallerChange_only_owner() public {
         vm.prank(other);
         vm.expectRevert(); // OwnableUnauthorizedAccount
-        registry.setAuthorizedCaller(other, true);
+        registry.proposeAuthorizedCallerChange(other, true);
     }
 
     // ── Test: getRequest returns zero struct for unknown requestId ──────────

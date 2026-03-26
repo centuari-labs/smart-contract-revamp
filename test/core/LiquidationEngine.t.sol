@@ -129,8 +129,12 @@ contract LiquidationEngineTest is Test {
             ))
         )));
 
-        vm.prank(owner);
-        engine.setAuthorizedCaller(authorized, true);
+        vm.warp(100000);
+        vm.startPrank(owner);
+        engine.proposeAuthorizedCallerChange(authorized, true);
+        vm.warp(100000 + 48 hours + 1);
+        engine.applyAuthorizedCallerChange(authorized);
+        vm.stopPrank();
 
         // Setup: borrower has OUSG collateral, is undercollateralized
         assetRegistry.setBehavior(ousg, 800); // 8% bonus (Tier 2)

@@ -43,9 +43,12 @@ contract HubIntentSettlerTest is Test {
         usdc = new MockToken("USD Coin", "USDC", 6, 0);
         ledger = new MockBalanceLedger();
 
-        // Configure settler
+        // Configure settler with timelock
+        vm.warp(100000);
         vm.startPrank(owner);
-        settler.setBalanceLedger(address(ledger));
+        settler.proposeBalanceLedger(address(ledger));
+        vm.warp(100000 + 48 hours + 1);
+        settler.applyBalanceLedger();
         vm.stopPrank();
 
         // Fund solver with USDC
@@ -125,18 +128,21 @@ contract HubIntentSettlerTest is Test {
 
     // ── Test: setBalanceLedger admin setter ───────────────────────────────────
 
-    function test_setBalanceLedger() public {
+    function test_proposeBalanceLedger() public {
         address newLedger = address(0xDEAD);
 
-        vm.prank(owner);
-        settler.setBalanceLedger(newLedger);
+        vm.startPrank(owner);
+        settler.proposeBalanceLedger(newLedger);
+        vm.warp(block.timestamp + 48 hours + 1);
+        settler.applyBalanceLedger();
+        vm.stopPrank();
 
         assertEq(settler.balanceLedger(), newLedger);
     }
 
-    function test_setBalanceLedger_reverts_non_owner() public {
+    function test_proposeBalanceLedger_reverts_non_owner() public {
         vm.prank(solver);
         vm.expectRevert(); // OwnableUnauthorizedAccount
-        settler.setBalanceLedger(address(0xDEAD));
+        settler.proposeBalanceLedger(address(0xDEAD));
     }
 }

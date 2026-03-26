@@ -96,11 +96,15 @@ contract FlowF_LiquidationTest is Test {
         vm.warp(100000 + 240 hours + 5);
         riskModule.applyAuthorizedCaller();
 
-        // 4. BalanceLedger: set risk module
-        ledger.setRiskModule(address(riskModule));
+        // 4. BalanceLedger: set risk module (timelocked)
+        ledger.proposeAdminChange("riskModule", address(riskModule));
+        vm.warp(100000 + 288 hours + 6);
+        ledger.applyAdminChange("riskModule");
 
-        // 5. LiquidationEngine: authorize test for grace period
-        engine.setAuthorizedCaller(address(this), true);
+        // 5. LiquidationEngine: authorize test for grace period (timelocked)
+        engine.proposeAuthorizedCallerChange(address(this), true);
+        vm.warp(100000 + 336 hours + 7);
+        engine.applyAuthorizedCallerChange(address(this));
 
         vm.stopPrank();
 
@@ -132,6 +136,8 @@ contract FlowF_LiquidationTest is Test {
             trackBySharePrice: false,
             priceFeed: address(wethFeed),
             maxStaleness: 3600,
+            minPrice: 0,
+            maxPrice: 0,
             maxLTV: 8000,
             liquidationThreshold: 8500,
             hasMarketHours: false,

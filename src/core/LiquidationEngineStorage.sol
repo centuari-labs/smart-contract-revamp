@@ -42,7 +42,16 @@ abstract contract LiquidationEngineStorage {
     /// @notice Maximum debt coverage per liquidation (50%)
     uint256 internal constant MAX_DEBT_COVERAGE_BPS = 5000;
 
+    /// @notice Pending admin address changes keyed by bytes32 identifier (48h timelock)
+    mapping(bytes32 => address) internal _pendingAdminAddress;
+
+    /// @notice Timelock end timestamps for pending admin address changes
+    mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
+
+    /// @notice Pending authorized-caller bool keyed by caller address (48h timelock)
+    mapping(address => bool) internal _pendingAdminBool;
+
     // ============ Gap ============
 
-    uint256[40] private __gap;
+    uint256[37] private __gap;
 }
