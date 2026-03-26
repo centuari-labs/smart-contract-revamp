@@ -34,5 +34,32 @@
 ## Absolute Final Audit
 - [audit_final_absolute_2026-03-26.md](audit_final_absolute_2026-03-26.md) — ABSOLUTE FINAL audit of all 15 core contracts + storage. 0 CRITICAL, 0 HIGH, 2 MEDIUM (YieldRouter storage after __gap, setSpokeVaultRWA no timelock), 3 LOW. All 25 invariants PASS. All 10 specific checks PASS. VERDICT: CLEAN FOR AUDIT.
 
+## YieldRouter Deep-Dive
+- [audit_yieldrouter_2026-03-26.md](audit_yieldrouter_2026-03-26.md) — Comprehensive audit of YieldRouter.sol and IYieldAdapter interface. 2 CRITICAL (rebalance 4-bug cluster, recallForOrder share confusion), 2 HIGH (tracking underflow, unvalidated adapter), 4 MEDIUM, 2 LOW, 2 INFO. VERDICT: REQUEST CHANGES.
+
+## CBT Bond Token Audit
+- [audit_cbt_bond_2026-03-26.md](audit_cbt_bond_2026-03-26.md) — Targeted audit of CentuariBondERC20, Factory, and CentuariEndpoint redemption/rollover/refinance paths. 0 CRITICAL, 1 HIGH (refinance anchor bypass — 4th+ time flagged), 2 MEDIUM (unvalidated cbtAddress in redeemCBT, public burn without underlying return), 4 LOW, 5 INFO. VERDICT: REQUEST CHANGES.
+
+## Mathematical & Economic Invariant Deep-Dive
+- [audit_math_economic_2026-03-26.md](audit_math_economic_2026-03-26.md) — Deep-dive on all mathematical operations across ~30 contracts. 1 CRITICAL (PCBTVault withdrawal queue drain), 4 MEDIUM (refinance anchor bypass, decimal mismatch in validateBorrow, adapter recall div-by-zero, debt reduction underflow), 2 LOW, 1 INFO. VERDICT: REQUEST CHANGES.
+
+## CentuariEndpoint Deep Audit
+- [audit_endpoint_deep_2026-03-26.md](audit_endpoint_deep_2026-03-26.md) — Comprehensive 10-section audit of CentuariEndpoint.sol + 15 interacting contracts. 0 CRITICAL, 0 HIGH, 3 MEDIUM (stale cached HF, refinance anchor bypass, grace period no max enforcement), 4 LOW, 5 INFO. All 25 invariants PASS. VERDICT: APPROVE (conditional on M-02).
+
+## Original Settlement Architecture Audit
+- [audit_original_settlement_2026-03-27.md](audit_original_settlement_2026-03-27.md) — Security audit of Settlement.sol + Centuari.sol + Treasury.sol (the original settlement flow). 1 CRITICAL (Treasury fund drain via instant setCentuariContract), 3 HIGH (no timelocks, non-upgradeable Treasury, operator-only repay), 4 MEDIUM. VERDICT: REQUEST CHANGES.
+
+## Cross-Cutting Access Control & Upgradeability
+- [audit_access_control_2026-03-26.md](audit_access_control_2026-03-26.md) — Comprehensive audit of access control, upgradeability, and privilege management across all ~40 contracts. 0 CRITICAL, 4 HIGH, 5 MEDIUM, 3 LOW, 3 INFO. Key findings: PCBTVault instant admin setters (H-01), RiskModule instant setSequencerUptimeFeed (H-02), LiquidationEngine instant setSpokeVaultRWA (H-03), SpokeVaultRWA instant setters (H-04). All 25 invariants PASS. VERDICT: REQUEST CHANGES.
+
+## AssetBehaviorRegistry + CollateralRegistry Targeted Audit
+- [audit_abr_cr_2026-03-27.md](audit_abr_cr_2026-03-27.md) — Comprehensive audit of AssetBehaviorRegistry.sol + CollateralRegistry.sol with cross-contract analysis. 0 CRITICAL, 4 MEDIUM (updateAsset overwrites LTV immediately breaking discrete governance, collateralEligible/lendable flags never enforced on-chain, insufficient _validateBehavior, refinance anchor rate conditional bypass), 3 LOW (removeLiquidator array cleanup, shared unpause timelock, setSpokeVaultRWA no timelock), 1 INFO. All 25 invariants PASS. VERDICT: REQUEST CHANGES.
+
+## RiskModule + LiquidationEngine Deep Audit
+- [audit_riskmodule_liqengine_2026-03-27.md](audit_riskmodule_liqengine_2026-03-27.md) — Deep audit of RiskModule.sol + LiquidationEngine.sol. 1 CRITICAL (validateBorrow decimal mismatch — raw 6-dec borrowAmount added to 18-dec debt, bypasses debt ceiling and HF checks), 1 HIGH (LiquidationEngine line 122 divides by 1e18 instead of 10**tokenDecimals, making liquidation impossible for non-18-dec collateral). C-01+H-01 form catastrophic pair: borrowers bypass collateral checks AND cannot be liquidated. 3 MEDIUM, 3 LOW, 1 INFO. VERDICT: REQUEST CHANGES.
+
+## Test Coverage Audit
+- [audit_test_coverage_2026-03-27.md](audit_test_coverage_2026-03-27.md) — Comprehensive test coverage audit of ~45 test files. 13 CRITICAL, 12 HIGH, 15 MEDIUM, 8 LOW missing test gaps identified. Top gaps: DualOracle all stubs, RiskModule usdValueCached=0, no contract-level fuzzing, no negative oracle price test.
+
 ## Recurring Patterns
 - [recurring_patterns.md](recurring_patterns.md) — Cross-audit vulnerability patterns: incomplete fix propagation, accounting without token transfer, queue without escrow, missing timelocks, stale cached oracle values.
