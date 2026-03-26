@@ -68,6 +68,7 @@ interface ICentuariEndpoint {
         uint8 refinanceCount;
         address lendAsset;    // P0 FIX: debt asset for 18-dec normalization in RiskModule
         uint256 anchorRateBPS; // MED-1 FIX: anchor rate for bounds check (same as rollovers)
+        uint256 penaltyInterest; // P0-3 FIX: grace period penalty (§5.15), computed off-chain as 2x VWAP
     }
 
     /// @notice A liquidation being executed

@@ -160,6 +160,32 @@ contract CentuariRouter is
         emit UndeliveredCBTClaimed(intentId, msg.sender, cbtAmount);
     }
 
+    // ============ Intent Expiry (§9.2.3) ============
+
+    /// @notice P0 FIX: Expire an intent that has passed its deadline.
+    /// @dev Called by keeper bots when block.timestamp > intent.deadline.
+    ///      Returns unfilled tokens to the original submitter.
+    ///      Anyone can call this — it only benefits the submitter.
+    /// @param intentId The intent to expire
+    function expireIntent(bytes32 intentId) external nonReentrant {
+        IntentDetails storage intent = _intents[intentId];
+        if (intent.submittedAt == 0) revert IntentNotFound(intentId);
+        if (intent.state != IntentState.PENDING && intent.state != IntentState.PARTIAL) {
+            revert IntentNotCancellable(intentId, intent.state);
+        }
+        require(block.timestamp > intent.deadline, "CentuariRouter: not yet expired");
+
+        uint256 returnAmount = intent.unfilledAmount;
+        intent.state = IntentState.EXPIRED;
+        intent.unfilledAmount = 0;
+
+        if (returnAmount > 0 && !intent.isBorrow) {
+            IERC20(intent.asset).safeTransfer(intent.submitter, returnAmount);
+        }
+
+        emit IntentExpired(intentId, returnAmount);
+    }
+
     // ============ Fill Callback (Security Invariant #12) ============
 
     /// @inheritdoc ICentuariRouter

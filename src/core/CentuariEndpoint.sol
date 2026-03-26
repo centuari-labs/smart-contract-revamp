@@ -332,10 +332,22 @@ contract CentuariEndpoint is
             // The refinance replaces old debt with new debt (which includes interest for ADD_TO_LOAN).
             // Adjust by the delta so RiskModule accurately tracks the borrower's true debt.
             // P0 FIX: Normalize debt delta to 18-decimal USD (same scale as usdValueCached).
-            if (_riskModule != address(0) && r.newPrincipal > r.oldDebt) {
+            if (_riskModule != address(0)) {
                 uint8 refDecimals = _getTokenDecimals(r.lendAsset);
-                uint256 debtDelta = (r.newPrincipal - r.oldDebt) * (10 ** (18 - refDecimals));
-                IRiskModule(_riskModule).recordUserDebt(r.borrower, debtDelta);
+
+                // P0-3 FIX: Add grace period penalty interest to debt (§5.15).
+                // The off-chain engine computes: penaltyInterest = penaltyRateBPS * principal * graceDuration / (10000 * 365 days)
+                // and includes it in r.penaltyInterest. This is added to the borrower's debt
+                // to make strategic grace period exploitation expensive.
+                uint256 penaltyNormalized = r.penaltyInterest * (10 ** (18 - refDecimals));
+                if (penaltyNormalized > 0) {
+                    IRiskModule(_riskModule).recordUserDebt(r.borrower, penaltyNormalized);
+                }
+
+                if (r.newPrincipal > r.oldDebt) {
+                    uint256 debtDelta = (r.newPrincipal - r.oldDebt) * (10 ** (18 - refDecimals));
+                    IRiskModule(_riskModule).recordUserDebt(r.borrower, debtDelta);
+                }
             }
 
             bytes32 newPositionId = keccak256(abi.encode(r.borrower, r.newMaturity, r.refinanceCount));
