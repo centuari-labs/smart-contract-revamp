@@ -259,17 +259,18 @@ contract CentuariRouterTest is Test {
         assertEq(cbt.balanceOf(user), userCbtBefore + cbtAmount);
     }
 
-    // ── Test: ERC-4626 deposit stub reverts ───────────────────────────────────
+    // ── Test: ERC-4626 deposit requires vault asset ────────────────────────────
 
-    function test_erc4626_deposit_reverts() public {
-        vm.expectRevert(bytes("CentuariRouter: ERC-4626 not implemented"));
+    function test_erc4626_deposit_no_vault_asset_reverts() public {
+        // Vault asset not set → reverts
+        vm.expectRevert(bytes("CentuariRouter: vault asset not set"));
         router.deposit(AMOUNT, user);
     }
 
-    // ── Test: ERC-4626 withdraw stub reverts ──────────────────────────────────
+    // ── Test: ERC-4626 withdraw with zero shares reverts ────────────────────────
 
-    function test_erc4626_withdraw_reverts() public {
-        vm.expectRevert(bytes("CentuariRouter: ERC-4626 not implemented"));
-        router.withdraw(AMOUNT, user, user);
+    function test_erc4626_withdraw_zero_reverts() public {
+        vm.expectRevert(bytes("CentuariRouter: zero withdraw"));
+        router.withdraw(0, user, user);
     }
 }
