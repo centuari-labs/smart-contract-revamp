@@ -116,6 +116,7 @@ contract FlowI_RollDayTest is Test {
         batch1.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
         batch1.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch1.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
+        batch1.collateralTopUps = new ICentuariEndpoint.CollateralTopUp[](0);
         batch1.feeDistributions = new IFeeController.FeeDistribution[](0);
 
         endpoint.submitSettlementBatch(batch1, _signBatch(batch1));
@@ -142,6 +143,7 @@ contract FlowI_RollDayTest is Test {
             amount: cbt2
         });
 
+        batch2.collateralTopUps = new ICentuariEndpoint.CollateralTopUp[](0);
         // Grace start: borrower1 enters grace period (refinance failed)
         batch2.graceStarts = new ICentuariEndpoint.GracePeriodStart[](1);
         batch2.graceStarts[0] = ICentuariEndpoint.GracePeriodStart({

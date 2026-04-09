@@ -214,7 +214,7 @@ contract BalanceLedgerTest is Test {
 
     function test_addCollateral_success() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1); // Ethereum chain ID = 1
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid); // Ethereum chain ID = 1
 
         IBalanceLedger.CollateralPosition[] memory positions = ledger.getCollateral(user1);
         assertEq(positions.length, 1);
@@ -229,10 +229,10 @@ contract BalanceLedgerTest is Test {
 
     function test_addCollateral_accumulates() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 50e18, 1);
+        ledger.addCollateral(user1, ousg, 50e18, block.chainid);
 
         IBalanceLedger.CollateralPosition[] memory positions = ledger.getCollateral(user1);
         assertEq(positions.length, 1); // same slot
@@ -241,7 +241,7 @@ contract BalanceLedgerTest is Test {
 
     function test_freezeCollateral_success() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         vm.prank(authorizedWriter);
         ledger.freezeCollateral(user1, 0);
@@ -252,7 +252,7 @@ contract BalanceLedgerTest is Test {
 
     function test_freezeCollateral_reverts_not_active() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         vm.prank(authorizedWriter);
         ledger.freezeCollateral(user1, 0);
@@ -265,7 +265,7 @@ contract BalanceLedgerTest is Test {
 
     function test_reduceCollateral_success() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         vm.prank(authorizedWriter);
         ledger.reduceCollateral(user1, ousg, 30e18);
@@ -276,7 +276,7 @@ contract BalanceLedgerTest is Test {
 
     function test_reduceCollateral_reverts_insufficient() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         vm.prank(authorizedWriter);
         vm.expectRevert(IBalanceLedger.InsufficientCollateral.selector);
@@ -287,7 +287,7 @@ contract BalanceLedgerTest is Test {
 
     function test_setAsCollateral_enable() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         // Disable first
         vm.prank(user1);
@@ -303,7 +303,7 @@ contract BalanceLedgerTest is Test {
 
     function test_setAsCollateral_reverts_would_undercollateralize() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         // Mock: removing this collateral would leave 0 weighted, but debt is 5000
         riskModule.setMockValues(0, 5000e18);
@@ -315,7 +315,7 @@ contract BalanceLedgerTest is Test {
 
     function test_setAsCollateral_allows_disable_when_no_debt() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         // Mock: no debt, so safe to disable
         riskModule.setMockValues(0, 0);
@@ -377,7 +377,7 @@ contract BalanceLedgerTest is Test {
         ledger.moveFromYieldRouter(user1, usdc, 100, 100);
 
         vm.expectRevert(IBalanceLedger.Unauthorized.selector);
-        ledger.addCollateral(user1, ousg, 100, 1);
+        ledger.addCollateral(user1, ousg, 100, block.chainid);
 
         vm.expectRevert(IBalanceLedger.Unauthorized.selector);
         ledger.freezeCollateral(user1, 0);
@@ -462,7 +462,7 @@ contract BalanceLedgerTest is Test {
 
     function test_getCollateralByAsset_success() public {
         vm.prank(authorizedWriter);
-        ledger.addCollateral(user1, ousg, 100e18, 1);
+        ledger.addCollateral(user1, ousg, 100e18, block.chainid);
 
         IBalanceLedger.CollateralPosition memory pos = ledger.getCollateralByAsset(user1, ousg);
         assertEq(pos.asset, ousg);

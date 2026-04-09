@@ -81,6 +81,7 @@ contract FlowD_AutoRefinanceTest is Test {
         b.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
         b.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         b.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
+        b.collateralTopUps = new ICentuariEndpoint.CollateralTopUp[](0);
         b.feeDistributions = new IFeeController.FeeDistribution[](0);
     }
 

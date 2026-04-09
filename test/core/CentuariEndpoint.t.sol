@@ -83,6 +83,7 @@ contract CentuariEndpointTest is Test {
         batch.liquidations = new ICentuariEndpoint.LiquidationSettlement[](0);
         batch.returnSettlements = new ICentuariEndpoint.ReturnSettlement[](0);
         batch.graceStarts = new ICentuariEndpoint.GracePeriodStart[](0);
+        batch.collateralTopUps = new ICentuariEndpoint.CollateralTopUp[](0);
         batch.feeDistributions = new IFeeController.FeeDistribution[](0);
     }
 

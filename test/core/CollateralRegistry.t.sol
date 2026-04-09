@@ -116,14 +116,15 @@ contract CollateralRegistryTest is Test {
         registry.processAttestation(keccak256("attest-2"), user1, ousg, 50e18, 1000, ETH_CHAIN_ID);
     }
 
-    function test_processAttestation_reverts_equal_timestamp() public {
+    function test_processAttestation_allows_equal_timestamp() public {
         vm.prank(lzReceiver);
         registry.processAttestation(keccak256("attest-1"), user1, ousg, 100e18, 1000, ETH_CHAIN_ID);
 
-        // Same timestamp should also revert (must be strictly greater)
+        // P1-8 FIX: Equal timestamp now allowed (same-block deposits).
+        // usedAttestationIds prevents exact replay; monotonic check prevents stale replay.
         vm.prank(lzReceiver);
-        vm.expectRevert(abi.encodeWithSelector(ICollateralRegistry.AttestationTooOld.selector, 1000, 1000));
         registry.processAttestation(keccak256("attest-2"), user1, ousg, 50e18, 1000, ETH_CHAIN_ID);
+        // Should succeed — different attestation ID, same timestamp
     }
 
     // ============ Cross-Chain Replay Prevention ============
