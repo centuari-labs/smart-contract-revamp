@@ -38,10 +38,11 @@ abstract contract CentuariRouterStorage {
     /// @notice Gas limit for callback delivery
     uint256 internal constant CALLBACK_GAS_LIMIT = 200_000;
 
-    /// @notice ERC-4626 vault state
-    uint256 internal _totalManagedAssets;
-    uint256 internal _totalShares;
-    address internal _vaultAsset; // e.g., USDC
+    /// @notice DEPRECATED: ERC-4626 vault state (removed per ARCH-07)
+    /// @dev Cannot remove from storage layout (UUPS upgrade safety). Inert — never read.
+    uint256 internal _deprecated_totalManagedAssets;
+    uint256 internal _deprecated_totalShares;
+    address internal _deprecated_vaultAsset;
 
     /// @notice HIGH-3 FIX: Endpoint timelock vars
     address internal _pendingEndpoint;

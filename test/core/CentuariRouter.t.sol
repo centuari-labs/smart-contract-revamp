@@ -259,18 +259,6 @@ contract CentuariRouterTest is Test {
         assertEq(cbt.balanceOf(user), userCbtBefore + cbtAmount);
     }
 
-    // ── Test: ERC-4626 deposit requires vault asset ────────────────────────────
-
-    function test_erc4626_deposit_no_vault_asset_reverts() public {
-        // Vault asset not set → reverts
-        vm.expectRevert(bytes("CentuariRouter: vault asset not set"));
-        router.deposit(AMOUNT, user);
-    }
-
-    // ── Test: ERC-4626 withdraw with zero shares reverts ────────────────────────
-
-    function test_erc4626_withdraw_zero_reverts() public {
-        vm.expectRevert(bytes("CentuariRouter: zero withdraw"));
-        router.withdraw(0, user, user);
-    }
+    // ERC-4626 tests REMOVED — deposit/withdraw/redeem functions removed from Router.
+    // PCBTVault is the canonical vault. See ARCH-07.
 }

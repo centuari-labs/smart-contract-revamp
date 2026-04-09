@@ -18,10 +18,19 @@ interface ICentuariEndpoint {
         LiquidationSettlement[] liquidations;
         ReturnSettlement[] returnSettlements;
         GracePeriodStart[] graceStarts;
+        CollateralTopUp[] collateralTopUps;     // P1-5: collateral top-ups (before refinances)
         IFeeController.FeeDistribution[] feeDistributions;
         uint256 nonce;
         uint256 timestamp;
         bytes32 batchHash;
+    }
+
+    /// @notice P1-5: Collateral top-up — move available balance to collateral for HF improvement
+    struct CollateralTopUp {
+        address borrower;
+        address asset;
+        uint256 amount;
+        uint256 sourceChainId;
     }
 
     /// @notice A matched lend/borrow order pair

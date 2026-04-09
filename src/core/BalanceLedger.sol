@@ -69,6 +69,7 @@ contract BalanceLedger is
         if (amount == 0) revert ZeroAmount();
 
         _balances[user][asset].available += amount;
+        _totalCredited[asset] += amount;
         emit BalanceCredited(user, asset, amount);
     }
 
@@ -83,6 +84,7 @@ contract BalanceLedger is
         if (_balances[user][asset].available < amount) revert InsufficientAvailable();
 
         _balances[user][asset].available -= amount;
+        _totalDebited[asset] += amount;
         emit BalanceDebited(user, asset, amount);
     }
 
@@ -317,6 +319,7 @@ contract BalanceLedger is
         uint256 received = IERC20(asset).balanceOf(address(this)) - balBefore;
 
         _balances[msg.sender][asset].available += received;
+        _totalCredited[asset] += received;
 
         emit BalanceCredited(msg.sender, asset, received);
     }
@@ -344,6 +347,7 @@ contract BalanceLedger is
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = IERC20(asset).balanceOf(address(this)) - balBefore;
         _balances[msg.sender][asset].available += received;
+        _totalCredited[asset] += received;
 
         // Step 2: Register as collateral (P1-1: use new mapping-based storage)
         bytes32 key = keccak256(abi.encode(asset, block.chainid));
@@ -393,6 +397,7 @@ contract BalanceLedger is
             }
         }
 
+        _totalDebited[asset] += amount;
         IERC20(asset).safeTransfer(msg.sender, amount);
         emit BalanceDebited(msg.sender, asset, amount);
     }
@@ -405,6 +410,25 @@ contract BalanceLedger is
     }
 
     event YieldEnabledChanged(address indexed user, address indexed asset, bool enabled);
+
+    /// @notice Solvency invariant check: verifies backing for all user claims
+    /// @dev Called by CentuariEndpoint after each settlement batch.
+    ///      Invariant: totalCredited - totalDebited <= balanceOf(this) + yieldRouter.totalDeployed
+    /// @param asset The asset to check
+    /// @param yieldDeployed Total amount deployed to yield protocols for this asset
+    /// @return solvent True if invariant holds
+    function verifySolvency(address asset, uint256 yieldDeployed) external view returns (bool solvent) {
+        uint256 held = IERC20(asset).balanceOf(address(this));
+        uint256 totalClaims = _totalCredited[asset] > _totalDebited[asset]
+            ? _totalCredited[asset] - _totalDebited[asset]
+            : 0;
+        return held + yieldDeployed >= totalClaims;
+    }
+
+    /// @notice Get solvency tracking totals for an asset
+    function getSolvencyTotals(address asset) external view returns (uint256 credited, uint256 debited) {
+        return (_totalCredited[asset], _totalDebited[asset]);
+    }
 
     /// @notice Transfer ERC20 tokens out of the ledger (for CBT redemption)
     /// @dev C-05 FIX: CentuariEndpoint calls this during redeemCBT() to release underlying.

@@ -50,6 +50,11 @@ abstract contract BalanceLedgerStorage {
     /// @dev User calls setYieldEnabled(). Engine reads events to deploy idle capital.
     mapping(address => mapping(address => bool)) internal _isYieldEnabled;
 
+    /// @notice Solvency invariant tracking: total credits and debits per asset
+    /// @dev Invariant: _totalCredited[asset] - _totalDebited[asset] <= balanceOf(this) + yieldRouter.totalDeployed(asset)
+    mapping(address => uint256) internal _totalCredited;
+    mapping(address => uint256) internal _totalDebited;
+
     /// @notice P1-1: Mapping-based collateral storage (replaces unbounded array)
     /// @dev key = keccak256(abi.encode(asset, sourceChainId))
     mapping(address => mapping(bytes32 => IBalanceLedger.CollateralPosition)) internal _collateralPositions;

@@ -102,25 +102,9 @@ interface ICentuariRouter {
         uint256 rateBPS
     ) external;
 
-    // ============ ERC-4626 Vault Adapter ============
-
-    /// @notice Deposit USDC, get vault shares (submits lend intent at market rate)
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-
-    /// @notice Withdraw underlying by burning vault shares
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares);
-
-    /// @notice Redeem vault shares for underlying
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
-
-    /// @notice Total assets managed by the vault
-    function totalAssets() external view returns (uint256);
-
-    /// @notice Convert assets to shares
-    function convertToShares(uint256 assets) external view returns (uint256);
-
-    /// @notice Convert shares to assets
-    function convertToAssets(uint256 shares) external view returns (uint256);
+    // ERC-4626 Vault Adapter REMOVED per ARCH-07.
+    // CentuariRouter is intent-only. PCBTVault is the canonical vault.
+    // See: memory/architecture_audit_2026-04-03.md
 
     // ============ View Functions ============
 

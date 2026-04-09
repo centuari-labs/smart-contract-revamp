@@ -233,89 +233,10 @@ contract CentuariRouter is
     // Deposit submits a lend intent at market rate to nearest maturity.
     // Withdrawal redeems matured CBT or returns pending intent tokens.
 
-    uint256 private constant _VIRTUAL_OFFSET = 1e6; // 10^6 virtual shares (matches USDC 6 decimals)
-
-    /// @inheritdoc ICentuariRouter
-    /// @dev D1 FIX: Real ERC-4626 deposit. Accepts vault asset (USDC), submits lend intent,
-    ///      mints vault shares to receiver. Uses virtual shares offset for inflation defense.
-    function deposit(uint256 assets, address receiver) external override nonReentrant returns (uint256 shares) {
-        require(assets > 0, "CentuariRouter: zero deposit");
-        require(_vaultAsset != address(0), "CentuariRouter: vault asset not set");
-
-        // Transfer assets from caller
-        IERC20(_vaultAsset).safeTransferFrom(msg.sender, address(this), assets);
-
-        // Compute shares with virtual offset (OpenZeppelin v4.9+ pattern)
-        shares = _convertToShares(assets);
-
-        // Update internal accounting (NOT balanceOf — prevents donation attack)
-        _totalManagedAssets += assets;
-        _totalShares += shares;
-
-        // Submit lend intent at market rate (0 = accept any rate) to nearest maturity (0 = auto)
-        IERC20(_vaultAsset).approve(address(this), assets);
-        // The intent is tracked internally — vault manages the position lifecycle
-
-        emit VaultDeposit(msg.sender, receiver, assets, shares);
-    }
-
-    /// @inheritdoc ICentuariRouter
-    /// @dev D1 FIX: Real ERC-4626 withdraw. Burns shares, returns underlying.
-    ///      If assets are in pending intents, cancels them. If in CBT, redeems if matured.
-    function withdraw(uint256 assets, address receiver, address owner_) external override nonReentrant returns (uint256 shares) {
-        require(assets > 0, "CentuariRouter: zero withdraw");
-        shares = _convertToShares(assets);
-        require(_totalShares >= shares, "CentuariRouter: insufficient shares");
-
-        _totalManagedAssets -= assets;
-        _totalShares -= shares;
-
-        // Transfer underlying to receiver
-        IERC20(_vaultAsset).safeTransfer(receiver, assets);
-
-        emit VaultWithdraw(msg.sender, receiver, owner_, assets, shares);
-    }
-
-    /// @inheritdoc ICentuariRouter
-    /// @dev D1 FIX: Real ERC-4626 redeem. Burns shares, returns proportional assets.
-    function redeem(uint256 shares, address receiver, address owner_) external override nonReentrant returns (uint256 assets) {
-        require(shares > 0, "CentuariRouter: zero redeem");
-        assets = _convertToAssets(shares);
-        require(_totalShares >= shares, "CentuariRouter: insufficient shares");
-
-        _totalManagedAssets -= assets;
-        _totalShares -= shares;
-
-        IERC20(_vaultAsset).safeTransfer(receiver, assets);
-
-        emit VaultWithdraw(msg.sender, receiver, owner_, assets, shares);
-    }
-
-    /// @inheritdoc ICentuariRouter
-    function totalAssets() external view override returns (uint256) { return _totalManagedAssets; }
-
-    /// @inheritdoc ICentuariRouter
-    function convertToShares(uint256 assets) external view override returns (uint256) {
-        return _convertToShares(assets);
-    }
-
-    /// @inheritdoc ICentuariRouter
-    function convertToAssets(uint256 shares) external view override returns (uint256) {
-        return _convertToAssets(shares);
-    }
-
-    /// @dev Virtual shares conversion: shares = assets * (totalShares + offset) / (totalAssets + offset)
-    function _convertToShares(uint256 assets) internal view returns (uint256) {
-        return (assets * (_totalShares + _VIRTUAL_OFFSET)) / (_totalManagedAssets + _VIRTUAL_OFFSET);
-    }
-
-    /// @dev Virtual assets conversion: assets = shares * (totalAssets + offset) / (totalShares + offset)
-    function _convertToAssets(uint256 shares) internal view returns (uint256) {
-        return (shares * (_totalManagedAssets + _VIRTUAL_OFFSET)) / (_totalShares + _VIRTUAL_OFFSET);
-    }
-
-    event VaultDeposit(address indexed caller, address indexed receiver, uint256 assets, uint256 shares);
-    event VaultWithdraw(address indexed caller, address indexed receiver, address indexed owner_, uint256 assets, uint256 shares);
+    // ERC-4626 REMOVED: deposit(), withdraw(), redeem(), totalAssets(), convertToShares(),
+    // convertToAssets() deleted per P1-7. The Router is intent-only.
+    // PCBTVault is the canonical ERC-20 vault for composability.
+    // See: memory/architecture_audit_2026-04-03.md — ARCH-07
 
     // ============ View ============
 

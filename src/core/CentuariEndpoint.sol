@@ -13,6 +13,7 @@ import {IRiskModule} from "../interfaces/IRiskModule.sol";
 import {ICentuariRateOracle} from "../interfaces/ICentuariRateOracle.sol";
 import {IFeeController} from "../interfaces/IFeeController.sol";
 import {IAssetBehaviorRegistry} from "../interfaces/IAssetBehaviorRegistry.sol";
+import {ILiquidationEngine} from "../interfaces/ILiquidationEngine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ICBT} from "../interfaces/ICBT.sol";
@@ -132,6 +133,10 @@ contract CentuariEndpoint is
 
         // Step 6: Process rollovers (burn old CBT, mint new CBT)
         _processRollovers(batch.rollovers);
+
+        // Step 6.5: P1-5: Process collateral top-ups BEFORE refinances
+        // Ensures HF is corrected before interest settlement checks it
+        _processCollateralTopUps(batch.collateralTopUps);
 
         // Step 7: Process refinances (close old, open new borrow)
         _processRefinances(batch.refinances);
@@ -413,10 +418,33 @@ contract CentuariEndpoint is
         }
     }
 
+    /// @dev P1-5: Process collateral top-ups — move available balance to collateral for HF improvement.
+    ///      Runs BEFORE refinances so HF is corrected before interest settlement checks it.
+    function _processCollateralTopUps(CollateralTopUp[] calldata topUps) internal {
+        IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
+        for (uint256 i = 0; i < topUps.length; i++) {
+            CollateralTopUp calldata t = topUps[i];
+            ledger.debit(t.borrower, t.asset, t.amount);
+            ledger.addCollateral(t.borrower, t.asset, t.amount, t.sourceChainId);
+        }
+    }
+
+    /// @dev P1-5 FIX: Delegate grace period storage to LiquidationEngine directly.
+    ///      Old: stored in Endpoint's _gracePeriods (dead storage, never read by LiqEngine).
+    ///      New: calls LiqEngine.setGracePeriod() — single source of truth for grace periods.
     function _processGraceStarts(GracePeriodStart[] calldata graceStarts) internal {
         for (uint256 i = 0; i < graceStarts.length; i++) {
             GracePeriodStart calldata g = graceStarts[i];
-            _gracePeriods[g.positionId] = g;
+
+            // Delegate to LiquidationEngine (single source of truth)
+            if (_liquidationEngine != address(0)) {
+                uint256 gracePeriodHours = g.gracePeriodEnds > block.timestamp
+                    ? (g.gracePeriodEnds - block.timestamp) / 1 hours
+                    : 6; // default 6 hours
+                ILiquidationEngine(_liquidationEngine).setGracePeriod(
+                    g.positionId, gracePeriodHours, uint8(uint256(g.reason)), 0
+                );
+            }
 
             emit GracePeriodStarted(g.borrower, g.positionId, g.reason, g.gracePeriodEnds);
         }

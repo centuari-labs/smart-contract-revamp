@@ -167,6 +167,17 @@ contract LiquidationEngine is
             delete _gracePeriods[positionId];
         }
 
+        // P1-6 FIX: Post-liquidation HF improvement check.
+        // Prevents micro-liquidation bonus farming: liquidator covers tiny debt,
+        // collects bonus, but HF barely improves. Forces either meaningful improvement
+        // or maximum 50% debt coverage.
+        uint256 postHF = riskModule.getHealthFactor(borrower);
+        if (postHF < HF_PRECISION && postHF != type(uint256).max) {
+            // HF still below 1.0 — check if liquidator covered maximum allowed
+            uint256 maxCoveragePossible = (totalDebt * MAX_DEBT_COVERAGE_BPS) / BPS_DENOMINATOR;
+            require(debtToCoverNorm >= maxCoveragePossible / 2, "LiquidationEngine: insufficient HF improvement");
+        }
+
         emit LiquidationExecuted(
             borrower, msg.sender, collateralAsset,
             collateralToSeize, debtToCover, bonusBPS

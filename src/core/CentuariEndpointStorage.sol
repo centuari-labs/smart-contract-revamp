@@ -30,11 +30,15 @@ abstract contract CentuariEndpointStorage {
     /// @notice Bond token factory for CBT operations
     address internal _bondTokenFactory;
 
-    /// @notice Grace period states per position
-    mapping(bytes32 => ICentuariEndpoint.GracePeriodStart) internal _gracePeriods;
+    /// @notice DEPRECATED: Grace period states per position (moved to LiquidationEngine)
+    /// @dev Cannot remove from storage layout (UUPS). Inert — _processGraceStarts now calls LiqEngine.
+    mapping(bytes32 => ICentuariEndpoint.GracePeriodStart) internal _deprecated_gracePeriods;
 
     /// @notice CentuariRateOracle for anchor rate verification
     address internal _rateOracle;
+
+    /// @notice LiquidationEngine address (for grace period delegation)
+    address internal _liquidationEngine;
 
     /// @notice Signer update timelock: timestamp when new signer can be applied
     uint256 internal _signerUpdateTimelockEnd;
