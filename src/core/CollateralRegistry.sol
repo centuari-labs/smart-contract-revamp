@@ -79,9 +79,11 @@ contract CollateralRegistry is
             revert AttestationAlreadyUsed(attestationId);
         }
 
-        // Monotonic timestamp: must be strictly greater than last for this (user, asset, chainId)
+        // P1-8 FIX: Changed <= to < to allow same-block deposits.
+        // Two deposits in the same block have the same timestamp — strict <= rejects the second.
+        // The usedAttestationIds check (line 78) prevents exact replay. Keeping < for non-decreasing.
         uint256 lastTs = _lastAttestationTs[user][asset][sourceChainId];
-        if (attestationTimestamp <= lastTs) {
+        if (attestationTimestamp < lastTs) {
             revert AttestationTooOld(attestationTimestamp, lastTs);
         }
 

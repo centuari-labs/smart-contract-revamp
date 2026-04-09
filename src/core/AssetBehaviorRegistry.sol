@@ -124,7 +124,16 @@ contract AssetBehaviorRegistry is
             // Store old LTV in pending for reference
         }
 
+        // M-01 FIX: Preserve old LTV values when writing updated behavior.
+        // The architecture specifies discrete LTV governance (Section 8.8.2):
+        // new LTV applies to new positions only. Existing positions keep old LTV
+        // until applyLTVToExisting() is called after a 30-day observation period.
+        // Without this, the full struct assignment overwrites LTV instantly.
+        uint256 oldMaxLTV = _behaviors[asset].maxLTV;
+        uint256 oldLiqThreshold = _behaviors[asset].liquidationThreshold;
         _behaviors[asset] = behavior;
+        _behaviors[asset].maxLTV = oldMaxLTV;
+        _behaviors[asset].liquidationThreshold = oldLiqThreshold;
         _behaviors[asset].active = true;
         _lastUpdateAt[asset] = block.timestamp;
 
@@ -184,8 +193,20 @@ contract AssetBehaviorRegistry is
     }
 
     /// @inheritdoc IAssetBehaviorRegistry
+    /// @dev L-01 FIX: Also removes from _liquidatorList array. Without cleanup,
+    ///      the array length stays > 0 permanently, blocking permissionless liquidation
+    ///      even after all liquidators are removed.
     function removeLiquidator(address asset, address liquidator) external override onlyOwner {
         _liquidatorWhitelist[asset][liquidator] = false;
+        // Remove from array (swap-and-pop)
+        address[] storage list = _liquidatorList[asset];
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] == liquidator) {
+                list[i] = list[list.length - 1];
+                list.pop();
+                break;
+            }
+        }
         emit LiquidatorRemoved(asset, liquidator);
     }
 
@@ -283,9 +304,20 @@ contract AssetBehaviorRegistry is
 
     // ============ Internal ============
 
+    /// @dev M-03 FIX: Comprehensive validation for AssetBehavior struct.
+    ///      Prevents misconfigured assets (zero price feed, zero staleness, bonus overflow).
     function _validateBehavior(AssetBehavior calldata b) internal pure {
         if (b.maxLTV > 10000) revert InvalidLTV();
         if (b.liquidationThreshold > 10000) revert InvalidLiquidationThreshold();
         if (b.liquidationThreshold < b.maxLTV) revert InvalidLiquidationThreshold();
+
+        // Collateral-eligible assets need price feeds and valid liquidation params
+        if (b.collateralEligible) {
+            if (b.priceFeed == address(0)) revert ZeroAddress();
+            if (b.maxStaleness == 0) revert InvalidStaleness();
+            if (b.liquidationBonusBPS == 0) revert InvalidBonus();
+            // Bonus + threshold cannot exceed 100% — would seize more than collateral
+            if (b.liquidationThreshold + b.liquidationBonusBPS > 10000) revert InvalidBonusPlusThreshold();
+        }
     }
 }

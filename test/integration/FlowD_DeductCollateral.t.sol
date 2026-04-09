@@ -137,7 +137,7 @@ contract FlowD_DeductCollateralTest is Test {
             newMaturity: maturity + 31 days,
             refinanceCount: 1,
             lendAsset: address(usdc),
-            anchorRateBPS: 0,
+            anchorRateBPS: 850, // H-04 FIX: Must be non-zero (unconditional check now matches rollover)
             penaltyInterest: 0
         });
 

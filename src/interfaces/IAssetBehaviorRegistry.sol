@@ -177,4 +177,7 @@ interface IAssetBehaviorRegistry {
     error InvalidLTV();
     error InvalidLiquidationThreshold();
     error MaxLiquidationBonusExceeded(); // max 2000 BPS (20%)
+    error InvalidStaleness(); // M-03: maxStaleness must be > 0 when collateralEligible
+    error InvalidBonus(); // M-03: liquidationBonusBPS must be > 0 when collateralEligible
+    error InvalidBonusPlusThreshold(); // M-03: liquidationThreshold + bonus > 10000
 }

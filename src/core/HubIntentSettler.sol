@@ -52,9 +52,10 @@ contract HubIntentSettler is IHubIntentSettler, Ownable, ReentrancyGuard {
         // Credit BalanceLedger
         IBalanceLedger(balanceLedger).credit(user, asset, amount);
 
-        // 1D FIX: Register solver fill for async reimbursement tracking (arch §6.4.1)
+        // P1-9 FIX: Use registerWithAsset (not register) so solver reimbursement can transfer tokens.
+        // The old register() stored asset=address(0), making matchFill() skip the safeTransfer.
         if (settlementLedger != address(0)) {
-            ISettlementLedger(settlementLedger).register(orderId, msg.sender, amount);
+            ISettlementLedger(settlementLedger).registerWithAsset(orderId, msg.sender, asset, amount);
         }
 
         emit SolverFillRegistered(orderId, msg.sender, user, asset, amount);

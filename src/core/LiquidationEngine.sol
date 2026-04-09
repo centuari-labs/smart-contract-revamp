@@ -83,9 +83,10 @@ contract LiquidationEngine is
 
         // 2. Check grace period not active
         // (Positions in grace period cannot be liquidated until deadline passes)
-        // HIGH-2 FIX: Include collateralAsset in positionId to prevent grace period bypass.
-        // Without this, attacker uses different debtAsset to get a different key → no grace period.
-        bytes32 positionId = keccak256(abi.encode(borrower, debtAsset, collateralAsset));
+        // P1-5 FIX: Grace period key = (borrower, collateralAsset) only.
+        // Protects collateral from seizure regardless of which debt triggered grace.
+        // Validated: user-global creates shield exploit, per-triplet allows bypass.
+        bytes32 positionId = keccak256(abi.encode(borrower, collateralAsset));
         GracePeriodState storage grace = _gracePeriods[positionId];
         if (grace.deadlineTimestamp > 0 && block.timestamp < grace.deadlineTimestamp) {
             revert GracePeriodNotExpired(grace.deadlineTimestamp, block.timestamp);
@@ -119,7 +120,11 @@ contract LiquidationEngine is
         IAssetBehaviorRegistry.AssetBehavior memory behavior = registry.getBehavior(collateralAsset);
         uint256 bonusBPS = behavior.liquidationBonusBPS;
         (uint256 pricePerUnit18,) = riskModule.getAssetPriceUSD(collateralAsset);
-        uint256 freshCollateralUsdValue = (pricePerUnit18 * collPos.amount) / 1e18;
+        // H-01 FIX: Divide by 10**tokenDecimals, not 1e18. For 6-decimal tokens (USDC),
+        // dividing by 1e18 produces a value 10^12 too small, making _computeSeizure return
+        // a collateralToSeize > collPos.amount, causing liquidation to always revert.
+        uint8 collDecimals = _getTokenDecimals(collateralAsset);
+        uint256 freshCollateralUsdValue = (pricePerUnit18 * collPos.amount) / (10 ** collDecimals);
 
         // PRE-AUDIT FIX: Normalize debtToCover to 18-decimal USD for seizure computation.
         // The permissionless liquidate() path receives debtToCover in raw token decimals
@@ -334,10 +339,29 @@ contract LiquidationEngine is
         delete _pendingAdminBool[caller];
     }
 
-    /// @notice B1 FIX: Set SpokeVaultRWA address for a spoke chain
-    /// @dev Used for cross-chain liquidation message routing
-    function setSpokeVaultRWA(uint32 spokeEid, address vault) external onlyOwner {
-        _spokeVaultRWA[spokeEid] = vault;
+    /// @notice H-07 FIX: Propose SpokeVaultRWA address change with 48h timelock.
+    /// @dev This address controls WHERE cross-chain liquidation messages are sent.
+    ///      A compromised owner redirecting this could drain all RWA collateral on spoke chains.
+    function proposeSpokeVaultRWA(uint32 spokeEid, address vault) external onlyOwner {
+        if (vault == address(0)) revert Unauthorized();
+        bytes32 key = keccak256(abi.encode("spokeVaultRWA", spokeEid));
+        _pendingAdminAddress[key] = vault;
+        _pendingAdminTimelockEnd[key] = block.timestamp + 48 hours;
+    }
+
+    function applySpokeVaultRWA(uint32 spokeEid) external onlyOwner {
+        bytes32 key = keccak256(abi.encode("spokeVaultRWA", spokeEid));
+        require(_pendingAdminAddress[key] != address(0), "LiquidationEngine: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "LiquidationEngine: timelock active");
+        _spokeVaultRWA[spokeEid] = _pendingAdminAddress[key];
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelSpokeVaultRWA(uint32 spokeEid) external onlyOwner {
+        bytes32 key = keccak256(abi.encode("spokeVaultRWA", spokeEid));
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     // ============ Internal ============
@@ -359,11 +383,16 @@ contract LiquidationEngine is
         return (debtWithBonus * collateralAmount) / collateralUsdValue;
     }
 
+    /// @notice Get token decimals via staticcall with 18-decimal fallback
+    function _getTokenDecimals(address token) internal view returns (uint8) {
+        (bool success, bytes memory data) = token.staticcall(abi.encodeWithSignature("decimals()"));
+        return success && data.length >= 32 ? abi.decode(data, (uint8)) : 18;
+    }
+
     /// @notice CRIT-1 FIX: Normalize asset-native amount to 18-decimal USD.
     /// @dev USDC (6 dec) → multiply by 10^12. ETH (18 dec) → multiply by 10^0.
     function _normalizeToUSD18(address asset, uint256 amount) internal view returns (uint256) {
-        (bool success, bytes memory data) = asset.staticcall(abi.encodeWithSignature("decimals()"));
-        uint8 decimals = success && data.length >= 32 ? abi.decode(data, (uint8)) : 18;
+        uint8 decimals = _getTokenDecimals(asset);
         if (decimals >= 18) return amount;
         return amount * (10 ** (18 - decimals));
     }

@@ -51,7 +51,7 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
             bytes memory payload = abi.encode(attestationId, msg.sender, asset, amount, block.timestamp, block.chainid);
             ILayerZeroEndpointV2.MessagingParams memory params = ILayerZeroEndpointV2.MessagingParams({
                 dstEid: hubChainEid,
-                receiver: bytes32(uint256(uint160(hubLiquidationEngine))), // Reusing as hub target
+                receiver: bytes32(uint256(uint160(hubCollateralRegistry))), // P1-4 FIX: send to CollateralRegistry, not LiquidationEngine
                 message: payload,
                 options: bytes(""),
                 payInLzToken: false
@@ -91,6 +91,10 @@ contract SpokeVaultRWA is ISpokeVaultRWA, Ownable, ReentrancyGuard {
 
     function setLayerZeroEndpoint(address ep) external onlyOwner { layerZeroEndpoint = ep; }
     function setHubLiquidationEngine(address hub) external onlyOwner { hubLiquidationEngine = hub; }
+    function setHubCollateralRegistry(address registry) external onlyOwner { hubCollateralRegistry = registry; }
+
+    /// @notice P1-4: Hub CollateralRegistry address for attestation delivery
+    address public hubCollateralRegistry;
 
     /// @notice Hub chain EID for source verification
     uint32 public hubChainEid;

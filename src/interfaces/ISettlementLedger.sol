@@ -5,11 +5,16 @@ pragma solidity ^0.8.20;
 /// @notice Async solver reimbursement tracking
 /// @dev Records solver fills. When Sweeper bridges real tokens, matches against pending fills.
 interface ISettlementLedger {
-    /// @notice Register a solver fill for future reimbursement
+    /// @notice Register a solver fill for future reimbursement (without asset tracking)
+    /// @dev DEPRECATED: Use registerWithAsset() instead for proper reimbursement.
+    function register(bytes32 orderId, address solver, uint256 amount) external;
+
+    /// @notice P1-9: Register a solver fill WITH asset address for proper reimbursement
     /// @param orderId The ERC-7683 order identifier
     /// @param solver The solver that fronted capital
+    /// @param asset The token address (needed for matchFill to transfer correct token)
     /// @param amount The amount fronted
-    function register(bytes32 orderId, address solver, uint256 amount) external;
+    function registerWithAsset(bytes32 orderId, address solver, address asset, uint256 amount) external;
 
     /// @notice Match bridged tokens to a pending solver fill — triggers reimbursement
     /// @param orderId The order to match against

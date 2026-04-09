@@ -61,5 +61,32 @@
 ## Test Coverage Audit
 - [audit_test_coverage_2026-03-27.md](audit_test_coverage_2026-03-27.md) — Comprehensive test coverage audit of ~45 test files. 13 CRITICAL, 12 HIGH, 15 MEDIUM, 8 LOW missing test gaps identified. Top gaps: DualOracle all stubs, RiskModule usdValueCached=0, no contract-level fuzzing, no negative oracle price test.
 
+## Mainnet-Grade Settlement Audit
+- [audit_mainnet_settlement_2026-04-01.md](audit_mainnet_settlement_2026-04-01.md) — Mainnet-grade audit of CentuariEndpoint + CBT + Factory + settlement math. 1 CRITICAL (processReturns unbacked credits STILL PRESENT), 2 HIGH (rollover timestamp mismatch, refinance debt drift), 5 MEDIUM, 4 LOW, 6 INFO. VERDICT: REQUEST CHANGES.
+
+## RiskModule + LiquidationEngine Mainnet-Grade Audit (2026-04-01)
+- [audit_riskmodule_liqengine_deep_2026-04-01.md](audit_riskmodule_liqengine_deep_2026-04-01.md) — Mainnet-grade audit of RiskModule + LiquidationEngine. 1 CRITICAL (_normalizeToUSD18 assumes $1/token), 2 HIGH (isPriceFresh no answer>0 check, grace period key bypass), 4 MEDIUM, 4 LOW. VERDICT: REQUEST CHANGES.
+
+## Governance, Access Control & Upgradeability
+- [audit_governance_access_2026-04-01.md](audit_governance_access_2026-04-01.md) — Mainnet-grade governance/access/upgradeability audit. 0 CRITICAL, 2 HIGH (PCBTVault instant setters, Treasury instant setOperator), 4 MEDIUM, 5 LOW. VERDICT: REQUEST CHANGES.
+
+## Balance/Yield/Treasury Deep Audit
+- [audit_balance_yield_treasury_2026-04-01.md](audit_balance_yield_treasury_2026-04-01.md) — Mainnet-grade audit of BalanceLedger, YieldRouter, Treasury. 1 CRITICAL (yield underflow locks funds in all 4 recall paths), 2 HIGH (deploy shares misattribution, dead HF check), 5 MEDIUM. VERDICT: REQUEST CHANGES.
+
+## Cross-Contract E2E & Adversarial Audit
+- [audit_cross_contract_e2e_2026-04-01.md](audit_cross_contract_e2e_2026-04-01.md) — Mainnet-grade adversarial audit of all cross-contract flows, flash loan vectors, reentrancy, economic attacks, and all 25 invariants. 0 CRITICAL, 0 HIGH (downgraded), 3 MEDIUM (CBT shared pool, unbacked returns, stub tests), 4 LOW, 5 INFO. All 25 invariants PASS. Reentrancy CLEAN. Flash loan CLEAN. VERDICT: APPROVE (conditional).
+
+## Architectural Settlement Layer Audit
+- [audit_architectural_2026-04-01.md](audit_architectural_2026-04-01.md) — Deep architectural audit of 10 settlement layer files across old and new architectures. 2 CRITICAL (processReturns unbacked credits, dual state stores), 5 HIGH, 5 MEDIUM. VERDICT: REQUEST CHANGES.
+
+## YieldRouter Deep-Dive
+- [audit_yieldrouter_deep_2026-04-01.md](audit_yieldrouter_deep_2026-04-01.md) — Deep architectural audit of YieldRouter + 3 adapters focusing on per-user vs pooled design. 4 CRITICAL (deploy shares to msg.sender, token/share mismatch, underflow on recall, trapped yield), 3 HIGH (pause no recall, no cash buffer, broken rebalance), 1 MEDIUM (manual reserve). VERDICT: REQUEST CHANGES.
+
+## CBT/pCBT/Router/RateOracle Deep Audit
+- [audit_cbt_pcbt_router_2026-04-01.md](audit_cbt_pcbt_router_2026-04-01.md) — Deep audit of PCBTVault, CBT, Factory, RateOracle, Router, Endpoint. 3 CRITICAL (PCBTVault queue drain, Router deposit lock, Router withdraw unauth), 1 HIGH (PCBTVault instant setters), 2 MEDIUM, 3 LOW, 5 INFO. VERDICT: REQUEST CHANGES.
+
+## Cross-Chain & RWA Layer Audit
+- [audit_crosschain_rwa_2026-04-02.md](audit_crosschain_rwa_2026-04-02.md) — Focused audit of CollateralRegistry, BalanceLedger (collateral ops), WithdrawalRegistry, HubIntentSettler, SettlementLedger, SpokeVaultRWA, SpokePayout. 5 HIGH, 4 MEDIUM, 2 LOW, 2 INFO. Cross-chain collateral flow fundamentally broken. VERDICT: REQUEST CHANGES.
+
 ## Recurring Patterns
 - [recurring_patterns.md](recurring_patterns.md) — Cross-audit vulnerability patterns: incomplete fix propagation, accounting without token transfer, queue without escrow, missing timelocks, stale cached oracle values.

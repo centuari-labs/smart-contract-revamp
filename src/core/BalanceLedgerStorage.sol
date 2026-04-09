@@ -50,8 +50,18 @@ abstract contract BalanceLedgerStorage {
     /// @dev User calls setYieldEnabled(). Engine reads events to deploy idle capital.
     mapping(address => mapping(address => bool)) internal _isYieldEnabled;
 
+    /// @notice P1-1: Mapping-based collateral storage (replaces unbounded array)
+    /// @dev key = keccak256(abi.encode(asset, sourceChainId))
+    mapping(address => mapping(bytes32 => IBalanceLedger.CollateralPosition)) internal _collateralPositions;
+
+    /// @notice P1-1: Per-user collateral keys for bounded enumeration
+    mapping(address => bytes32[]) internal _collateralKeys;
+
+    /// @notice P1-1: Maximum collateral positions per user (gas griefing prevention)
+    uint256 internal constant MAX_COLLATERAL_POSITIONS = 20;
+
     // ============ Gap ============
 
-    /// @dev Reserved storage for future upgrades. Reduced by 6 for the six vars above.
-    uint256[34] private __gap;
+    /// @dev Reserved storage for future upgrades.
+    uint256[32] private __gap;
 }

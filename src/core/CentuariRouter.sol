@@ -209,18 +209,18 @@ contract CentuariRouter is
         intent.lastFilledAt = block.timestamp;
         intent.state = intent.unfilledAmount == 0 ? IntentState.FILLED : IntentState.PARTIAL;
 
-        // Attempt callback delivery with gas limit
+        // P1-7 FIX: Transfer CBT FIRST, then callback. The external protocol needs
+        // the tokens in hand before being notified. Chainlink VRF V2 uses the same pattern.
         address target = intent.callbackTarget;
+        IERC20(cbtAddress).safeTransfer(target, cbtAmount);
+
+        // Attempt callback (informational — CBT already delivered)
         try ICentuariCallback(target).onIntentFilled{gas: CALLBACK_GAS_LIMIT}(
             intentId, cbtAddress, cbtAmount, filledAmount, rateBPS
         ) {
-            // Success: transfer CBT to target
-            IERC20(cbtAddress).safeTransfer(target, cbtAmount);
+            // Success — callback acknowledged
         } catch {
-            // Callback failed: hold CBT in Router for manual claim
-            intent.state = IntentState.CALLBACK_FAILED;
-            _undeliveredCBT[intentId] += cbtAmount;
-            _undeliveredCBTAddress[intentId] = cbtAddress;
+            // Callback failed but CBT was already transferred — log for monitoring
             emit CallbackFailed(intentId, target, cbtAmount);
         }
 

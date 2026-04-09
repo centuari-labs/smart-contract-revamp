@@ -130,7 +130,7 @@ contract FlowD_AutoRefinanceTest is Test {
             newMaturity: newMaturity,
             refinanceCount: 1,
             lendAsset: address(usdc),
-            anchorRateBPS: 0, // Conditional check -- 0 skips bounds (acceptable for refinance)
+            anchorRateBPS: 850, // H-04 FIX: Must be non-zero (unconditional check now matches rollover)
             penaltyInterest: 0 // No grace period penalty in this test
         });
 

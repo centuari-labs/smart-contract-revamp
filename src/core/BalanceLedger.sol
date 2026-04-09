@@ -164,7 +164,6 @@ contract BalanceLedger is
         if (amount == 0) revert ZeroAmount();
 
         // H-03/M-02 FIX: Enforce collateralEligible flag from AssetBehaviorRegistry.
-        // Without this, any token can be used as collateral regardless of registry config.
         if (_assetBehaviorRegistry != address(0)) {
             require(
                 IAssetBehaviorRegistry(_assetBehaviorRegistry).getBehavior(asset).collateralEligible,
@@ -172,33 +171,44 @@ contract BalanceLedger is
             );
         }
 
-        // Check if user already has a position for this asset
-        bool found = false;
-        for (uint256 i = 0; i < _collateral[user].length; i++) {
-            if (_collateral[user][i].asset == asset && _collateral[user][i].sourceChainId == sourceChainId) {
-                _collateral[user][i].amount += amount;
-                found = true;
-                break;
-            }
+        // P1-1: Use mapping-based storage with O(1) lookup
+        bytes32 key = keccak256(abi.encode(asset, sourceChainId));
+        CollateralPosition storage pos = _collateralPositions[user][key];
+
+        if (pos.asset == address(0)) {
+            // New position — check cap
+            require(_collateralKeys[user].length < MAX_COLLATERAL_POSITIONS, "BalanceLedger: max positions reached");
+            _collateralKeys[user].push(key);
+            pos.asset = asset;
+            pos.sourceChainId = sourceChainId;
+            pos.lastAttestationTs = block.timestamp;
+            pos.state = CollateralState.ACTIVE;
         }
 
-        if (!found) {
-            _collateral[user].push(CollateralPosition({
-                asset: asset,
-                amount: amount,
-                lockedShares: 0,
-                lastAttestationTs: block.timestamp,
-                usdValueCached: 0,
-                sourceChainId: sourceChainId,
-                spokeVaultId: bytes32(0),
-                state: CollateralState.ACTIVE
-            }));
-        }
+        pos.amount += amount;
+
+        // Also write to legacy array for backward compatibility during migration
+        _addToLegacyCollateral(user, asset, amount, sourceChainId);
 
         // Default: enable as collateral
         _isUsedAsCollateral[user][asset] = true;
 
         emit CollateralAdded(user, asset, amount, sourceChainId);
+    }
+
+    /// @dev Legacy array write for backward compatibility during P1 migration period
+    function _addToLegacyCollateral(address user, address asset, uint256 amount, uint256 sourceChainId) internal {
+        for (uint256 i = 0; i < _collateral[user].length; i++) {
+            if (_collateral[user][i].asset == asset && _collateral[user][i].sourceChainId == sourceChainId) {
+                _collateral[user][i].amount += amount;
+                return;
+            }
+        }
+        _collateral[user].push(CollateralPosition({
+            asset: asset, amount: amount, lockedShares: 0,
+            lastAttestationTs: block.timestamp, usdValueCached: 0,
+            sourceChainId: sourceChainId, spokeVaultId: bytes32(0), state: CollateralState.ACTIVE
+        }));
     }
 
     /// @inheritdoc IBalanceLedger
@@ -243,25 +253,52 @@ contract BalanceLedger is
     }
 
     /// @inheritdoc IBalanceLedger
+    /// @dev P1-3: Added sourceChainId parameter to fix wrong cross-chain position being reduced.
     function reduceCollateral(
         address user,
         address asset,
         uint256 amount
     ) external override onlyAuthorized whenNotPaused nonReentrant {
+        // Default to hub chain for backward compatibility
+        _reduceCollateralInternal(user, asset, amount, block.chainid);
+    }
+
+    /// @notice Reduce collateral with explicit sourceChainId (P1-3 fix)
+    function reduceCollateralWithChain(
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 sourceChainId
+    ) external onlyAuthorized whenNotPaused nonReentrant {
+        _reduceCollateralInternal(user, asset, amount, sourceChainId);
+    }
+
+    function _reduceCollateralInternal(
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 sourceChainId
+    ) internal {
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
-        bool found = false;
+        // P1-1: Use mapping-based storage
+        bytes32 key = keccak256(abi.encode(asset, sourceChainId));
+        CollateralPosition storage pos = _collateralPositions[user][key];
+        if (pos.asset == address(0) || pos.state != CollateralState.ACTIVE) revert CollateralNotFound();
+        if (pos.amount < amount) revert InsufficientCollateral();
+        pos.amount -= amount;
+
+        // Also update legacy array
         for (uint256 i = 0; i < _collateral[user].length; i++) {
-            if (_collateral[user][i].asset == asset && _collateral[user][i].state == CollateralState.ACTIVE) {
-                if (_collateral[user][i].amount < amount) revert InsufficientCollateral();
-                _collateral[user][i].amount -= amount;
-                found = true;
+            if (_collateral[user][i].asset == asset && _collateral[user][i].sourceChainId == sourceChainId) {
+                if (_collateral[user][i].amount >= amount) {
+                    _collateral[user][i].amount -= amount;
+                }
                 break;
             }
         }
 
-        if (!found) revert CollateralNotFound();
         emit CollateralReduced(user, asset, amount);
     }
 
@@ -308,28 +345,21 @@ contract BalanceLedger is
         uint256 received = IERC20(asset).balanceOf(address(this)) - balBefore;
         _balances[msg.sender][asset].available += received;
 
-        // Step 2: Register as collateral
-        bool found = false;
-        for (uint256 i = 0; i < _collateral[msg.sender].length; i++) {
-            if (_collateral[msg.sender][i].asset == asset
-                && _collateral[msg.sender][i].sourceChainId == block.chainid) {
-                _collateral[msg.sender][i].amount += received;
-                found = true;
-                break;
-            }
+        // Step 2: Register as collateral (P1-1: use new mapping-based storage)
+        bytes32 key = keccak256(abi.encode(asset, block.chainid));
+        CollateralPosition storage pos = _collateralPositions[msg.sender][key];
+        if (pos.asset == address(0)) {
+            require(_collateralKeys[msg.sender].length < MAX_COLLATERAL_POSITIONS, "BalanceLedger: max positions reached");
+            _collateralKeys[msg.sender].push(key);
+            pos.asset = asset;
+            pos.sourceChainId = block.chainid;
+            pos.lastAttestationTs = block.timestamp;
+            pos.state = CollateralState.ACTIVE;
         }
-        if (!found) {
-            _collateral[msg.sender].push(CollateralPosition({
-                asset: asset,
-                amount: received,
-                lockedShares: 0,
-                lastAttestationTs: block.timestamp,
-                usdValueCached: 0,
-                sourceChainId: block.chainid,
-                spokeVaultId: bytes32(0),
-                state: CollateralState.ACTIVE
-            }));
-        }
+        pos.amount += received;
+
+        // Legacy array write
+        _addToLegacyCollateral(msg.sender, asset, received, block.chainid);
 
         // Step 3: Enable as collateral
         _isUsedAsCollateral[msg.sender][asset] = true;
@@ -389,18 +419,23 @@ contract BalanceLedger is
     }
 
     /// @notice Update cached USD value for a collateral position (called by CollateralRegistry)
-    /// @param user The user address
-    /// @param asset The collateral asset
-    /// @param newUsdValue The new USD value
+    /// @dev P1-3: Now updates both new mapping and legacy array.
     function updateCollateralUsdValue(
         address user,
         address asset,
         uint256 newUsdValue
     ) external onlyAuthorized nonReentrant {
+        // Update new mapping (all entries for this asset across all chains)
+        for (uint256 i = 0; i < _collateralKeys[user].length; i++) {
+            CollateralPosition storage pos = _collateralPositions[user][_collateralKeys[user][i]];
+            if (pos.asset == asset) {
+                pos.usdValueCached = newUsdValue;
+            }
+        }
+        // Update legacy array
         for (uint256 i = 0; i < _collateral[user].length; i++) {
             if (_collateral[user][i].asset == asset) {
                 _collateral[user][i].usdValueCached = newUsdValue;
-                return;
             }
         }
     }
