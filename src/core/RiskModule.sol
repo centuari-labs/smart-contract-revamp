@@ -221,7 +221,12 @@ contract RiskModule is
     ///      calling this function would revert and DoS the entire liquidation path.
     function reduceDebtAgainstAsset(address collateralAsset, uint256 debtUSD) external override onlyAuthorized {
         uint256 current = _totalDebtAgainstAsset[collateralAsset];
-        _totalDebtAgainstAsset[collateralAsset] = debtUSD > current ? 0 : current - debtUSD;
+        if (debtUSD > current) {
+            emit DebtUnderflow(collateralAsset, current, debtUSD);
+            _totalDebtAgainstAsset[collateralAsset] = 0;
+        } else {
+            _totalDebtAgainstAsset[collateralAsset] = current - debtUSD;
+        }
         emit DebtReduced(collateralAsset, debtUSD);
     }
 
@@ -237,11 +242,19 @@ contract RiskModule is
     }
 
     /// @notice Reduce user debt (called on repayment/liquidation)
-    /// @dev M-08 FIX: Clamp to zero instead of reverting on underflow.
+    /// @dev M-08 FIX: Clamp to zero instead of reverting. P3-1: Emit event on underflow.
     function reduceUserDebt(address user, uint256 debtUSD) external onlyAuthorized {
         uint256 current = _userDebtUSD[user];
-        _userDebtUSD[user] = debtUSD > current ? 0 : current - debtUSD;
+        if (debtUSD > current) {
+            emit DebtUnderflow(address(0), current, debtUSD); // address(0) = user-level, not per-asset
+            _userDebtUSD[user] = 0;
+        } else {
+            _userDebtUSD[user] = current - debtUSD;
+        }
     }
+
+    /// @notice P3-1: Emitted when debt reduction exceeds tracked amount (possible accounting divergence)
+    event DebtUnderflow(address indexed asset, uint256 currentDebt, uint256 requestedReduction);
 
     // ============ Price Queries ============
 

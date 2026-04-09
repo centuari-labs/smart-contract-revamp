@@ -380,7 +380,11 @@ contract BalanceLedger is
 
         _balances[msg.sender][asset].available -= amount;
 
-        // H-01 FIX: Verify withdrawal doesn't put user below liquidation threshold
+        // H-01 FIX: Verify withdrawal doesn't put user below liquidation threshold.
+        // P3-4 NOTE: This check is defense-in-depth. In the current model, available ≠ collateral,
+        // so withdrawing from available rarely affects HF. But if the user has registered the same
+        // asset via depositAsCollateral() AND uses it as collateral, withdrawing the available
+        // portion could reduce their ability to post additional collateral. Keep the check.
         if (_riskModule != address(0)) {
             uint256 hf = IRiskModule(_riskModule).getHealthFactor(msg.sender);
             // type(uint256).max means no debt — always safe
