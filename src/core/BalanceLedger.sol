@@ -163,6 +163,15 @@ contract BalanceLedger is
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
+        // H-03/M-02 FIX: Enforce collateralEligible flag from AssetBehaviorRegistry.
+        // Without this, any token can be used as collateral regardless of registry config.
+        if (_assetBehaviorRegistry != address(0)) {
+            require(
+                IAssetBehaviorRegistry(_assetBehaviorRegistry).getBehavior(asset).collateralEligible,
+                "BalanceLedger: asset not collateral eligible"
+            );
+        }
+
         // Check if user already has a position for this asset
         bool found = false;
         for (uint256 i = 0; i < _collateral[user].length; i++) {
@@ -197,6 +206,14 @@ contract BalanceLedger is
         address asset,
         bool useAsCollateral
     ) external override whenNotPaused nonReentrant {
+        // H-03/M-02 FIX: Cannot enable collateral for ineligible assets
+        if (useAsCollateral && _assetBehaviorRegistry != address(0)) {
+            require(
+                IAssetBehaviorRegistry(_assetBehaviorRegistry).getBehavior(asset).collateralEligible,
+                "BalanceLedger: asset not collateral eligible"
+            );
+        }
+
         if (!useAsCollateral && _riskModule != address(0)) {
             // Safety check: cannot disable if it would put HF below 1.0
             uint256 newWeightedColl = IRiskModule(_riskModule).getWeightedCollateralExcluding(
@@ -267,6 +284,60 @@ contract BalanceLedger is
         emit BalanceCredited(msg.sender, asset, received);
     }
 
+    /// @notice P0-6: Atomic deposit + collateral registration in one transaction.
+    /// @dev User-callable (not onlyAuthorized). Requires actual ERC20 transfer,
+    ///      preventing circular collateral (borrow proceeds can't be registered as collateral
+    ///      without first withdrawing and re-depositing real tokens).
+    ///      Validated against Compound V3, Morpho Blue, Euler V2 collateral patterns.
+    /// @param asset The token to deposit as collateral
+    /// @param amount The amount to deposit
+    function depositAsCollateral(address asset, uint256 amount) external whenNotPaused nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+
+        // Check collateral eligibility
+        if (_assetBehaviorRegistry != address(0)) {
+            require(
+                IAssetBehaviorRegistry(_assetBehaviorRegistry).getBehavior(asset).collateralEligible,
+                "BalanceLedger: asset not collateral eligible"
+            );
+        }
+
+        // Step 1: Standard deposit (ERC20 transfer + credit available)
+        uint256 balBefore = IERC20(asset).balanceOf(address(this));
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = IERC20(asset).balanceOf(address(this)) - balBefore;
+        _balances[msg.sender][asset].available += received;
+
+        // Step 2: Register as collateral
+        bool found = false;
+        for (uint256 i = 0; i < _collateral[msg.sender].length; i++) {
+            if (_collateral[msg.sender][i].asset == asset
+                && _collateral[msg.sender][i].sourceChainId == block.chainid) {
+                _collateral[msg.sender][i].amount += received;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            _collateral[msg.sender].push(CollateralPosition({
+                asset: asset,
+                amount: received,
+                lockedShares: 0,
+                lastAttestationTs: block.timestamp,
+                usdValueCached: 0,
+                sourceChainId: block.chainid,
+                spokeVaultId: bytes32(0),
+                state: CollateralState.ACTIVE
+            }));
+        }
+
+        // Step 3: Enable as collateral
+        _isUsedAsCollateral[msg.sender][asset] = true;
+
+        emit BalanceCredited(msg.sender, asset, received);
+        emit CollateralAdded(msg.sender, asset, received, block.chainid);
+    }
+
     /// @notice Withdraw tokens from the protocol — debits available balance and transfers ERC20
     /// @dev H-01 FIX: Check health factor after debiting. Without this, a borrower could
     ///      withdraw all available balance and drop their HF below 1.0 without liquidation.
@@ -291,6 +362,15 @@ contract BalanceLedger is
         IERC20(asset).safeTransfer(msg.sender, amount);
         emit BalanceDebited(msg.sender, asset, amount);
     }
+
+    /// @notice P0-6: Toggle yield router for a specific asset
+    /// @dev User-callable. Engine reads YieldEnabledChanged events to manage deployments.
+    function setYieldEnabled(address asset, bool enabled) external {
+        _isYieldEnabled[msg.sender][asset] = enabled;
+        emit YieldEnabledChanged(msg.sender, asset, enabled);
+    }
+
+    event YieldEnabledChanged(address indexed user, address indexed asset, bool enabled);
 
     /// @notice Transfer ERC20 tokens out of the ledger (for CBT redemption)
     /// @dev C-05 FIX: CentuariEndpoint calls this during redeemCBT() to release underlying.

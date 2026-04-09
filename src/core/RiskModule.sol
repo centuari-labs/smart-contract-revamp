@@ -65,6 +65,9 @@ contract RiskModule is
     }
 
     /// @inheritdoc IRiskModule
+    /// @dev H-02 FIX: Use live oracle prices instead of stale usdValueCached.
+    ///      Must match the logic in _getWeightedCollateralUSD() (line 398) to prevent
+    ///      inconsistency where setAsCollateral() uses stale prices but HF checks use live.
     function getWeightedCollateralExcluding(
         address user,
         address excludeAsset
@@ -76,7 +79,25 @@ contract RiskModule is
             if (positions[i].state != IBalanceLedger.CollateralState.ACTIVE) continue;
             if (!IBalanceLedger(_balanceLedger).getIsUsedAsCollateral(user, positions[i].asset)) continue;
 
-            uint256 usdValue = positions[i].usdValueCached;
+            uint256 usdValue;
+
+            // Use live oracle price (same logic as _getWeightedCollateralUSD)
+            (uint256 livePrice, uint256 oracleUpdatedAt) = _getAssetPriceUSDInternal(positions[i].asset);
+            IAssetBehaviorRegistry.AssetBehavior memory behavior = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                .getBehavior(positions[i].asset);
+
+            bool priceIsStale = oracleUpdatedAt > 0
+                && behavior.maxStaleness > 0
+                && block.timestamp - oracleUpdatedAt > behavior.maxStaleness;
+
+            if (livePrice > 0 && positions[i].amount > 0 && !priceIsStale) {
+                uint8 tokenDecimals = _getTokenDecimals(positions[i].asset);
+                usdValue = (livePrice * positions[i].amount) / (10 ** tokenDecimals);
+            } else {
+                // Stale oracle fallback: 20% haircut on cached value
+                usdValue = positions[i].usdValueCached * 80 / 100;
+            }
+
             uint256 liqThreshold = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                 .getEffectiveLiqThreshold(positions[i].asset);
 
@@ -120,13 +141,17 @@ contract RiskModule is
             }
         }
 
+        // P0-3 FIX: Convert borrowAmount to 18-decimal USD via oracle price.
+        // Uses _toUSD18() which multiplies by oracle price — correct for non-USD stablecoins
+        // (IDRX, XSGD) where 1 token ≠ $1. Previous _normalizeToUSD18 only did decimal shift.
+        uint256 borrowAmountUSD = _toUSD18(borrowAsset, borrowAmount);
+
         // 2. Check debt ceiling per collateral asset
         for (uint256 i = 0; i < collateralAssets.length; i++) {
             IAssetBehaviorRegistry.AssetBehavior memory behavior = registry.getBehavior(collateralAssets[i]);
             if (behavior.debtCeiling > 0) {
                 uint256 currentDebt = _totalDebtAgainstAsset[collateralAssets[i]];
-                // Simple USD conversion (assumes borrowAsset is USD-pegged stablecoin)
-                if (currentDebt + borrowAmount > behavior.debtCeiling) {
+                if (currentDebt + borrowAmountUSD > behavior.debtCeiling) {
                     return (false, "DEBT_CEILING_EXCEEDED");
                 }
             }
@@ -135,7 +160,7 @@ contract RiskModule is
         // 3. Check weighted HF would remain >= 1.0 after new borrow
         uint256 weightedColl = _getWeightedCollateralUSD(borrower);
         uint256 existingDebt = _userDebtUSD[borrower];
-        uint256 newTotalDebt = existingDebt + borrowAmount;
+        uint256 newTotalDebt = existingDebt + borrowAmountUSD;
 
         if (newTotalDebt > 0 && (weightedColl * HF_PRECISION) / newTotalDebt < HF_PRECISION) {
             return (false, "INSUFFICIENT_COLLATERAL");
@@ -164,9 +189,20 @@ contract RiskModule is
     }
 
     /// @inheritdoc IRiskModule
+    /// @dev M-08 FIX: Clamp to zero instead of reverting on underflow.
+    ///      Rounding mismatches between off-chain engine and on-chain state can cause
+    ///      debtUSD to slightly exceed the tracked amount. Without clamping, liquidations
+    ///      calling this function would revert and DoS the entire liquidation path.
     function reduceDebtAgainstAsset(address collateralAsset, uint256 debtUSD) external override onlyAuthorized {
-        _totalDebtAgainstAsset[collateralAsset] -= debtUSD;
+        uint256 current = _totalDebtAgainstAsset[collateralAsset];
+        _totalDebtAgainstAsset[collateralAsset] = debtUSD > current ? 0 : current - debtUSD;
         emit DebtReduced(collateralAsset, debtUSD);
+    }
+
+    /// @notice P0-3: Public wrapper for _toUSD18. Converts asset-native amount to 18-decimal USD.
+    /// @dev Called by CentuariEndpoint to normalize debt values before recording.
+    function toUSD18(address asset, uint256 amount) external view returns (uint256) {
+        return _toUSD18(asset, amount);
     }
 
     /// @notice Record user debt (called by CentuariEndpoint during settlement)
@@ -175,8 +211,10 @@ contract RiskModule is
     }
 
     /// @notice Reduce user debt (called on repayment/liquidation)
+    /// @dev M-08 FIX: Clamp to zero instead of reverting on underflow.
     function reduceUserDebt(address user, uint256 debtUSD) external onlyAuthorized {
-        _userDebtUSD[user] -= debtUSD;
+        uint256 current = _userDebtUSD[user];
+        _userDebtUSD[user] = debtUSD > current ? 0 : current - debtUSD;
     }
 
     // ============ Price Queries ============
@@ -381,10 +419,29 @@ contract RiskModule is
     }
 
     /// @notice PRE-AUDIT FIX: Set the L2 sequencer uptime feed address
-    /// @dev On Arbitrum: 0xFdB631F5EE196F0ed6FAa767959853A9F217697D
-    ///      Set to address(0) to disable the check (for testing or non-L2 deployment).
-    function setSequencerUptimeFeed(address feed) external onlyOwner {
-        _sequencerUptimeFeed = feed;
+    /// @dev H-06 FIX: 48h timelock on sequencer feed change. An attacker who sets this to
+    ///      address(0) disables the L2 sequencer uptime check, allowing stale-price liquidations.
+    ///      On Arbitrum: 0xFdB631F5EE196F0ed6FAa767959853A9F217697D
+    function proposeSequencerUptimeFeed(address feed) external onlyOwner {
+        bytes32 key = keccak256("sequencerUptimeFeed");
+        _pendingAdminAddress[key] = feed == address(0) ? address(1) : feed; // address(1) sentinel for "set to zero"
+        _pendingAdminTimelockEnd[key] = block.timestamp + 48 hours;
+    }
+
+    function applySequencerUptimeFeed() external onlyOwner {
+        bytes32 key = keccak256("sequencerUptimeFeed");
+        require(_pendingAdminAddress[key] != address(0), "RiskModule: no pending change");
+        require(block.timestamp >= _pendingAdminTimelockEnd[key], "RiskModule: timelock active");
+        address feed = _pendingAdminAddress[key];
+        _sequencerUptimeFeed = feed == address(1) ? address(0) : feed; // address(1) sentinel → zero
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
+    }
+
+    function cancelSequencerUptimeFeed() external onlyOwner {
+        bytes32 key = keccak256("sequencerUptimeFeed");
+        delete _pendingAdminAddress[key];
+        delete _pendingAdminTimelockEnd[key];
     }
 
     // ============ Internal ============
@@ -430,6 +487,39 @@ contract RiskModule is
                 .getEffectiveLiqThreshold(positions[i].asset);
 
             weightedUSD += (usdValue * liqThreshold) / BPS_DENOMINATOR;
+        }
+    }
+
+    /// @notice C-01 FIX: Normalize asset-native amount to 18-decimal USD.
+    /// @dev USDC (6 dec) → multiply by 10^12. ETH (18 dec) → multiply by 10^0.
+    /// @dev DEPRECATED: Use _toUSD18() instead for real USD conversion via oracle.
+    ///             This function assumes 1 token = $1, which breaks for IDRX/XSGD.
+    function _normalizeToUSD18(address asset, uint256 amount) internal view returns (uint256) {
+        uint8 decimals = _getTokenDecimals(asset);
+        if (decimals >= 18) return amount;
+        return amount * (10 ** (18 - decimals));
+    }
+
+    /// @notice P0-3 FIX: Convert asset-native amount to 18-decimal USD via oracle price.
+    /// @dev Uses Chainlink price feed for actual USD conversion. Safe for non-USD stablecoins
+    ///      (IDRX, XSGD, MYRC) where 1 token ≠ $1. Falls back to _normalizeToUSD18() if
+    ///      no price feed is configured (backward compat for USD stablecoins).
+    /// @param asset The token address
+    /// @param amount Amount in asset-native decimals (e.g., 6 for USDC)
+    /// @return usd18 Amount in 18-decimal USD
+    function _toUSD18(address asset, uint256 amount) internal view returns (uint256 usd18) {
+        if (amount == 0) return 0;
+
+        // Try to get oracle price
+        (uint256 priceUSD18, ) = _getAssetPriceUSDInternal(asset);
+
+        if (priceUSD18 > 0) {
+            // Real USD conversion: amount * price / 10^decimals
+            uint8 decimals = _getTokenDecimals(asset);
+            usd18 = (amount * priceUSD18) / (10 ** decimals);
+        } else {
+            // Fallback: decimal shift only (assumes $1/token, safe for USD stablecoins)
+            usd18 = _normalizeToUSD18(asset, amount);
         }
     }
 

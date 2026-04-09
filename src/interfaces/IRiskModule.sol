@@ -48,6 +48,10 @@ interface IRiskModule {
     /// @return ltvBPS Effective max LTV in basis points
     function getEffectiveMaxLTV(address asset) external view returns (uint256 ltvBPS);
 
+    /// @notice Convert asset-native amount to 18-decimal USD via oracle price
+    /// @dev P0-3: Uses oracle for real USD conversion. Safe for non-USD stablecoins (IDRX, XSGD).
+    function toUSD18(address asset, uint256 amount) external view returns (uint256);
+
     // ============ Borrow Validation ============
 
     /// @notice Validate a proposed borrow against all risk constraints

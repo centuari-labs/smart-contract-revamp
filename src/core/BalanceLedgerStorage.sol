@@ -46,8 +46,12 @@ abstract contract BalanceLedgerStorage {
     /// @notice Timelock end timestamps for pending admin address changes
     mapping(bytes32 => uint256) internal _pendingAdminTimelockEnd;
 
+    /// @notice P0-6: Per-user per-asset yield router opt-in flag
+    /// @dev User calls setYieldEnabled(). Engine reads events to deploy idle capital.
+    mapping(address => mapping(address => bool)) internal _isYieldEnabled;
+
     // ============ Gap ============
 
-    /// @dev Reserved storage for future upgrades. Reduced by 5 for the five vars above.
-    uint256[35] private __gap;
+    /// @dev Reserved storage for future upgrades. Reduced by 6 for the six vars above.
+    uint256[34] private __gap;
 }

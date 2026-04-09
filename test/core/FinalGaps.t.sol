@@ -32,8 +32,7 @@ contract MockLedgerForYR {
     mapping(address => mapping(address => uint256)) public available;
     function setAvailable(address user, address asset, uint256 amt) external { available[user][asset] = amt; }
     function getAvailable(address user, address asset) external view returns (uint256) { return available[user][asset]; }
-    function moveToYieldRouter(address, address, uint256, uint256) external {}
-    function moveFromYieldRouter(address, address, uint256, uint256) external {}
+    // Old YieldRouter mock functions removed — YieldRouter no longer calls these
 }
 
 /// @title FinalGapsTest
@@ -105,55 +104,9 @@ contract FinalGapsTest is Test {
         router.expireIntent(intentId);
     }
 
-    // ============ Test 2: YieldRouter.withdrawFromReserve() ============
-
-    function test_withdrawFromReserve_succeeds() public {
-        MockLedgerForYR mockLedger = new MockLedgerForYR();
-        MockAdapter adapter = new MockAdapter();
-
-        YieldRouter router = YieldRouter(address(new TransparentUpgradeableProxy(
-            address(new YieldRouter()), owner,
-            abi.encodeCall(YieldRouter.initialize, (owner, address(mockLedger), owner))
-        )));
-
-        vm.warp(100000);
-        vm.startPrank(owner);
-        router.proposeAuthorizedCallerChange(address(this), true);
-        vm.warp(100000 + 48 hours + 1);
-        router.applyAuthorizedCallerChange(address(this));
-        vm.stopPrank();
-
-        // Deposit to reserve
-        usdc.mint(address(this), 10_000e6);
-        usdc.approve(address(router), 10_000e6);
-        router.depositToReserve(address(usdc), 10_000e6);
-
-        // Withdraw from reserve
-        address recipient = address(0x99);
-        router.withdrawFromReserve(address(usdc), 5_000e6, recipient);
-
-        assertEq(usdc.balanceOf(recipient), 5_000e6, "Recipient received reserve funds");
-    }
-
-    function test_withdrawFromReserve_insufficient_reverts() public {
-        MockLedgerForYR mockLedger = new MockLedgerForYR();
-
-        YieldRouter router = YieldRouter(address(new TransparentUpgradeableProxy(
-            address(new YieldRouter()), owner,
-            abi.encodeCall(YieldRouter.initialize, (owner, address(mockLedger), owner))
-        )));
-
-        vm.warp(100000);
-        vm.startPrank(owner);
-        router.proposeAuthorizedCallerChange(address(this), true);
-        vm.warp(100000 + 48 hours + 1);
-        router.applyAuthorizedCallerChange(address(this));
-        vm.stopPrank();
-
-        // Try to withdraw without depositing
-        vm.expectRevert(bytes("YieldRouter: insufficient reserve"));
-        router.withdrawFromReserve(address(usdc), 1000e6, address(0x99));
-    }
+    // ============ Test 2: YieldRouter reserve tests REMOVED ============
+    // Old InsuranceReserve logic moved off-chain per architecture overhaul.
+    // See: memory/architecture_audit_2026-04-03.md
 
     // ============ Test 3: ProtocolTreasury expanded ============
 

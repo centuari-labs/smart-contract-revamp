@@ -4,101 +4,98 @@ pragma solidity ^0.8.20;
 /// @title IPCBT
 /// @notice Interface for Perpetual CBT Vault — wraps CBT into a perpetual composable ERC-20
 /// @dev One vault per stablecoin denomination (pCBT-USDC, pCBT-IDRX, pCBT-XSGD).
-///      Users deposit CBT, receive pCBT. Vault auto-rolls at maturity.
+///      Users deposit USDC (or CBT for existing lenders), receive pCBT shares.
+///      Per-user rollover settings. Withdraw returns CBT directly (instant, no queue).
+///      Vault auto-rolls at maturity per each user's individual settings.
 interface IPCBT {
     // ============ Structs ============
 
-    struct WithdrawalRequest {
+    /// @notice Per-user rollover settings for auto-rollover at maturity
+    struct RolloverSettings {
+        bool autoRollover;         // on/off (default: ON for Easy Mode)
+        uint8 ratePreference;      // 0=MARKET, 1=TARGET
+        uint256 targetRateBPS;     // minimum acceptable rate (if TARGET)
+        uint8 duration;            // 0=SAME (next 1st-of-month), 1=CUSTOM
+        uint256 customMaturity;    // target maturity timestamp (if CUSTOM)
+        uint256 maxRollovers;      // 0=unlimited, N=cap
+        uint256 rolloverCount;     // incremented by engine each cycle
+    }
+
+    /// @notice Maturity processing result per user (submitted by engine)
+    struct MaturityResult {
         address user;
-        uint256 shares;
-        uint256 requestedAt;
+        uint8 outcome;             // 0=ROLL, 1=RETURN
+        uint256 cbtAmount;         // CBT amount for this user's portion
+        uint256 usdcReturned;      // USDC to credit (RETURN outcome only)
+        uint256 sharesBurned;      // pCBT shares to burn (RETURN outcome only)
+        uint256 newRateBPS;        // rate for the new period (ROLL outcome only)
     }
 
-    struct EarlyExitRequest {
-        uint256 shares;
-        uint8 orderType;
-        uint256 minPrice;
-        bool active;
-    }
+    // ============ User Functions ============
 
-    // ============ Core Functions ============
+    /// @notice Deposit USDC into vault — vault lends via engine, receives CBT
+    /// @dev Path 1: New users (easy mode). USDC → vault → BalanceLedger → engine lends.
+    /// @param usdcAmount Amount of underlying stablecoin to deposit
+    /// @return pCBTMinted Shares minted to caller
+    function deposit(uint256 usdcAmount) external returns (uint256 pCBTMinted);
 
-    /// @notice Deposit CBT tokens into the vault, receive pCBT shares
-    /// @param cbtAmount The amount of CBT to deposit
-    /// @return pCBTMinted The amount of pCBT shares minted
+    /// @notice Deposit existing CBT into vault — for users who already lent on CLOB
+    /// @dev Path 2: Existing lenders joining midway. CBT must match vault's currentCBT maturity.
+    /// @param cbtAmount Amount of CBT to deposit
+    /// @return pCBTMinted Shares minted to caller
     function depositCBT(uint256 cbtAmount) external returns (uint256 pCBTMinted);
 
-    /// @notice Request withdrawal from vault — processed at next maturity (FIFO queue)
-    /// @param shares The amount of pCBT shares to withdraw
-    function requestWithdrawal(uint256 shares) external;
+    /// @notice Withdraw from vault — returns proportional CBT + idle USDC instantly
+    /// @dev Burns pCBT shares. No queue, no waiting. User manages CBT from there.
+    /// @param shares Number of pCBT shares to burn
+    /// @return cbtAmount CBT transferred to caller's wallet
+    /// @return usdcAmount USDC credited to caller's BalanceLedger available
+    function withdraw(uint256 shares) external returns (uint256 cbtAmount, uint256 usdcAmount);
 
-    /// @notice Cancel a pending withdrawal request
-    function cancelWithdrawal() external;
+    /// @notice Set per-user rollover settings
+    /// @dev Locked 1 hour before maturity to prevent last-second gaming
+    function setRolloverSettings(RolloverSettings calldata settings) external;
 
-    /// @notice Request early exit by selling CBT on the CLOB via CentuariRouter
-    /// @param shares The amount of pCBT shares to exit
-    /// @param orderType 0 = MARKET, 1 = LIMIT
-    /// @param minPrice Minimum price per CBT (0 for market orders)
-    function requestEarlyExit(uint256 shares, uint8 orderType, uint256 minPrice) external;
+    // ============ Engine Functions (Endpoint Only) ============
 
-    /// @notice Cancel a pending early exit request
-    function cancelEarlyExit() external;
+    /// @notice Process maturity results — roll/return per user
+    /// @dev Called by CentuariEndpoint during settlement batch
+    function processMaturityResults(MaturityResult[] calldata results, address newCBT) external;
 
-    // ============ Settlement (Endpoint Only) ============
+    // ============ View ============
 
-    /// @notice Called by CentuariEndpoint after maturity rollover settlement
-    /// @param newCBT The new CBT contract address for the next maturity
-    /// @param newCBTAmount The amount of new CBT minted to vault
-    /// @param redeemedUSDC The USDC redeemed from matured CBT (for withdrawal payouts)
-    function onSettlement(address newCBT, uint256 newCBTAmount, uint256 redeemedUSDC) external;
-
-    // ============ View Functions ============
-
-    /// @notice Current share price: (total CBT fair value + idle USDC) / totalSupply
-    /// @return price Share price with 18 decimals
+    /// @notice Current share price: (totalCBTFairValue + idleUSDC) / totalSupply
     function sharePrice() external view returns (uint256 price);
 
-    /// @notice Address of the current active CBT contract held by vault
-    function currentCBTAddress() external view returns (address);
+    /// @notice Get a user's rollover settings
+    function getUserSettings(address user) external view returns (RolloverSettings memory);
 
-    /// @notice Collateral value per pCBT share for RiskModule/CollateralRegistry pricing
-    /// @return valueUSD USD value per share with 18 decimals
-    function collateralValuePerPCBT() external view returns (uint256 valueUSD);
+    /// @notice Next maturity date for the vault's current CBT
+    function nextMaturityDate() external view returns (uint256);
 
-    /// @notice Total assets breakdown
-    /// @return cbtHeld Amount of CBT tokens held
-    /// @return cbtFairValueUSD Fair value of held CBT in USD (18 decimals)
-    /// @return idleUSDC Amount of idle USDC not yet deployed to CBT
+    /// @notice Total vault assets
     function totalAssets() external view returns (uint256 cbtHeld, uint256 cbtFairValueUSD, uint256 idleUSDC);
 
-    /// @notice The underlying loan token (USDC, IDRX, etc.)
+    /// @notice Underlying loan token (USDC, IDRX, etc.)
     function loanToken() external view returns (address);
-
-    /// @notice Get the withdrawal queue length
-    function withdrawalQueueLength() external view returns (uint256);
-
-    /// @notice Get a withdrawal request by index
-    function getWithdrawalRequest(uint256 index) external view returns (WithdrawalRequest memory);
 
     // ============ Events ============
 
+    event Deposited(address indexed user, uint256 usdcAmount, uint256 pCBTMinted);
     event CBTDeposited(address indexed user, uint256 cbtAmount, uint256 pCBTMinted);
-    event WithdrawalRequested(address indexed user, uint256 shares);
-    event WithdrawalCancelled(address indexed user, uint256 shares);
-    event EarlyExitRequested(address indexed user, uint256 shares, uint8 orderType, uint256 minPrice);
-    event EarlyExitCancelled(address indexed user);
-    event MaturityProcessed(address indexed oldCBT, address indexed newCBT, uint256 newCBTAmount, uint256 withdrawalsPaid);
-    event WithdrawalFulfilled(address indexed user, uint256 shares, uint256 usdcAmount);
+    event Withdrawn(address indexed user, uint256 shares, uint256 cbtAmount, uint256 usdcAmount);
+    event RolloverSettingsUpdated(address indexed user);
+    event MaturityProcessed(address indexed oldCBT, address indexed newCBT, uint256 newCBTAmount);
+    event EmergencyWindDown(uint256 cbtRedeemed, uint256 usdcRecovered);
 
     // ============ Errors ============
 
-    error ZeroAmount();
     error ZeroAddress();
+    error ZeroAmount();
     error InsufficientShares();
-    error WithdrawalCutoffPassed();
-    error NoWithdrawalPending();
-    error NoEarlyExitPending();
-    error EarlyExitAlreadyPending();
-    error WithdrawalAlreadyPending();
+    error WrongMaturity();
+    error SettingsLocked();
     error OnlyEndpoint();
+    error NoCBTSet();
+    error EmergencyNotReady();
 }

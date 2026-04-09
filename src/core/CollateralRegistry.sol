@@ -110,8 +110,8 @@ contract CollateralRegistry is
                 uint256 usdValue;
 
                 if (_isPCBTVault[pos.asset]) {
-                    // pCBT vault: read collateral value directly from vault
-                    uint256 valuePerShare = IPCBT(pos.asset).collateralValuePerPCBT();
+                    // pCBT vault: read collateral value from share price
+                    uint256 valuePerShare = IPCBT(pos.asset).sharePrice();
                     usdValue = (pos.amount * valuePerShare) / 1e18;
                 } else {
                     // Standard asset: read from Chainlink price feed

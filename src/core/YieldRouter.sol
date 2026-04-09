@@ -7,21 +7,26 @@ import {ReentrancyGuardUpgradeable} from "../utils/ReentrancyGuardUpgradeable.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IYieldRouter} from "../interfaces/IYieldRouter.sol";
 import {IYieldAdapter} from "../interfaces/IYieldAdapter.sol";
-import {IBalanceLedger} from "../interfaces/IBalanceLedger.sol";
 import {YieldRouterStorage} from "./YieldRouterStorage.sol";
 
 /// @title YieldRouter
-/// @notice Deploys idle user balances to external yield protocols
-/// @dev Activates immediately on deposit per AllocationConfig.
-///      Security Invariant #8: InsuranceReserve >= 10% of total deployed.
+/// @notice Thin token-movement proxy for idle yield deployment.
+/// @dev All complex logic (deployment decisions, per-user yield, rebalancing, allocation)
+///      is handled OFF-CHAIN by the Centuari engine. This contract only moves tokens
+///      between BalanceLedger and yield adapters (Aave, Compound, Morpho).
+///
+///      On-chain verifiability: adapter.getDeployedValue() reads actual Aave/Compound
+///      balance. CentuariEndpoint enforces totalYieldCredited <= actualYieldEarned.
+///      Merkle roots committed per sweep for per-user transparency.
+///
+///      Security: deployToProtocol/recallFromProtocol are onlyAuthorized (engine/endpoint).
+///      pauseAdapter is onlyMultisig (emergency). registerAdapter uses 48h timelock.
 contract YieldRouter is
     Initializable,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
-    YieldRouterStorage,
-    IYieldRouter
+    YieldRouterStorage
 {
     using SafeERC20 for IERC20;
 
@@ -48,6 +53,21 @@ contract YieldRouter is
         _multisig = multisig_;
     }
 
+    // ============ Errors ============
+
+    error ZeroAddress();
+    error ZeroAmount();
+    error Unauthorized();
+    error AdapterPausedError(address adapter);
+    error AdapterNotRegistered(address adapter);
+
+    // ============ Events ============
+
+    event Deployed(address indexed asset, address indexed adapter, uint256 amount);
+    event Recalled(address indexed asset, address indexed adapter, uint256 requested, uint256 returned);
+    event AdapterPaused(address indexed adapter, uint256 expiresAt);
+    event EmergencyRecalled(address indexed asset, address indexed adapter, uint256 amount);
+
     // ============ Modifiers ============
 
     modifier onlyMultisig() {
@@ -60,333 +80,173 @@ contract YieldRouter is
         _;
     }
 
-    // ============ Constants ============
+    // ============ Core: Token Movement ============
 
-    /// @inheritdoc IYieldRouter
-    function MAX_PER_PROTOCOL_BPS() external pure override returns (uint256) { return _MAX_PER_PROTOCOL_BPS; }
-
-    /// @inheritdoc IYieldRouter
-    function MIN_RESERVE_RATIO_BPS() external pure override returns (uint256) { return _MIN_RESERVE_RATIO_BPS; }
-
-    /// @inheritdoc IYieldRouter
-    function VAULT_RAW_MINIMUM_BPS() external pure override returns (uint256) { return _VAULT_RAW_MINIMUM_BPS; }
-
-    // ============ Deployment ============
-
-    /// @inheritdoc IYieldRouter
-    function deploy(
+    /// @notice Deploy tokens from BalanceLedger to a yield adapter.
+    /// @dev Called by engine via settlement batch. Transfers tokens from BalanceLedger
+    ///      to this contract, then to the adapter (Aave/Compound/Morpho).
+    /// @param asset The token to deploy (e.g., USDC)
+    /// @param amount Amount to deploy in token units
+    /// @param adapter The yield adapter contract
+    function deployToProtocol(
         address asset,
         uint256 amount,
         address adapter
-    ) external override onlyAuthorized nonReentrant {
+    ) external onlyAuthorized nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (isAdapterPaused(adapter)) revert AdapterPausedError(adapter);
+        if (!_isRegisteredAdapter[adapter]) revert AdapterNotRegistered(adapter);
 
-        // Check reserve ratio would be maintained (Security Invariant #8)
-        if (!_wouldMaintainReserve(asset, amount)) {
-            revert ReserveRatioViolated(_currentReserveRatio(asset), _MIN_RESERVE_RATIO_BPS);
-        }
+        // Transfer from BalanceLedger to this contract
+        IERC20(asset).safeTransferFrom(_balanceLedger, address(this), amount);
 
-        // Check per-protocol cap (60%)
-        uint256 newAdapterTotal = _adapterDeployed[adapter][asset] + amount;
-        uint256 newTotal = _totalDeployed[asset] + amount;
-        if (newTotal > 0 && (newAdapterTotal * BPS_DENOMINATOR) / newTotal > _MAX_PER_PROTOCOL_BPS) {
-            uint256 currentBPS = (newAdapterTotal * BPS_DENOMINATOR) / newTotal;
-            revert ProtocolCapExceeded(adapter, currentBPS, _MAX_PER_PROTOCOL_BPS);
-        }
-
-        // Deploy via adapter
+        // Deploy to adapter
         IERC20(asset).forceApprove(adapter, amount);
-        uint256 shares = IYieldAdapter(adapter).deploy(asset, amount);
+        IYieldAdapter(adapter).deploy(asset, amount);
 
-        // Update tracking
-        _adapterDeployed[adapter][asset] += amount;
+        // Update protocol-level tracking
         _totalDeployed[asset] += amount;
-        _userAdapterShares[msg.sender][asset][adapter] += shares;
+        _adapterDeployed[adapter][asset] += amount;
 
-        // C2 FIX: Track deployed assets for aggregate reserve verification
-        if (!_isDeployedAsset[asset]) {
-            _deployedAssets.push(asset);
-            _isDeployedAsset[asset] = true;
-        }
-
-        // Update BalanceLedger
-        IBalanceLedger(_balanceLedger).moveToYieldRouter(msg.sender, asset, amount, shares);
-
-        emit Deployed(msg.sender, asset, adapter, amount, shares);
+        emit Deployed(asset, adapter, amount);
     }
 
-    /// @inheritdoc IYieldRouter
-    function recall(
-        address user,
+    /// @notice Recall tokens from a yield adapter back to BalanceLedger.
+    /// @dev Called by engine via settlement batch (before matches that need recalled capital).
+    ///      Adapter withdraws from Aave/Compound/Morpho and sends tokens to BalanceLedger.
+    /// @param asset The token to recall
+    /// @param amount Amount to recall in token units
+    /// @param adapter The yield adapter contract
+    /// @return recalled Actual amount returned (may include yield)
+    function recallFromProtocol(
         address asset,
-        uint256 shares
-    ) external override onlyAuthorized nonReentrant returns (uint256 amount) {
-        // Find the adapter that holds this user's shares and recall
-        for (uint256 i = 0; i < _registeredAdapters.length; i++) {
-            address adapter = _registeredAdapters[i];
-            uint256 userShares = _userAdapterShares[user][asset][adapter];
-            if (userShares == 0) continue;
+        uint256 amount,
+        address adapter
+    ) external onlyAuthorized nonReentrant returns (uint256 recalled) {
+        if (amount == 0) revert ZeroAmount();
 
-            uint256 sharesToRecall = shares > userShares ? userShares : shares;
-            uint256 recalled = IYieldAdapter(adapter).recall(asset, sharesToRecall);
+        // Recall from adapter — may return more than requested (yield)
+        recalled = IYieldAdapter(adapter).recall(asset, amount);
 
-            _userAdapterShares[user][asset][adapter] -= sharesToRecall;
-            _adapterDeployed[adapter][asset] -= recalled;
-            _totalDeployed[asset] -= recalled;
+        // Send tokens to BalanceLedger
+        IERC20(asset).safeTransfer(_balanceLedger, recalled);
 
-            IBalanceLedger(_balanceLedger).moveFromYieldRouter(user, asset, recalled, sharesToRecall);
+        // Update tracking — clamp to prevent underflow if recalled > deployed
+        uint256 adapterAmount = _adapterDeployed[adapter][asset];
+        uint256 totalAmount = _totalDeployed[asset];
+        _adapterDeployed[adapter][asset] = amount > adapterAmount ? 0 : adapterAmount - amount;
+        _totalDeployed[asset] = amount > totalAmount ? 0 : totalAmount - amount;
 
-            amount += recalled;
-            shares -= sharesToRecall;
-            emit Recalled(user, asset, adapter, recalled, sharesToRecall);
-
-            if (shares == 0) break;
-        }
+        emit Recalled(asset, adapter, amount, recalled);
     }
 
-    /// @inheritdoc IYieldRouter
-    function recallForOrder(
-        address user,
+    /// @notice Emergency recall ALL capital from a specific adapter. Multisig only, no timelock.
+    /// @dev Conservative action — gets capital out of a potentially compromised adapter.
+    ///      Used when: adapter exploit detected, protocol pause, engine offline.
+    /// @param asset The token to recall
+    /// @param adapter The adapter to recall from
+    function emergencyRecall(
         address asset,
-        uint256 shortfall
-    ) external override onlyAuthorized nonReentrant returns (uint256 amount) {
-        // Recall shortfall from adapters — least-allocated first for rebalance opportunity
-        for (uint256 i = 0; i < _registeredAdapters.length && shortfall > 0; i++) {
-            address adapter = _registeredAdapters[i];
-            uint256 userShares = _userAdapterShares[user][asset][adapter];
-            if (userShares == 0) continue;
-            if (!IYieldAdapter(adapter).canRecall(asset, userShares)) continue;
+        address adapter
+    ) external onlyMultisig nonReentrant {
+        uint256 deployed = _adapterDeployed[adapter][asset];
+        if (deployed == 0) return;
 
-            // Compute how many shares cover the shortfall (approximate: 1:1 for simplicity)
-            uint256 sharesToRecall = shortfall > userShares ? userShares : shortfall;
-            uint256 recalled = IYieldAdapter(adapter).recall(asset, sharesToRecall);
+        uint256 recalled = IYieldAdapter(adapter).recall(asset, deployed);
+        IERC20(asset).safeTransfer(_balanceLedger, recalled);
 
-            _userAdapterShares[user][asset][adapter] -= sharesToRecall;
-            _adapterDeployed[adapter][asset] -= recalled;
-            _totalDeployed[asset] -= recalled;
+        _adapterDeployed[adapter][asset] = 0;
+        _totalDeployed[asset] = _totalDeployed[asset] > deployed
+            ? _totalDeployed[asset] - deployed
+            : 0;
 
-            IBalanceLedger(_balanceLedger).moveFromYieldRouter(user, asset, recalled, sharesToRecall);
-
-            amount += recalled;
-            shortfall = recalled >= shortfall ? 0 : shortfall - recalled;
-            emit Recalled(user, asset, adapter, recalled, sharesToRecall);
-        }
+        emit EmergencyRecalled(asset, adapter, recalled);
     }
 
-    /// @inheritdoc IYieldRouter
-    function recallAll(address user, address asset) external override onlyAuthorized nonReentrant {
-        for (uint256 i = 0; i < _registeredAdapters.length; i++) {
-            address adapter = _registeredAdapters[i];
-            uint256 userShares = _userAdapterShares[user][asset][adapter];
-            if (userShares == 0) continue;
+    // ============ View: On-Chain Verifiability ============
 
-            uint256 recalled = IYieldAdapter(adapter).recall(asset, userShares);
-
-            _userAdapterShares[user][asset][adapter] = 0;
-            _adapterDeployed[adapter][asset] -= recalled;
-            _totalDeployed[asset] -= recalled;
-
-            IBalanceLedger(_balanceLedger).moveFromYieldRouter(user, asset, recalled, userShares);
-            emit Recalled(user, asset, adapter, recalled, userShares);
-        }
+    /// @notice Get actual deployed value for an asset in an adapter (reads from adapter).
+    /// @dev Used for yield verification: actualYield = getAdapterValue() - totalDeployed
+    function getAdapterValue(address asset, address adapter) external view returns (uint256) {
+        return IYieldAdapter(adapter).getDeployedValue(asset, 0);
     }
 
-    /// @inheritdoc IYieldRouter
-    /// @dev C1 FIX: Real rebalance implementation. For each adapter, checks current deployment
-    ///      against equal-weight target. Recalls from over-allocated adapters and deploys to
-    ///      under-allocated ones. Respects per-protocol cap (60%) and reserve ratio (10%).
-    ///      Reference: Aave V3 PoolLogic rebalancing, Yearn V3 strategy allocation.
-    function rebalance(address user, address asset) external override onlyAuthorized nonReentrant {
-        uint256 numAdapters = _registeredAdapters.length;
-        if (numAdapters == 0) {
-            emit Rebalanced(user, asset);
-            return;
-        }
-
-        uint256 totalForAsset = _totalDeployed[asset];
-        if (totalForAsset == 0) {
-            emit Rebalanced(user, asset);
-            return;
-        }
-
-        // Target: equal weight across non-paused adapters (simple strategy)
-        // A full AllocationConfig struct could specify custom weights per adapter
-        uint256 activeAdapters = 0;
-        for (uint256 i = 0; i < numAdapters; i++) {
-            if (!_isAdapterPaused(_registeredAdapters[i])) {
-                activeAdapters++;
-            }
-        }
-        if (activeAdapters == 0) {
-            emit Rebalanced(user, asset);
-            return;
-        }
-
-        uint256 targetPerAdapter = totalForAsset / activeAdapters;
-        // Cap at MAX_PER_PROTOCOL_BPS (60%)
-        uint256 maxPerAdapter = (totalForAsset * _MAX_PER_PROTOCOL_BPS) / BPS_DENOMINATOR;
-        if (targetPerAdapter > maxPerAdapter) {
-            targetPerAdapter = maxPerAdapter;
-        }
-
-        // Pass 1: Recall from over-allocated adapters (> target + 5%)
-        uint256 driftThresholdBPS = 500; // 5% drift triggers rebalance
-        for (uint256 i = 0; i < numAdapters; i++) {
-            address adapter = _registeredAdapters[i];
-            if (_isAdapterPaused(adapter)) continue;
-
-            uint256 currentDeployed = _adapterDeployed[adapter][asset];
-            uint256 driftBPS = currentDeployed > targetPerAdapter
-                ? ((currentDeployed - targetPerAdapter) * BPS_DENOMINATOR) / targetPerAdapter
-                : 0;
-
-            if (driftBPS > driftThresholdBPS && currentDeployed > targetPerAdapter) {
-                uint256 excess = currentDeployed - targetPerAdapter;
-                IYieldAdapter(adapter).recall(asset, excess);
-                _adapterDeployed[adapter][asset] -= excess;
-                _totalDeployed[asset] -= excess;
-            }
-        }
-
-        // Pass 2: Deploy to under-allocated adapters
-        // Recalculate total after recalls
-        totalForAsset = _totalDeployed[asset];
-        if (activeAdapters > 0) {
-            targetPerAdapter = totalForAsset / activeAdapters;
-        }
-
-        for (uint256 i = 0; i < numAdapters; i++) {
-            address adapter = _registeredAdapters[i];
-            if (_isAdapterPaused(adapter)) continue;
-
-            uint256 currentDeployed = _adapterDeployed[adapter][asset];
-            if (currentDeployed < targetPerAdapter) {
-                uint256 deficit = targetPerAdapter - currentDeployed;
-                // Only deploy if we have available capital and reserve ratio is maintained
-                if (_wouldMaintainReserve(asset, deficit)) {
-                    IYieldAdapter(adapter).deploy(asset, deficit);
-                    _adapterDeployed[adapter][asset] += deficit;
-                    _totalDeployed[asset] += deficit;
-                }
-            }
-        }
-
-        emit Rebalanced(user, asset);
+    /// @notice Get total deployed amount for an asset across all adapters
+    function getTotalDeployed(address asset) external view returns (uint256) {
+        return _totalDeployed[asset];
     }
 
-    /// @notice Check if an adapter is currently paused
-    function _isAdapterPaused(address adapter) internal view returns (bool) {
-        return block.timestamp < _adapterPauseExpiry[adapter];
+    /// @notice Get deployed amount for a specific adapter and asset
+    function getAdapterDeployed(address adapter, address asset) external view returns (uint256) {
+        return _adapterDeployed[adapter][asset];
     }
-
-    // ============ User Controls ============
-
-    /// @inheritdoc IYieldRouter
-    function setEnabled(address asset, bool enabled) external override {
-        _routerEnabled[msg.sender][asset] = enabled;
-        emit RouterEnabledChanged(msg.sender, asset, enabled);
-    }
-
-    /// @inheritdoc IYieldRouter
-    function isEnabled(address user, address asset) external view override returns (bool) {
-        return _routerEnabled[user][asset];
-    }
-
-    // ============ Insurance Reserve ============
-
-    /// @inheritdoc IYieldRouter
-    /// @dev H-06 FIX: Actually verify reserve ratio instead of returning true.
-    ///      Checks if InsuranceReserve >= MIN_RESERVE_RATIO_BPS for each deployed asset.
-    /// @dev C2 FIX: Real aggregate reserve ratio verification.
-    ///      Iterates all deployed assets and checks each against MIN_RESERVE_RATIO_BPS (10%).
-    ///      Returns false if ANY asset's reserve is below the threshold.
-    function verifyReserveRatio() external view override returns (bool) {
-        for (uint256 i = 0; i < _deployedAssets.length; i++) {
-            address asset = _deployedAssets[i];
-            uint256 deployed = _totalDeployed[asset];
-            if (deployed == 0) continue;
-
-            uint256 reserve = _insuranceReserve[asset];
-            if ((reserve * BPS_DENOMINATOR) / deployed < _MIN_RESERVE_RATIO_BPS) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /// @notice Check reserve ratio for a specific asset
-    /// @param asset The asset to check
-    /// @return sufficient True if reserve >= MIN_RESERVE_RATIO_BPS of deployed
-    function verifyReserveRatioForAsset(address asset) external view returns (bool) {
-        uint256 deployed = _totalDeployed[asset];
-        if (deployed == 0) return true;
-        return (_insuranceReserve[asset] * BPS_DENOMINATOR) / deployed >= _MIN_RESERVE_RATIO_BPS;
-    }
-
-    /// @notice Deposit to insurance reserve
-    function depositToReserve(address asset, uint256 amount) external onlyAuthorized {
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        _insuranceReserve[asset] += amount;
-    }
-
-    /// @notice Draw from the InsuranceReserve (§8.6 — bad debt absorption or recall failure coverage)
-    /// @dev Only authorized callers (CentuariEndpoint, keeper) can withdraw.
-    ///      Used when: (1) recall fails and reserve covers the gap, (2) bad debt waterfall §3.11.
-    /// @param asset The reserve asset to withdraw
-    /// @param amount The amount to withdraw
-    /// @param to The recipient address
-    function withdrawFromReserve(address asset, uint256 amount, address to) external onlyAuthorized nonReentrant {
-        require(_insuranceReserve[asset] >= amount, "YieldRouter: insufficient reserve");
-        require(to != address(0), "YieldRouter: zero address");
-        _insuranceReserve[asset] -= amount;
-        IERC20(asset).safeTransfer(to, amount);
-        emit ReserveWithdrawn(asset, amount, to);
-    }
-
-    event ReserveWithdrawn(address indexed asset, uint256 amount, address indexed to);
 
     // ============ Adapter Management ============
 
-    /// @inheritdoc IYieldRouter
-    function pauseAdapter(address adapter) external override onlyMultisig {
+    /// @notice Pause an adapter — stops new deployments, allows recalls. Multisig only.
+    /// @dev 72h auto-expiry. No timelock (conservative action — reduces exposure).
+    function pauseAdapter(address adapter) external onlyMultisig {
         _adapterPauseExpiry[adapter] = block.timestamp + ADAPTER_PAUSE_DURATION;
         emit AdapterPaused(adapter, _adapterPauseExpiry[adapter]);
     }
 
-    /// @inheritdoc IYieldRouter
-    function isAdapterPaused(address adapter) public view override returns (bool) {
+    /// @notice Check if an adapter is currently paused
+    function isAdapterPaused(address adapter) public view returns (bool) {
         return block.timestamp < _adapterPauseExpiry[adapter];
     }
 
-    // ============ Administrative ============
+    // ============ Administrative (48h Timelock) ============
 
-    /// @notice Propose an authorized-caller change with 48h timelock
-    /// @param caller The address whose authorization is being changed
-    /// @param authorized Whether to grant or revoke caller access
+    function proposeAdapter(address adapter) external onlyOwner {
+        require(adapter != address(0), "YieldRouter: zero address");
+        _pendingAdapter = adapter;
+        _pendingAdapterTimelockEnd = block.timestamp + ADMIN_TIMELOCK;
+    }
+
+    function applyAdapter() external onlyOwner {
+        require(_pendingAdapter != address(0), "YieldRouter: no pending adapter");
+        require(block.timestamp >= _pendingAdapterTimelockEnd, "YieldRouter: timelock active");
+        _registeredAdapters.push(_pendingAdapter);
+        _isRegisteredAdapter[_pendingAdapter] = true;
+        delete _pendingAdapter;
+        delete _pendingAdapterTimelockEnd;
+    }
+
+    function cancelAdapterProposal() external onlyOwner {
+        delete _pendingAdapter;
+        delete _pendingAdapterTimelockEnd;
+    }
+
+    function removeAdapter(address adapter) external onlyOwner {
+        require(_adapterDeployed[adapter][address(0)] == 0, "YieldRouter: adapter has deployed capital");
+        _isRegisteredAdapter[adapter] = false;
+        // Remove from array (swap-and-pop)
+        for (uint256 i = 0; i < _registeredAdapters.length; i++) {
+            if (_registeredAdapters[i] == adapter) {
+                _registeredAdapters[i] = _registeredAdapters[_registeredAdapters.length - 1];
+                _registeredAdapters.pop();
+                break;
+            }
+        }
+    }
+
     function proposeAuthorizedCallerChange(address caller, bool authorized) external onlyOwner {
         if (caller == address(0)) revert ZeroAddress();
         _pendingAdminAddress[bytes32(uint256(uint160(caller)))] = caller;
         _pendingAdminBool[caller] = authorized;
-        _pendingAdminTimelockEnd[bytes32(uint256(uint160(caller)))] = block.timestamp + 48 hours;
+        _pendingAdminTimelockEnd[bytes32(uint256(uint160(caller)))] = block.timestamp + ADMIN_TIMELOCK;
     }
 
-    /// @notice Apply a pending authorized-caller change after the 48h timelock has elapsed
-    /// @param caller The address whose authorization is being applied
     function applyAuthorizedCallerChange(address caller) external onlyOwner {
         bytes32 key = bytes32(uint256(uint160(caller)));
         require(_pendingAdminAddress[key] != address(0), "YieldRouter: no pending change");
         require(block.timestamp >= _pendingAdminTimelockEnd[key], "YieldRouter: timelock active");
-
         _authorizedCallers[caller] = _pendingAdminBool[caller];
-
         delete _pendingAdminAddress[key];
         delete _pendingAdminTimelockEnd[key];
         delete _pendingAdminBool[caller];
     }
 
-    /// @notice Cancel a pending authorized-caller change
-    /// @param caller The address whose pending change is being cancelled
     function cancelAuthorizedCallerChange(address caller) external onlyOwner {
         bytes32 key = bytes32(uint256(uint160(caller)));
         delete _pendingAdminAddress[key];
@@ -414,49 +274,5 @@ contract YieldRouter is
         bytes32 key = keccak256("multisig");
         delete _pendingAdminAddress[key];
         delete _pendingAdminTimelockEnd[key];
-    }
-
-    /// @notice PRE-AUDIT FIX: Register adapter with 48h timelock.
-    /// @dev A malicious adapter could drain all deployed capital via deploy().
-    ///      Without timelock, a compromised owner registers a drainer instantly.
-    ///      M-01 FIX: _pendingAdapter vars moved to YieldRouterStorage.sol to prevent
-    ///      storage corruption on upgrade (same class as CRIT-2 in RiskModule).
-
-    function proposeAdapter(address adapter) external onlyOwner {
-        require(adapter != address(0), "YieldRouter: zero address");
-        _pendingAdapter = adapter;
-        _pendingAdapterTimelockEnd = block.timestamp + ADMIN_TIMELOCK;
-    }
-
-    function applyAdapter() external onlyOwner {
-        require(_pendingAdapter != address(0), "YieldRouter: no pending adapter");
-        require(block.timestamp >= _pendingAdapterTimelockEnd, "YieldRouter: timelock active");
-        _registeredAdapters.push(_pendingAdapter);
-        delete _pendingAdapter;
-        delete _pendingAdapterTimelockEnd;
-    }
-
-    function cancelAdapterProposal() external onlyOwner {
-        delete _pendingAdapter;
-        delete _pendingAdapterTimelockEnd;
-    }
-
-    /// @notice DEPRECATED — use proposeAdapter() + applyAdapter() instead.
-    function registerAdapter(address) external view onlyOwner {
-        revert("YieldRouter: use proposeAdapter");
-    }
-
-    // ============ Internal ============
-
-    function _wouldMaintainReserve(address asset, uint256 deployAmount) internal view returns (bool) {
-        uint256 reserve = _insuranceReserve[asset];
-        uint256 newTotal = _totalDeployed[asset] + deployAmount;
-        if (newTotal == 0) return true;
-        return (reserve * BPS_DENOMINATOR) / newTotal >= _MIN_RESERVE_RATIO_BPS;
-    }
-
-    function _currentReserveRatio(address asset) internal view returns (uint256) {
-        if (_totalDeployed[asset] == 0) return BPS_DENOMINATOR;
-        return (_insuranceReserve[asset] * BPS_DENOMINATOR) / _totalDeployed[asset];
     }
 }

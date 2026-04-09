@@ -128,6 +128,20 @@ interface IBalanceLedger {
     /// @param amount The amount
     function transferOut(address asset, address to, uint256 amount) external;
 
+    /// @notice Deposit tokens — transfers ERC20 from msg.sender, credits available balance
+    /// @dev User-callable (not onlyAuthorized). Also callable by pCBT vault.
+    function deposit(address asset, uint256 amount) external;
+
+    /// @notice Atomic deposit + collateral registration in one transaction
+    /// @dev User-callable. Requires real ERC20 transfer (prevents circular collateral).
+    function depositAsCollateral(address asset, uint256 amount) external;
+
+    /// @notice Withdraw tokens — debits available balance, transfers ERC20 to msg.sender
+    function withdraw(address asset, uint256 amount) external;
+
+    /// @notice Toggle yield router for an asset (user opt-in/opt-out)
+    function setYieldEnabled(address asset, bool enabled) external;
+
     // ============ View Functions ============
 
     /// @notice Get user's full balance for an asset

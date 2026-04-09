@@ -35,7 +35,7 @@ contract PCBTVaultFactory is Ownable {
     /// @notice Create a new pCBT vault for a stablecoin denomination
     /// @param loanToken The underlying stablecoin (USDC, IDRX, XSGD)
     /// @param rateOracle CentuariRateOracle address
-    /// @param router CentuariRouter address
+    /// @param balanceLedger BalanceLedger address (vault deposits idle USDC here)
     /// @param endpoint CentuariEndpoint address
     /// @param name ERC-20 token name (e.g., "Perpetual CBT USDC")
     /// @param symbol ERC-20 token symbol (e.g., "pCBT-USDC")
@@ -43,7 +43,7 @@ contract PCBTVaultFactory is Ownable {
     function createVault(
         address loanToken,
         address rateOracle,
-        address router,
+        address balanceLedger,
         address endpoint,
         string calldata name,
         string calldata symbol
@@ -53,7 +53,7 @@ contract PCBTVaultFactory is Ownable {
 
         bytes memory initData = abi.encodeCall(
             PCBTVault.initialize,
-            (msg.sender, loanToken, rateOracle, router, endpoint, name, symbol)
+            (msg.sender, loanToken, rateOracle, balanceLedger, endpoint, name, symbol)
         );
 
         vault = address(new TransparentUpgradeableProxy(

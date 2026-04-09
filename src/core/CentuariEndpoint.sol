@@ -212,11 +212,10 @@ contract CentuariEndpoint is
 
             // Record borrow debt in RiskModule
             if (_riskModule != address(0)) {
-                // P0 FIX: Normalize debt to 18-decimal USD for consistent HF computation.
-                // RiskModule.usdValueCached is 18-dec; debt must match the same scale.
-                // HF = weightedCollateral18 / totalDebt18 — both sides must be 18 decimals.
-                uint8 debtDecimals = _getTokenDecimals(m.lendAsset);
-                uint256 debtNormalized = m.principal * (10 ** (18 - debtDecimals));
+                // P0-3 FIX: Convert debt to 18-decimal USD via oracle price.
+                // Uses RiskModule.toUSD18() which multiplies by oracle price — correct for
+                // non-USD stablecoins (IDRX, XSGD) where 1 token ≠ $1.
+                uint256 debtNormalized = IRiskModule(_riskModule).toUSD18(m.lendAsset, m.principal);
 
                 IRiskModule(_riskModule).recordUserDebt(m.borrower, debtNormalized);
 
@@ -307,9 +306,11 @@ contract CentuariEndpoint is
         for (uint256 i = 0; i < refinances.length; i++) {
             RefinanceSettlement calldata r = refinances[i];
 
-            // MED-1 FIX: Verify refinance rate within anchor bounds (±50 bps).
-            // Rollovers already check this (HIGH-1). Refinances must be consistent.
-            if (r.anchorRateBPS > 0) {
+            // H-04 FIX: Anchor rate check is now UNCONDITIONAL for refinances — Invariant #15.
+            // The old `if (anchorRateBPS > 0)` allowed bypassing bounds by submitting 0.
+            // Must match the rollover pattern at line 269 for consistency.
+            require(r.anchorRateBPS > 0, "CentuariEndpoint: anchor rate required for refinance");
+            {
                 uint256 refRateDiff = r.newRateBPS > r.anchorRateBPS
                     ? r.newRateBPS - r.anchorRateBPS
                     : r.anchorRateBPS - r.newRateBPS;
@@ -333,20 +334,25 @@ contract CentuariEndpoint is
             // Adjust by the delta so RiskModule accurately tracks the borrower's true debt.
             // P0 FIX: Normalize debt delta to 18-decimal USD (same scale as usdValueCached).
             if (_riskModule != address(0)) {
-                uint8 refDecimals = _getTokenDecimals(r.lendAsset);
+                IRiskModule riskModule = IRiskModule(_riskModule);
 
                 // P0-3 FIX: Add grace period penalty interest to debt (§5.15).
-                // The off-chain engine computes: penaltyInterest = penaltyRateBPS * principal * graceDuration / (10000 * 365 days)
-                // and includes it in r.penaltyInterest. This is added to the borrower's debt
-                // to make strategic grace period exploitation expensive.
-                uint256 penaltyNormalized = r.penaltyInterest * (10 ** (18 - refDecimals));
-                if (penaltyNormalized > 0) {
-                    IRiskModule(_riskModule).recordUserDebt(r.borrower, penaltyNormalized);
+                // Uses toUSD18() for real USD conversion via oracle.
+                if (r.penaltyInterest > 0) {
+                    uint256 penaltyNormalized = riskModule.toUSD18(r.lendAsset, r.penaltyInterest);
+                    if (penaltyNormalized > 0) {
+                        riskModule.recordUserDebt(r.borrower, penaltyNormalized);
+                    }
                 }
 
+                // P0-3 + P0-4 FIX: Bidirectional debt tracking.
+                // Record increase OR decrease — not just increase.
                 if (r.newPrincipal > r.oldDebt) {
-                    uint256 debtDelta = (r.newPrincipal - r.oldDebt) * (10 ** (18 - refDecimals));
-                    IRiskModule(_riskModule).recordUserDebt(r.borrower, debtDelta);
+                    uint256 debtDelta = riskModule.toUSD18(r.lendAsset, r.newPrincipal - r.oldDebt);
+                    riskModule.recordUserDebt(r.borrower, debtDelta);
+                } else if (r.oldDebt > r.newPrincipal) {
+                    uint256 debtReduction = riskModule.toUSD18(r.lendAsset, r.oldDebt - r.newPrincipal);
+                    riskModule.reduceUserDebt(r.borrower, debtReduction);
                 }
             }
 
@@ -373,11 +379,9 @@ contract CentuariEndpoint is
             ledger.reduceCollateral(l.borrower, l.collateralAsset, l.collateralSeized);
 
             // Reduce borrower's debt via RiskModule
-            // P0 FIX: Normalize debtRepaid to 18-decimal USD (same scale as usdValueCached).
-            // debtRepaid is in raw token decimals (e.g. 6 for USDC); RiskModule tracks 18-dec.
+            // P0-3 FIX: Convert via oracle price for correct USD value (non-USD stablecoins).
             if (_riskModule != address(0)) {
-                uint8 liqDebtDecimals = _getTokenDecimals(l.debtAsset);
-                uint256 debtRepaidNorm = l.debtRepaid * (10 ** (18 - liqDebtDecimals));
+                uint256 debtRepaidNorm = IRiskModule(_riskModule).toUSD18(l.debtAsset, l.debtRepaid);
                 IRiskModule(_riskModule).reduceUserDebt(l.borrower, debtRepaidNorm);
                 IRiskModule(_riskModule).reduceDebtAgainstAsset(l.collateralAsset, debtRepaidNorm);
             }
