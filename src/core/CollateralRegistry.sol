@@ -130,11 +130,21 @@ contract CollateralRegistry is
                         uint256 maxStaleness = IAssetBehaviorRegistry(_assetBehaviorRegistry)
                             .getBehavior(pos.asset).maxStaleness;
                         if (maxStaleness > 0 && block.timestamp - updatedAt > maxStaleness) {
-                            // P1-c FIX: Apply 20% haircut instead of silent skip (Venus Protocol pattern)
+                            // P2-5 FIX: 4-step discrete degradation instead of flat 20% cliff.
+                            // Steps: 5% at 15min, 10% at 30min, 15% at 60min, 20% at >60min over maxStaleness.
+                            // Stepped is auditable, gas-cheap, resistant to timing attacks.
+                            uint256 overtime = block.timestamp - updatedAt - maxStaleness;
+                            uint256 discountBPS;
+                            if (overtime <= 15 minutes) discountBPS = 500;       // 5%
+                            else if (overtime <= 30 minutes) discountBPS = 1000; // 10%
+                            else if (overtime <= 60 minutes) discountBPS = 1500; // 15%
+                            else discountBPS = 2000;                              // 20%
+
                             emit StalePriceDetected(pos.asset, updatedAt, maxStaleness);
                             uint256 currentCached = pos.usdValueCached;
                             if (currentCached > 0) {
-                                ledger.updateCollateralUsdValue(user, pos.asset, (currentCached * 80) / 100);
+                                uint256 discountedValue = (currentCached * (10000 - discountBPS)) / 10000;
+                                ledger.updateCollateralUsdValue(user, pos.asset, discountedValue);
                             }
                             continue;
                         }

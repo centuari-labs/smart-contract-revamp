@@ -67,6 +67,10 @@ abstract contract CentuariEndpointStorage {
     /// @notice Anchor rate tolerance for rollover/refinance (±50 bps)
     uint256 internal constant ANCHOR_RATE_TOLERANCE_BPS = 50;
 
+    /// @notice P2-2: Maximum allowed gap between settlement batch nonces.
+    /// @dev Prevents unbounded skipping while allowing engine recovery (skip failed batches).
+    uint256 internal constant MAX_NONCE_GAP = 10;
+
     /// @notice Signer update timelock duration (48 hours)
     uint256 internal constant SIGNER_UPDATE_TIMELOCK = 48 hours;
 

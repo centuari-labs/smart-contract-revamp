@@ -102,8 +102,10 @@ contract CentuariEndpoint is
         address recoveredSigner = ethSignedHash.recover(engineSignature);
         if (recoveredSigner != _authorizedSigner) revert InvalidSignature();
 
-        // STEP 2: Verify strictly increasing nonce (Security Invariant #2)
-        if (batch.nonce != _lastProcessedNonce + 1) {
+        // P2-2 FIX: Gap-allowing nonce with MAX_NONCE_GAP=10.
+        // Old: strict equality (nonce == last+1) — any gap permanently bricks settlement.
+        // New: allows gaps up to 10 for engine recovery while preventing unbounded skipping.
+        if (batch.nonce <= _lastProcessedNonce || batch.nonce > _lastProcessedNonce + MAX_NONCE_GAP) {
             revert NonceTooLow(_lastProcessedNonce + 1, batch.nonce);
         }
 
@@ -137,13 +139,17 @@ contract CentuariEndpoint is
         // Step 8: Process new matches
         _processMatches(batch.matches);
 
-        // Step 9: Process fee distributions (delegated to FeeController)
+        // P2-8 FIX: Fee processing wrapped in try/catch. A reverting FeeController should
+        // NEVER block settlement batch execution (liquidations, matches, rollovers are more critical).
         if (_feeController != address(0) && batch.feeDistributions.length > 0) {
-            uint256 totalRevenue = IFeeController(_feeController).validateAndExecuteFees(
+            try IFeeController(_feeController).validateAndExecuteFees(
                 batch.feeDistributions,
                 abi.encode(batch.matches, batch.rollovers, batch.refinances)
-            );
-            emit FeesProcessed(batch.nonce, totalRevenue);
+            ) returns (uint256 totalRevenue) {
+                emit FeesProcessed(batch.nonce, totalRevenue);
+            } catch {
+                emit FeeProcessingFailed(batch.nonce);
+            }
         }
 
         // Step 10: Process grace period starts

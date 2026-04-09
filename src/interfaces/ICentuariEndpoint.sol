@@ -177,6 +177,7 @@ interface ICentuariEndpoint {
     );
 
     event FeesProcessed(uint256 indexed nonce, uint256 totalProtocolRevenue);
+    event FeeProcessingFailed(uint256 indexed nonce);
     event CBTRedeemed(address indexed redeemer, address indexed cbtAddress, address underlying, uint256 amount);
     event EngineSignerUpdated(address indexed oldSigner, address indexed newSigner);
     event Paused(address indexed account);

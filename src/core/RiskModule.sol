@@ -51,12 +51,38 @@ contract RiskModule is
     // ============ Health Factor ============
 
     /// @inheritdoc IRiskModule
+    /// @dev Uses live oracle prices (suitable for liquidation decisions).
     function getHealthFactor(address user) external view override returns (uint256 hf18) {
         uint256 weightedCollateral = _getWeightedCollateralUSD(user);
         uint256 totalDebt = _userDebtUSD[user];
 
         if (totalDebt == 0) return type(uint256).max;
         return (weightedCollateral * HF_PRECISION) / totalDebt;
+    }
+
+    /// @notice P2-1: HF computation using cached prices (cheaper, for dashboards/pre-checks)
+    /// @dev Uses usdValueCached from CollateralPosition instead of live oracle reads.
+    ///      NOT suitable for liquidation decisions — use getHealthFactor() for that.
+    function getHealthFactorCached(address user) external view returns (uint256 hf18) {
+        uint256 weightedCollateral = _getWeightedCollateralCached(user);
+        uint256 totalDebt = _userDebtUSD[user];
+
+        if (totalDebt == 0) return type(uint256).max;
+        return (weightedCollateral * HF_PRECISION) / totalDebt;
+    }
+
+    /// @dev HF computation using cached USD values (no oracle calls)
+    function _getWeightedCollateralCached(address user) internal view returns (uint256 weightedUSD) {
+        IBalanceLedger.CollateralPosition[] memory positions = IBalanceLedger(_balanceLedger).getCollateral(user);
+        for (uint256 i = 0; i < positions.length; i++) {
+            if (positions[i].state != IBalanceLedger.CollateralState.ACTIVE) continue;
+            if (!IBalanceLedger(_balanceLedger).getIsUsedAsCollateral(user, positions[i].asset)) continue;
+
+            uint256 liqThreshold = IAssetBehaviorRegistry(_assetBehaviorRegistry)
+                .getEffectiveLiqThreshold(positions[i].asset);
+
+            weightedUSD += (positions[i].usdValueCached * liqThreshold) / BPS_DENOMINATOR;
+        }
     }
 
     /// @inheritdoc IRiskModule
