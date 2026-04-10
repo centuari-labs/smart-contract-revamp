@@ -15,19 +15,32 @@
 #   BACKEND_OPERATOR     - Required. Backend operator address (used as Faucet operator)
 #   FAUCET_TOKENS        - Optional. Comma-separated token addresses to wire to Faucet (grant minter + addToken)
 #   SETTLEMENT_OPERATOR  - Required to run DeploySettlement. Settlement engine operator
-#   TREASURY_OPERATOR    - Optional. Defaults to BACKEND_OPERATOR. Treasury contract operator
 #   CENTUARI_OWNER       - Optional. Centuari owner; defaults to the deployer wallet address
 #   CENTUARI_SETTLEMENT_PLACEHOLDER - Optional. Centuari init settlement; defaults to CENTUARI_OWNER
-#   TREASURY_ADDRESS     - Optional. If set, skip DeployTreasury and use this for DeployCentuari / setCentuariContract
-#   CENTUARI_ADDRESS     - Optional. If set, skip DeployCentuari and use this for setCentuariContract / DeploySettlement
+#   FEE_COLLECTOR        - Optional. Fee collector address; defaults to DEPLOYER_ADDRESS
+#   CENTUARI_ADDRESS     - Optional. If set, skip DeployCentuari and use this for downstream steps
+#   BALANCE_LEDGER_ADDRESS - Optional. If set, skip DeployBalanceLedger and use this
+#   HUB_DEPOSITOR_ADDRESS - Optional. If set, skip DeployHubDepositor and use this
 #   PROXY_ADMIN          - Required to run UpgradeSettlement. ProxyAdmin contract address
 #   SETTLEMENT_PROXY     - Required to run UpgradeSettlement. Settlement proxy address (alias: PROXY)
 #   USE_EXISTING_MOCK_TOKENS - Optional. If "true", reuse mock tokens from a prior deployment summary instead of running DeployMockTokens.
 #   MOCK_TOKENS_FILE     - Optional. Path to deployment JSON to reuse mockTokens from. Defaults to deployments/deploy-<NETWORK_SLUG>-latest.json when USE_EXISTING_MOCK_TOKENS=true.
 #
-# Order: DeployMockTokens -> DeployFaucet -> DeployTreasury (capture TREASURY) -> DeployCentuari (capture CENTUARI)
-#        -> DeployTreasury(treasury, centuari) [setCentuariContract] -> DeploySettlement -> UpgradeSettlement
-# Treasury and Centuari addresses are parsed from script output when not provided via env.
+# Deployment order:
+#   1. DeployMockTokens
+#   2. DeployFaucet
+#   3. DeployBalanceLedger
+#   4. DeployCentuari (with BalanceLedger)
+#   5. DeployBondFactory
+#   6. ConfigureBondFactory
+#   7. DeployHubDepositor
+#   8. DeployCollateralStack (RiskModuleStub + CollateralManager)
+#   9. ConfigureBalanceLedger (add Centuari + HubDepositor as writers)
+#   10. DeploySettlement
+#   11. ConfigureBalanceLedger (add Settlement as writer)
+#   12. SetSettlement on Centuari
+#   13. UpgradeSettlement (optional)
+#   14. SetOperators
 #
 set -e
 
@@ -88,6 +101,7 @@ fi
 # Defaults for Centuari deploy
 [[ -z "${CENTUARI_OWNER:-}" && -n "${DEPLOYER_ADDRESS:-}" ]] && export CENTUARI_OWNER="$DEPLOYER_ADDRESS"
 [[ -z "${CENTUARI_SETTLEMENT_PLACEHOLDER:-}" && -n "${CENTUARI_OWNER:-}" ]] && export CENTUARI_SETTLEMENT_PLACEHOLDER="$CENTUARI_OWNER"
+[[ -z "${FEE_COLLECTOR:-}" && -n "${DEPLOYER_ADDRESS:-}" ]] && export FEE_COLLECTOR="$DEPLOYER_ADDRESS"
 
 # Determine chain id and network slug early so they can be reused for file naming and summaries.
 CHAIN_ID=""
@@ -126,11 +140,17 @@ run_script() {
   "${FORGE_BASE[@]}" "$@" "${FORGE_EXTRA[@]}"
 }
 
-# Parse Treasury address from forge script output (line "Treasury: 0x...")
-parse_treasury() {
-  grep -oE 'Treasury: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/Treasury: //'
+# --- Output parsers ---
+
+parse_balance_ledger_proxy() {
+  grep -oE 'BalanceLedger proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/BalanceLedger proxy: //'
 }
-# Parse Centuari proxy from forge script output (line "Centuari proxy: 0x...")
+parse_balance_ledger_proxy_admin() {
+  grep -oE 'ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/ProxyAdmin: //'
+}
+parse_balance_ledger_impl() {
+  grep -oE 'BalanceLedger implementation: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/BalanceLedger implementation: //'
+}
 parse_centuari_proxy() {
   grep -oE 'Centuari proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/Centuari proxy: //'
 }
@@ -140,11 +160,24 @@ parse_centuari_proxy_admin() {
 parse_bond_factory() {
   grep -oE 'BondFactory: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/BondFactory: //'
 }
-# Parse Faucet address from forge script output (line "Faucet 0x...")
+parse_hub_depositor_proxy() {
+  grep -oE 'HubDepositor proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/HubDepositor proxy: //'
+}
+parse_hub_depositor_proxy_admin() {
+  grep -oE 'ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/ProxyAdmin: //'
+}
+parse_hub_depositor_impl() {
+  grep -oE 'HubDepositor implementation: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/HubDepositor implementation: //'
+}
+parse_collateral_manager_proxy() {
+  grep -oE 'CollateralManager Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/CollateralManager Proxy: //'
+}
+parse_risk_module_stub() {
+  grep -oE 'RiskModuleStub: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/RiskModuleStub: //'
+}
 parse_faucet() {
   grep -oE 'Faucet 0x[a-fA-F0-9]{40}' | head -1 | awk '{print $2}'
 }
-# Parse Settlement deployment information from forge script output
 parse_settlement_proxy() {
   grep -oE 'Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/Proxy: //'
 }
@@ -161,8 +194,16 @@ parse_upgrade_new_impl() {
 write_deploy_summary() {
   : "${MOCK_TOKENS_JSON:={}}"
   : "${FAUCET_ADDRESS:=}"
+  : "${BALANCE_LEDGER_ADDRESS:=}"
+  : "${BALANCE_LEDGER_PROXY_ADMIN_ADDRESS:=}"
+  : "${BALANCE_LEDGER_IMPLEMENTATION_ADDRESS:=}"
   : "${CENTUARI_PROXY_ADMIN_ADDRESS:=}"
   : "${BOND_FACTORY_ADDRESS:=}"
+  : "${HUB_DEPOSITOR_ADDRESS:=}"
+  : "${HUB_DEPOSITOR_PROXY_ADMIN_ADDRESS:=}"
+  : "${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS:=}"
+  : "${COLLATERAL_MANAGER_ADDRESS:=}"
+  : "${RISK_MODULE_STUB_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
@@ -182,12 +223,18 @@ write_deploy_summary() {
     echo "  \"backendOperator\": \"${BACKEND_OPERATOR:-}\","
     echo "  \"settlementOperator\": \"${SETTLEMENT_OPERATOR:-}\","
     echo "  \"faucetOperator\": \"${FAUCET_OPERATOR:-}\","
-    echo "  \"treasuryOperator\": \"${TREASURY_OPERATOR:-}\","
     echo "  \"faucetAddress\": \"${FAUCET_ADDRESS}\","
-    echo "  \"treasuryAddress\": \"${TREASURY_ADDRESS:-}\","
+    echo "  \"balanceLedgerAddress\": \"${BALANCE_LEDGER_ADDRESS}\","
+    echo "  \"balanceLedgerProxyAdmin\": \"${BALANCE_LEDGER_PROXY_ADMIN_ADDRESS}\","
+    echo "  \"balanceLedgerImplementation\": \"${BALANCE_LEDGER_IMPLEMENTATION_ADDRESS}\","
     echo "  \"centuariAddress\": \"${CENTUARI_ADDRESS:-}\","
     echo "  \"centuariProxyAdmin\": \"${CENTUARI_PROXY_ADMIN_ADDRESS:-}\","
     echo "  \"bondTokenFactoryAddress\": \"${BOND_FACTORY_ADDRESS:-}\","
+    echo "  \"hubDepositorAddress\": \"${HUB_DEPOSITOR_ADDRESS}\","
+    echo "  \"hubDepositorProxyAdmin\": \"${HUB_DEPOSITOR_PROXY_ADMIN_ADDRESS}\","
+    echo "  \"hubDepositorImplementation\": \"${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS}\","
+    echo "  \"collateralManagerAddress\": \"${COLLATERAL_MANAGER_ADDRESS}\","
+    echo "  \"riskModuleStubAddress\": \"${RISK_MODULE_STUB_ADDRESS}\","
     echo "  \"settlementProxy\": \"${SETTLEMENT_PROXY_ADDRESS:-}\","
     echo "  \"settlementProxyAdmin\": \"${SETTLEMENT_PROXY_ADMIN_ADDRESS:-}\","
     echo "  \"settlementImplementation\": \"${SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
@@ -282,12 +329,17 @@ build_mock_tokens_json() {
 '
 }
 
+TOTAL_STEPS=14
+
+# ===========================
+# Step 1: DeployMockTokens
+# ===========================
 if [[ "$USE_EXISTING_MOCK_TOKENS" == "true" ]]; then
-  echo "=== 1/7 DeployMockTokens (reuse existing) ==="
+  echo "=== 1/$TOTAL_STEPS DeployMockTokens (reuse existing) ==="
   echo "Using existing mockTokens from $MOCK_TOKENS_FILE (skip DeployMockTokens script)"
   load_mock_tokens_from_file
 else
-  echo "=== 1/7 DeployMockTokens ==="
+  echo "=== 1/$TOTAL_STEPS DeployMockTokens ==="
   deploy_mock_output=$(run_script script/DeployMockTokens.s.sol:DeployMockTokens 2>&1) || {
     status=$?
     echo "$deploy_mock_output"
@@ -314,9 +366,11 @@ else
   fi
 fi
 
-echo "=== 2/7 DeployFaucet ==="
+# ===========================
+# Step 2: DeployFaucet
+# ===========================
+echo "=== 2/$TOTAL_STEPS DeployFaucet ==="
 export FAUCET_OPERATOR="$BACKEND_OPERATOR"
-export TREASURY_OPERATOR="$BACKEND_OPERATOR"
 deploy_faucet_output=$(run_script script/DeployFaucet.s.sol:DeployFaucet 2>&1) || {
   status=$?
   echo "$deploy_faucet_output"
@@ -326,25 +380,39 @@ deploy_faucet_output=$(run_script script/DeployFaucet.s.sol:DeployFaucet 2>&1) |
 echo "$deploy_faucet_output"
 FAUCET_ADDRESS="$(echo "$deploy_faucet_output" | parse_faucet || true)"
 
-echo "=== 3/7 DeployTreasury ==="
-if [[ -z "${TREASURY_ADDRESS:-}" ]]; then
-  out=$(run_script script/DeployTreasury.s.sol:DeployTreasury 2>&1)
-  echo "$out"
-  TREASURY=$(echo "$out" | parse_treasury)
-  if [[ -n "$TREASURY" ]]; then
-    export TREASURY_ADDRESS="$TREASURY"
-    echo "Captured TREASURY_ADDRESS=$TREASURY_ADDRESS"
+# ===========================
+# Step 3: DeployBalanceLedger
+# ===========================
+echo "=== 3/$TOTAL_STEPS DeployBalanceLedger ==="
+if [[ -z "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
+  if [[ -n "${DEPLOYER_ADDRESS:-}" ]]; then
+    out=$(run_script script/DeployBalanceLedger.s.sol:DeployBalanceLedger \
+      --sig "run(address,bool,address)" \
+      "$DEPLOYER_ADDRESS" true "$DEPLOYER_ADDRESS" 2>&1)
+    echo "$out"
+    BL_PROXY=$(echo "$out" | parse_balance_ledger_proxy)
+    if [[ -n "$BL_PROXY" ]]; then
+      export BALANCE_LEDGER_ADDRESS="$BL_PROXY"
+      echo "Captured BALANCE_LEDGER_ADDRESS=$BALANCE_LEDGER_ADDRESS"
+    fi
+    BALANCE_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_balance_ledger_proxy_admin || true)"
+    BALANCE_LEDGER_IMPLEMENTATION_ADDRESS="$(echo "$out" | parse_balance_ledger_impl || true)"
+  else
+    echo "Skipping DeployBalanceLedger (set PRIVATE_KEY so DEPLOYER_ADDRESS can be derived)"
   fi
 else
-  echo "Using existing TREASURY_ADDRESS=$TREASURY_ADDRESS (skip deploy)"
+  echo "Using existing BALANCE_LEDGER_ADDRESS=$BALANCE_LEDGER_ADDRESS (skip deploy)"
 fi
 
-echo "=== 4/8 DeployCentuari ==="
-if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${TREASURY_ADDRESS:-}" ]]; then
+# ===========================
+# Step 4: DeployCentuari
+# ===========================
+echo "=== 4/$TOTAL_STEPS DeployCentuari ==="
+if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
   if [[ -z "${CENTUARI_ADDRESS:-}" ]]; then
     out=$(run_script script/DeployCentuari.s.sol:DeployCentuari \
-      --sig "run(address,address,address,address)" \
-      "$CENTUARI_OWNER" "$CENTUARI_SETTLEMENT_PLACEHOLDER" "$TREASURY_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
+      --sig "run(address,address,address,address,address)" \
+      "$CENTUARI_OWNER" "$CENTUARI_SETTLEMENT_PLACEHOLDER" "$BALANCE_LEDGER_ADDRESS" "$FEE_COLLECTOR" "$DEPLOYER_ADDRESS" 2>&1)
     echo "$out"
     CENTUARI=$(echo "$out" | parse_centuari_proxy)
     if [[ -n "$CENTUARI" ]]; then
@@ -356,10 +424,13 @@ if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${TREASURY_ADDRESS:-}" ]]; then
     echo "Using existing CENTUARI_ADDRESS=$CENTUARI_ADDRESS (skip deploy)"
   fi
 else
-  echo "Skipping DeployCentuari (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and TREASURY_ADDRESS is set, or set CENTUARI_ADDRESS to use existing)"
+  echo "Skipping DeployCentuari (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and BALANCE_LEDGER_ADDRESS is set)"
 fi
 
-echo "=== 5/8 DeployBondFactory ==="
+# ===========================
+# Step 5: DeployBondFactory
+# ===========================
+echo "=== 5/$TOTAL_STEPS DeployBondFactory ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" ]]; then
   if [[ -z "${BOND_FACTORY_ADDRESS:-}" ]]; then
     out=$(run_script script/DeployBondFactory.s.sol:DeployBondFactory \
@@ -378,7 +449,10 @@ else
   echo "Skipping DeployBondFactory (set CENTUARI_ADDRESS to run)"
 fi
 
-echo "=== 6/8 ConfigureBondFactory ==="
+# ===========================
+# Step 6: ConfigureBondFactory
+# ===========================
+echo "=== 6/$TOTAL_STEPS ConfigureBondFactory ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${BOND_FACTORY_ADDRESS:-}" ]]; then
   run_script script/ConfigureBondFactory.s.sol:ConfigureBondFactory \
     --sig "run(address,address)" \
@@ -387,25 +461,71 @@ else
   echo "Skipping ConfigureBondFactory (set CENTUARI_ADDRESS and BOND_FACTORY_ADDRESS to run)"
 fi
 
-echo "=== 7/8 DeployTreasury (setCentuariContract) ==="
-if [[ -n "${TREASURY_ADDRESS:-}" && -n "${CENTUARI_ADDRESS:-}" ]]; then
-  run_script script/DeployTreasury.s.sol:DeployTreasury \
-    --sig "run(address,address)" \
-    "$TREASURY_ADDRESS" "$CENTUARI_ADDRESS"
+# ===========================
+# Step 7: DeployHubDepositor
+# ===========================
+echo "=== 7/$TOTAL_STEPS DeployHubDepositor ==="
+if [[ -z "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
+  if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
+    out=$(run_script script/DeployHubDepositor.s.sol:DeployHubDepositor \
+      --sig "run(address,address,address)" \
+      "$DEPLOYER_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
+    echo "$out"
+    HD_PROXY=$(echo "$out" | parse_hub_depositor_proxy)
+    if [[ -n "$HD_PROXY" ]]; then
+      export HUB_DEPOSITOR_ADDRESS="$HD_PROXY"
+      echo "Captured HUB_DEPOSITOR_ADDRESS=$HUB_DEPOSITOR_ADDRESS"
+    fi
+    HUB_DEPOSITOR_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_hub_depositor_proxy_admin || true)"
+    HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS="$(echo "$out" | parse_hub_depositor_impl || true)"
+  else
+    echo "Skipping DeployHubDepositor (set PRIVATE_KEY and BALANCE_LEDGER_ADDRESS)"
+  fi
 else
-  echo "Skipping setCentuariContract (set TREASURY_ADDRESS and CENTUARI_ADDRESS to run)"
+  echo "Using existing HUB_DEPOSITOR_ADDRESS=$HUB_DEPOSITOR_ADDRESS (skip deploy)"
 fi
 
-echo "=== 8/10 SetSupportedTokens ==="
-if [[ -n "${TREASURY_ADDRESS:-}" ]]; then
-  echo "Writing deployment summary to $SUMMARY_FILE for set_supported_tokens.sh"
-  write_deploy_summary
-  DEPLOY_JSON="$SUMMARY_FILE" "$ROOT_DIR/bin/set_supported_tokens.sh"
+# ===========================
+# Step 8: DeployCollateralStack
+# ===========================
+echo "=== 8/$TOTAL_STEPS DeployCollateralStack ==="
+if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
+  if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" ]]; then
+    out=$(run_script script/DeployCollateralStack.s.sol:DeployCollateralStack \
+      --sig "run(address,address,address,address)" \
+      "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
+    echo "$out"
+    CM_PROXY=$(echo "$out" | parse_collateral_manager_proxy)
+    if [[ -n "$CM_PROXY" ]]; then
+      export COLLATERAL_MANAGER_ADDRESS="$CM_PROXY"
+      echo "Captured COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS"
+    fi
+    RISK_MODULE_STUB_ADDRESS="$(echo "$out" | parse_risk_module_stub || true)"
+  else
+    echo "Skipping DeployCollateralStack (set PRIVATE_KEY, BALANCE_LEDGER_ADDRESS, and BACKEND_OPERATOR)"
+  fi
 else
-  echo "Skipping set_supported_tokens.sh (set TREASURY_ADDRESS to run)"
+  echo "Using existing COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS (skip deploy)"
 fi
 
-echo "=== 9/10 DeploySettlement ==="
+# ===========================
+# Step 9: ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor writers)
+# ===========================
+echo "=== 9/$TOTAL_STEPS ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor) ==="
+if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
+  # CollateralManager is already registered by DeployCollateralStack (step 8),
+  # so Phase 1 only adds Centuari + HubDepositor.
+  run_script script/ConfigureBalanceLedger.s.sol:ConfigureBalanceLedger \
+    --sig "run(address,address,address)" \
+    "$BALANCE_LEDGER_ADDRESS" "$CENTUARI_ADDRESS" "$HUB_DEPOSITOR_ADDRESS"
+else
+  echo "Skipping ConfigureBalanceLedger Phase 1 (need BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
+fi
+
+# ===========================
+# Step 10: DeploySettlement
+# ===========================
+echo "=== 10/$TOTAL_STEPS DeploySettlement ==="
 if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" ]]; then
   deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
     --sig "run(address,address,address,address)" \
@@ -423,7 +543,22 @@ else
   echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR and CENTUARI_ADDRESS are set)"
 fi
 
-echo "=== SetSettlement on Centuari ==="
+# ===========================
+# Step 11: ConfigureBalanceLedger (Phase 2 — add Settlement as writer)
+# ===========================
+echo "=== 11/$TOTAL_STEPS ConfigureBalanceLedger (Phase 2 — Settlement) ==="
+if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" ]]; then
+  run_script script/ConfigureBalanceLedger.s.sol:ConfigureBalanceLedger \
+    --sig "addSettlement(address,address)" \
+    "$BALANCE_LEDGER_ADDRESS" "$SETTLEMENT_PROXY_ADDRESS"
+else
+  echo "Skipping ConfigureBalanceLedger Phase 2 (need BALANCE_LEDGER_ADDRESS and SETTLEMENT_PROXY_ADDRESS)"
+fi
+
+# ===========================
+# Step 12: SetSettlement on Centuari
+# ===========================
+echo "=== 12/$TOTAL_STEPS SetSettlement on Centuari ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
   echo "Updating Centuari._settlement to the deployed Settlement proxy..."
   echo "  Centuari:         $CENTUARI_ADDRESS"
@@ -438,7 +573,10 @@ else
   echo "Skipping SetSettlement on Centuari (need CENTUARI_ADDRESS, SETTLEMENT_PROXY_ADDRESS, PRIVATE_KEY, and RPC_URL)"
 fi
 
-echo "=== 10/10 UpgradeSettlement ==="
+# ===========================
+# Step 13: UpgradeSettlement (optional)
+# ===========================
+echo "=== 13/$TOTAL_STEPS UpgradeSettlement ==="
 PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
 if [[ "$DEPLOY_ONLY" == true ]]; then
   echo "Skipping UpgradeSettlement (--deploy-only)"
@@ -456,7 +594,11 @@ elif [[ -n "${PROXY_ADMIN:-}" && -n "$PROXY" ]]; then
 else
   echo "Skipping UpgradeSettlement (set PROXY_ADMIN and SETTLEMENT_PROXY or PROXY to run)"
 fi
-echo "=== 10/10 SetOperators ==="
+
+# ===========================
+# Step 14: SetOperators
+# ===========================
+echo "=== 14/$TOTAL_STEPS SetOperators ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
   echo "Writing deployment summary for set_operators.sh"
   write_deploy_summary

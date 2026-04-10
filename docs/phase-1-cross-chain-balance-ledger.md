@@ -162,13 +162,13 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 |---|---|---|
 | M1 — BalanceLedger.sol core | 🟢 **DONE** | Landed 2026-04-09. 3-state model + on-chain collateral flag (`_usedAsCollateral`, `_flaggedAssets`, `_flaggedAt`) + `markCollateral`/`unmarkCollateral` + `CollateralFlagSet` event (5 params: `writer, user, asset, used, flaggedAt`). Storage gap 45→42, frozen at 49 slots. 240/240 tests passing. See `collateral-loophole-fix-plan.md` P1a Completion Record for full file list and deviations. |
 | M1b — IRiskModule + RiskModuleStub + CollateralManager | 🟢 **DONE** | Landed 2026-04-09. `IRiskModule.sol`, `RiskModuleStub.sol` (fail-closed: `canUnflag` unconditionally `false`), `ICollateralManager.sol`, `CollateralManagerStorage.sol`, `CollateralManager.sol` (`OwnableUpgradeable + onlyOperator`, NOT `AccessControlUpgradeable`), `DeployCollateralStack.s.sol`. 36 new tests. `MAX_FLAG_LOCK = 30 days` ceiling added. See `collateral-loophole-fix-plan.md` P1a Completion Record for deviations from original spec. |
-| M2 — Centuari.sol migration off Treasury | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M1 (done). |
-| M3 — Deployment scripts + testnet cutover + HubDepositor | ⚪ NOT STARTED | blocked on M2 |
-| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | ⚪ NOT STARTED | blocked on M3 |
+| M2 — Centuari.sol migration off Treasury | 🟢 **DONE** | Landed 2026-04-10. All balance ops migrated from Treasury to BalanceLedger (`debit`/`credit`). `_balanceLedger` slot added to `CentuariStorage.sol`. Auto-flag at settlement via `markCollateral(borrower, loanToken)` in `settleMatch()`. Auto-unflag loop in `repay()` clears all flagged assets when `_activeDebtCount[borrower] == 0` (bypasses 24h flag-lock). Zero Treasury references remain. Tests fully ported to BalanceLedger model with dedicated auto-flag/unflag coverage. |
+| M3 — Deployment scripts + testnet cutover + HubDepositor | 🟢 **DONE** | Landed 2026-04-10. HubDepositor.sol (IHubDepositor + HubDepositorStorage + HubDepositor) with deposit/payout via BalanceLedger credit/debit. DeployBalanceLedger.s.sol, DeployHubDepositor.s.sol, ConfigureBalanceLedger.s.sol (two-phase writer registration). run-all.sh rewritten to 14 steps — Treasury fully removed, BalanceLedger + HubDepositor + CollateralStack integrated. export-abi.sh updated (added BalanceLedger, HubDepositor, CollateralManager; removed Treasury). 270 tests passing. Local Anvil smoke test verified: deposit via HubDepositor correctly credits BalanceLedger.available. |
+| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M3 (done). |
 | M5 — Spoke contracts + LayerZero DVN wiring | ⚪ NOT STARTED | blocked on M4 |
 | M6 — Solver Service | ⚪ NOT STARTED | blocked on M5 |
 | M7 — Sweeper Bot | ⚪ NOT STARTED | blocked on M6 |
-| M8 — indexer-v2 from scratch | ⚪ NOT STARTED | can start in parallel with M4 after M3 |
+| M8 — indexer-v2 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M4. Depends on M3 (done). |
 | M9 — backend-v2 + settlement-engine + matching-engine updates | ⚪ NOT STARTED | blocked on M8 |
 | M10 — frontend-revamp cross-chain UI + collateral toggle | ⚪ NOT STARTED | blocked on M4/M5 + M9 |
 
@@ -372,7 +372,9 @@ Each error carries enough info for the backend to surface a precise message ("lo
 
 ---
 
-### Module 2: Centuari.sol migration off Treasury ⚪ NOT STARTED
+### Module 2: Centuari.sol migration off Treasury 🟢 DONE
+
+**Completed 2026-04-10.** All balance operations migrated from Treasury to BalanceLedger. Auto-flag at settlement (`markCollateral` in `settleMatch()`), auto-unflag loop in `repay()` when `_activeDebtCount == 0` (bypasses 24h flag-lock). `_balanceLedger` slot added to `CentuariStorage`. Tests fully ported with dedicated auto-flag/unflag coverage. Zero Treasury references remain in Centuari.sol or Settlement.sol.
 
 **Scope:** change `Centuari.sol` to read + write `BalanceLedger` instead of calling `Treasury.sol`. Treasury.sol stays deployed for Phase 1 (users still deposit via it initially — see M3) but loses its role as the source of truth. Additionally, `Centuari.repay()` gains an **auto-unflag-on-debt-clear** loop that iterates `BalanceLedger.flaggedAssetsOf(msg.sender)` and calls `unmarkCollateral` for each asset when the repay brings total debt to zero. The repay path calls `unmarkCollateral` directly (bypassing `CollateralManager`) so the 24h flag-lock does not apply — full repayment is always a clean exit, even within the lock window.
 
