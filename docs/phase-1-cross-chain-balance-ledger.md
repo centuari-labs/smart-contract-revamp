@@ -437,7 +437,7 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 
 ---
 
-### Module 3: Deployment scripts + testnet cutover + HubDepositor ⚪ NOT STARTED
+### Module 3: Deployment scripts + testnet cutover + HubDepositor 🟢 DONE
 
 **Scope:** add deployment scripts for BalanceLedger + HubDepositor, update `run-all.sh` orchestration, redeploy full stack on Arbitrum Sepolia. Document the cutover. **Wipe of existing testnet balances is accepted per C8.**
 
