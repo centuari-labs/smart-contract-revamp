@@ -15,7 +15,7 @@ Execution is split per service boundary so each change set can be reviewed, test
 | **P5** | **Indexer** | 🔒 BLOCKED | Add `CollateralFlagSet` processor writing `user_balance.used_as_collateral` + `flagged_at` with C10 idempotency stamps. | P1a events + M8 start |
 | **P6** | **Frontend** | 🔒 BLOCKED | Borrow form collateral multi-select + 24h-lock confirmation modal; portfolio row countdown + disabled unflag button; error surfacing for `FlagLockActive` / `WouldMakeUnhealthy`. | P4 API + M10 start |
 
-**Current module state per doc (as of 2026-04-09):** M1 done (rolled back to 🟡 pending redeploy with P1a storage layout), M2–M10 not started. This plan file is the durable reference; phases land over time.
+**Current module state per doc (as of 2026-04-10):** M1 🟢 DONE, M1b 🟢 DONE (both landed 2026-04-09; phase-1 doc updated to reflect this). M2–M10 not started; M2 is now **unblocked** and is the next priority. This plan file is the durable reference; phases land over time.
 
 ## Resuming in a new session
 

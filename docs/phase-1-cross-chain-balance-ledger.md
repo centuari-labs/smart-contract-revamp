@@ -156,13 +156,13 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 - 🟡 **IN PROGRESS** — actively being implemented
 - ⚪ **NOT STARTED** — dependencies not yet met or not yet scheduled
 
-**Current Phase 1 status (as of 2026-04-09):**
+**Current Phase 1 status (as of 2026-04-10):**
 
 | Module | Status | Notes |
 |---|---|---|
-| M1 — BalanceLedger.sol core | 🟡 **IN PROGRESS** | 3-state model landed 2026-04-09 with 31/31 tests. Rolled back from DONE to add **on-chain `usedAsCollateral` mapping + `_flaggedAt` stamp + `_flaggedAssets` set + `markCollateral`/`unmarkCollateral` + new `CollateralFlagSet` event**. Storage gap shrinks 45→42 to cover the three new slots. Testnet redeploy, not a real upgrade (C8). |
-| M1b — IRiskModule + RiskModuleStub + CollateralManager | ⚪ NOT STARTED | New contracts landing alongside M1's extension. `CollateralManager` holds the 24h flag-lock + `RiskModule.canUnflag` gate for mid-life unflags. Stub returns `canUnflag = (debt == 0)`; Phase 2 swaps the pointer for real HF math. |
-| M2 — Centuari.sol migration off Treasury | ⚪ NOT STARTED | unblocked by M1 |
+| M1 — BalanceLedger.sol core | 🟢 **DONE** | Landed 2026-04-09. 3-state model + on-chain collateral flag (`_usedAsCollateral`, `_flaggedAssets`, `_flaggedAt`) + `markCollateral`/`unmarkCollateral` + `CollateralFlagSet` event (5 params: `writer, user, asset, used, flaggedAt`). Storage gap 45→42, frozen at 49 slots. 240/240 tests passing. See `collateral-loophole-fix-plan.md` P1a Completion Record for full file list and deviations. |
+| M1b — IRiskModule + RiskModuleStub + CollateralManager | 🟢 **DONE** | Landed 2026-04-09. `IRiskModule.sol`, `RiskModuleStub.sol` (fail-closed: `canUnflag` unconditionally `false`), `ICollateralManager.sol`, `CollateralManagerStorage.sol`, `CollateralManager.sol` (`OwnableUpgradeable + onlyOperator`, NOT `AccessControlUpgradeable`), `DeployCollateralStack.s.sol`. 36 new tests. `MAX_FLAG_LOCK = 30 days` ceiling added. See `collateral-loophole-fix-plan.md` P1a Completion Record for deviations from original spec. |
+| M2 — Centuari.sol migration off Treasury | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M1 (done). |
 | M3 — Deployment scripts + testnet cutover + HubDepositor | ⚪ NOT STARTED | blocked on M2 |
 | M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | ⚪ NOT STARTED | blocked on M3 |
 | M5 — Spoke contracts + LayerZero DVN wiring | ⚪ NOT STARTED | blocked on M4 |
@@ -193,9 +193,9 @@ After M3 is merged, M4 and M8 can be worked on in parallel (different trees). M9
 
 ## Phase 1A — BalanceLedger + Centuari Migration
 
-### Module 1: BalanceLedger.sol core 🟡 IN PROGRESS
+### Module 1: BalanceLedger.sol core 🟢 DONE
 
-**History:** the 3-balance-state portion landed 2026-04-09 with 31/31 tests passing (`available` / `inOrders` / `inYieldRouter`, gap `uint256[45]`). This module then **rolled back from DONE to IN PROGRESS** to add an on-chain `usedAsCollateral` flag with a per-(user, asset) timestamp and a flagged-asset set. The rollback was triggered by a design review that identified an exit-loophole: `WithdrawalRegistry` is deliberately on-chain and permissionless (a load-bearing trust property — doc C1), but an off-chain flag cannot be read inside an on-chain withdrawal call, so any user (app or Phase 6 integrator) could bypass the backend and withdraw flagged collateral while holding debt. Moving the flag on-chain closes the loophole with a single uniform HF gate for every caller.
+**Completed 2026-04-09.** The 3-balance-state portion landed with 31/31 tests, then the on-chain `usedAsCollateral` flag extension was added in the same session (triggered by the exit-loophole design review — see `collateral-loophole-fix-plan.md`). Final state: `markCollateral`/`unmarkCollateral` + `_usedAsCollateral` + `_flaggedAssets` (EnumerableSet) + `_flaggedAt` (uint64) + `CollateralFlagSet` event with **5 params** `(writer, user, asset, used, flaggedAt)` — note the event has 5 params, not 4 as originally specced; `writer` was added as the first indexed param. Storage gap shrank 45→42, frozen at 49 total slots. 240/240 tests passing across 8 suites. See `collateral-loophole-fix-plan.md` P1a Completion Record for the full file list and verification results.
 
 **Scope:** extend the existing `BalanceLedger` to store the collateral flag, the flag timestamp (for the 24-hour flag-lock), and a per-user enumerable set of flagged assets. Keep the contract a dumb accounting substrate — **all policy (HF gate, 24h flag-lock, role checks) lives in the writer-side wrappers `CollateralManager` / `WithdrawalRegistry`, never in BalanceLedger itself.** Integrators (Phase 6 `CentuariRouter`) can either compose with `CollateralManager` or bring their own policy on top of the same storage.
 
@@ -234,10 +234,11 @@ uint256[42] private __gap;
 - `inOrders` / `inYieldRouter` — still read-only in Phase 1; Phase 5B / 6 wire the entry points.
 - Writer management + pause — unchanged.
 
-**Event:**
+**Event (updated to match actual 5-param implementation):**
 
 ```solidity
 event CollateralFlagSet(
+    address indexed writer,    // added in P1a — the authorized writer that triggered the flag change
     address indexed user,
     address indexed asset,
     bool used,
@@ -278,7 +279,17 @@ Indexer-v2 listens for this event and writes `user_balance.used_as_collateral` +
 
 ---
 
-### Module 1b: IRiskModule + RiskModuleStub + CollateralManager ⚪ NOT STARTED
+### Module 1b: IRiskModule + RiskModuleStub + CollateralManager 🟢 DONE
+
+**Completed 2026-04-09.** Three new contracts landed as part of the P1a collateral-loophole-fix work. See `collateral-loophole-fix-plan.md` P1a Completion Record for full file list, verification results, and deviations from original spec.
+
+**Key deviations from original spec below (reality differs — update any downstream plans against these, not the original spec):**
+1. `CollateralManager` uses `OwnableUpgradeable + onlyOperator` (matching `Settlement.sol` repo convention), **NOT** `AccessControlUpgradeable + OPERATOR_ROLE` as specced below. There is no `grantRole` — governance sets operator via `CollateralManager.setOperator(addr)`.
+2. `RiskModuleStub.canUnflag` is **unconditionally `false`** — it does NOT check `totalDebt == 0` as specced below, because `Centuari.sol` has no per-user debt aggregator yet. The only Phase 1 path to clear a flag is `Centuari.repay` auto-unflag (P1b work).
+3. `MAX_FLAG_LOCK = 30 days` ceiling + `FlagLockTooLong` error added (defensive, not in original spec).
+4. `ICollateralManager.sol` + `CollateralManagerStorage.sol` were added as separate files (matching repo's interface-first + storage-contract pattern).
+
+**Original spec preserved below for reference:**
 
 **Scope:** three new small contracts that sit between `BalanceLedger` and all the unflag / withdrawal entry points. They concentrate all policy (HF gate, 24h flag-lock, role checks) so that `BalanceLedger` stays a dumb accounting substrate and the Phase 2 RiskModule swap is a single governance call with zero changes anywhere else.
 
