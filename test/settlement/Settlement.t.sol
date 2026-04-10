@@ -80,7 +80,15 @@ contract MockCentuari is ICentuari {
         return address(0);
     }
 
-    function treasury() external pure returns (address) {
+    function balanceLedger() external pure returns (address) {
+        return address(0);
+    }
+
+    function activeDebtCount(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function feeCollector() external pure returns (address) {
         return address(0);
     }
 
@@ -101,6 +109,10 @@ contract MockCentuari is ICentuari {
     }
 
     function setOperator(address) external pure override {}
+
+    function setBalanceLedger(address) external pure override {}
+
+    function setFeeCollector(address) external pure override {}
 }
 
 /// @title SettlementV2

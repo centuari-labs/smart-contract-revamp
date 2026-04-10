@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 /// @title ICentuari
 /// @notice Interface for the Centuari contract that manages lending positions
 /// @dev Settlement calls this interface to settle matched orders.
-///      Centuari handles positions (bond tokens, debt) and calls Treasury.settle()
+///      Centuari handles positions (bond tokens, debt) and calls BalanceLedger for balance mutations.
 interface ICentuari {
     // ============ Events ============
 
@@ -53,10 +53,15 @@ interface ICentuari {
     /// @param newSettlement The new Settlement address
     event SettlementUpdated(address indexed oldSettlement, address indexed newSettlement);
 
-    /// @notice Emitted when the Treasury contract address is updated
-    /// @param oldTreasury The previous Treasury address
-    /// @param newTreasury The new Treasury address
-    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    /// @notice Emitted when the BalanceLedger contract address is updated
+    /// @param oldLedger The previous BalanceLedger address
+    /// @param newLedger The new BalanceLedger address
+    event BalanceLedgerUpdated(address indexed oldLedger, address indexed newLedger);
+
+    /// @notice Emitted when the fee collector address is updated
+    /// @param oldCollector The previous fee collector address
+    /// @param newCollector The new fee collector address
+    event FeeCollectorUpdated(address indexed oldCollector, address indexed newCollector);
 
     /// @notice Emitted when the Bond Token Factory contract address is updated
     /// @param oldFactory The previous factory address
@@ -123,11 +128,12 @@ interface ICentuari {
 
     // ============ Core Functions ============
 
-    /// @notice Settle a matched order - handles positions, token transfers, and fees atomically
+    /// @notice Settle a matched order - handles positions, balance mutations, and fees atomically
     /// @dev This function should:
-    ///      1. Record lend position and mint bond tokens to lender
-    ///      2. Record borrow position (debt) for borrower
-    ///      3. Call Treasury.settle() to transfer tokens to borrower and settlement fees to Treasury
+    ///      1. Record lend position and mint bond tokens to Centuari (bond custodian)
+    ///      2. Record borrow position (debt) for borrower, track active debt count
+    ///      3. Call BalanceLedger to debit lender, credit borrower, collect protocol fees
+    ///      4. Auto-flag borrower's collateral via BalanceLedger.markCollateral
     /// @param lender The lender address
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
@@ -166,9 +172,8 @@ interface ICentuari {
         uint256 amount
     ) external;
 
-    /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from caller and credits loan tokens to caller's Treasury balance.
-    /// @dev Caller must have approved Centuari to spend at least cbtAmount of the market's bond token.
-    ///      Withdrawable amount is limited by Treasury's available balance (from repayments).
+    /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from Centuari custody and credits loan tokens to caller's BalanceLedger available balance.
+    /// @dev CBT is held by Centuari (bond custodian). The caller's internal _lendPositionCbtAmount tracks their claim.
     /// @param marketId The market identifier (bytes32)
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp (used for bond token lookup and maturity check)
@@ -209,9 +214,18 @@ interface ICentuari {
     /// @return The Settlement contract address
     function settlement() external view returns (address);
 
-    /// @notice Get the Treasury contract address
-    /// @return The Treasury contract address
-    function treasury() external view returns (address);
+    /// @notice Get the BalanceLedger contract address
+    /// @return The BalanceLedger contract address
+    function balanceLedger() external view returns (address);
+
+    /// @notice Get the number of markets where a user has non-zero debt
+    /// @param user The user address
+    /// @return The count of active debt markets
+    function activeDebtCount(address user) external view returns (uint256);
+
+    /// @notice Get the fee collector address
+    /// @return The fee collector address
+    function feeCollector() external view returns (address);
 
     /// @notice Check if the contract is paused
     /// @return True if the contract is paused
@@ -228,4 +242,12 @@ interface ICentuari {
     /// @notice Set the operator address. Only owner.
     /// @param newOperator The new operator address
     function setOperator(address newOperator) external;
+
+    /// @notice Set the BalanceLedger address. Only owner.
+    /// @param newBalanceLedger The new BalanceLedger address
+    function setBalanceLedger(address newBalanceLedger) external;
+
+    /// @notice Set the fee collector address. Only owner.
+    /// @param newFeeCollector The new fee collector address
+    function setFeeCollector(address newFeeCollector) external;
 }

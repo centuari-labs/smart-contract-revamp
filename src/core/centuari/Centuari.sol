@@ -12,7 +12,7 @@ import {
 } from "../../utils/ReentrancyGuardUpgradeable.sol";
 
 import {ICentuari} from "../../interfaces/ICentuari.sol";
-import {ITreasury} from "../../interfaces/ITreasury.sol";
+import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
 import {CentuariStorage} from "./CentuariStorage.sol";
 import {CentuariBondERC20Factory} from "./CentuariBondERC20Factory.sol";
 import {CentuariBondERC20} from "./CentuariBondERC20.sol";
@@ -21,7 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title Centuari
 /// @notice Manages lending and borrowing positions for fixed-rate markets
-/// @dev This contract handles position accounting, share calculations, and coordinates with Treasury for transfers.
+/// @dev This contract handles position accounting, share calculations, and coordinates with BalanceLedger for balance mutations.
 ///      It is designed to be deployed behind an ERC1967 proxy for upgradeability.
 ///      Markets are identified by (loanToken, maturity) pairs.
 contract Centuari is
@@ -41,28 +41,32 @@ contract Centuari is
     // ============ Initializer ============
 
     /// @notice Initialize the Centuari contract
-    /// @dev Can only be called once. Sets owner, settlement, and treasury addresses.
+    /// @dev Can only be called once. Sets owner, settlement, balanceLedger, and feeCollector addresses.
     /// @param owner_ The owner address (can update settings)
     /// @param settlement_ The Settlement contract address
-    /// @param treasury_ The Treasury contract address
+    /// @param balanceLedger_ The BalanceLedger contract address
+    /// @param feeCollector_ The address that receives protocol fee credits
     function initialize(
         address owner_,
         address settlement_,
-        address treasury_
+        address balanceLedger_,
+        address feeCollector_
     ) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (settlement_ == address(0)) revert ZeroAddress();
-        if (treasury_ == address(0)) revert ZeroAddress();
+        if (balanceLedger_ == address(0)) revert ZeroAddress();
+        if (feeCollector_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(owner_);
         __ReentrancyGuard_init();
 
         _settlement = settlement_;
-        _treasury = treasury_;
+        _balanceLedger = balanceLedger_;
+        _feeCollector = feeCollector_;
         _paused = false;
 
         emit SettlementUpdated(address(0), settlement_);
-        emit TreasuryUpdated(address(0), treasury_);
+        emit BalanceLedgerUpdated(address(0), balanceLedger_);
     }
 
     // ============ Modifiers ============
@@ -90,9 +94,9 @@ contract Centuari is
     /// @inheritdoc ICentuari
     function settleMatch(
         bytes32 marketId,
-        address lender, //@note : change this into account id
-        address borrower, //@note : change this into account id
-        address loanToken, //@note : change this into asset id
+        address lender,
+        address borrower,
+        address loanToken,
         uint256 matchedAmount,
         uint256 rate,
         uint256 maturity,
@@ -111,8 +115,6 @@ contract Centuari is
         }
 
         // Determine lender and borrower fees based on maker/taker roles
-        // If borrower is taker: borrower pays takerFeeAmount, lender pays makerFeeAmount
-        // If borrower is NOT taker (lender is taker): lender pays takerFeeAmount, borrower pays makerFeeAmount
         uint256 lenderFee;
         uint256 borrowerFee;
         if (borrowerIsTaker) {
@@ -129,7 +131,6 @@ contract Centuari is
                 loanToken,
                 maturity
             );
-            ITreasury(_treasury).registerBondToken(bondToken);
         }
 
         uint256 cbtAmount = _processLendPosition(
@@ -141,7 +142,9 @@ contract Centuari is
             bondToken
         );
 
-        // Process borrower position (same day-count so debt = lender CBT for same principal)
+        // Capture whether this is a new debt market for the borrower before processing
+        bool isNewDebtMarket = (_borrowDebt[marketId][borrower] == 0);
+
         _processBorrowPosition(
             marketId,
             borrower,
@@ -150,21 +153,34 @@ contract Centuari is
             maturity
         );
 
-        ITreasury(_treasury).settle(
-            loanToken,
-            lender,
-            borrower,
-            matchedAmount,
-            lenderSettlementFee,
-            borrowerSettlementFee,
-            lenderFee,
-            borrowerFee
-        );
+        // Track active debt count for auto-unflag
+        if (isNewDebtMarket) {
+            _activeDebtCount[borrower]++;
+        }
 
+        // Balance mutations via BalanceLedger
+        uint256 totalLenderFee = lenderSettlementFee + lenderFee;
+        uint256 totalBorrowerFee = borrowerSettlementFee + borrowerFee;
+
+        IBalanceLedger(_balanceLedger).debit(lender, loanToken, matchedAmount + totalLenderFee);
+        IBalanceLedger(_balanceLedger).credit(borrower, loanToken, matchedAmount);
+
+        if (totalBorrowerFee > 0) {
+            IBalanceLedger(_balanceLedger).debit(borrower, loanToken, totalBorrowerFee);
+        }
+
+        // Protocol fee collection
+        uint256 totalProtocolFees = totalLenderFee + totalBorrowerFee;
+        if (totalProtocolFees > 0) {
+            IBalanceLedger(_balanceLedger).credit(_feeCollector, loanToken, totalProtocolFees);
+        }
+
+        // Auto-flag borrower's collateral
+        IBalanceLedger(_balanceLedger).markCollateral(borrower, loanToken);
+
+        // Mint CBT to Centuari (bond custodian)
         if (bondToken != address(0) && cbtAmount > 0) {
-            // Mint CBT to Treasury and record lender's bond balance internally
-            CentuariBondERC20(bondToken).mint(_treasury, cbtAmount);
-            ITreasury(_treasury).recordBondMint(lender, bondToken, cbtAmount);
+            CentuariBondERC20(bondToken).mint(address(this), cbtAmount);
         }
     }
 
@@ -173,7 +189,7 @@ contract Centuari is
     /// @notice Process the lender's position (fixed-rate CBT = principal + day-count interest)
     /// @param marketId The market identifier
     /// @param lender The lender address
-    /// @param principal The matched principal amount (CBT is based on full principal; fees are deducted from balance by Treasury)
+    /// @param principal The matched principal amount (CBT is based on full principal; fees are deducted from balance by BalanceLedger)
     /// @param rate The interest rate in basis points
     /// @param maturity The maturity timestamp
     /// @param bondToken The CBT (bond token) contract address for the market
@@ -249,7 +265,21 @@ contract Centuari is
 
         _borrowDebt[marketId][borrower] = debt - repayAmount;
 
-        ITreasury(_treasury).repay(borrower, loanToken, repayAmount);
+        // Track active debt count: decrement when this market's debt hits zero
+        if (debt - repayAmount == 0) {
+            _activeDebtCount[borrower]--;
+        }
+
+        // Debit borrower's available balance (no credit — repaid tokens are protocol-unallocated)
+        IBalanceLedger(_balanceLedger).debit(borrower, loanToken, repayAmount);
+
+        // Auto-unflag all collateral when user is fully debt-free across ALL markets
+        if (_activeDebtCount[borrower] == 0) {
+            address[] memory flagged = IBalanceLedger(_balanceLedger).flaggedAssetsOf(borrower);
+            for (uint256 i = 0; i < flagged.length; ++i) {
+                IBalanceLedger(_balanceLedger).unmarkCollateral(borrower, flagged[i]);
+            }
+        }
 
         emit Repaid(marketId, borrower, repayAmount);
     }
@@ -276,17 +306,14 @@ contract Centuari is
             revert InvalidAmount();
         if (_marketTotalCbt[marketId] < cbtAmount) revert InvalidAmount();
 
-        // Burn CBT held by Treasury and reduce user's internal CBT balance
-        ITreasury(_treasury).burnBondForUser(msg.sender, bondToken, cbtAmount);
+        // Burn bonds from Centuari's own custody
+        CentuariBondERC20(bondToken).burn(cbtAmount);
 
         _lendPositionCbtAmount[marketId][msg.sender] -= cbtAmount;
         _marketTotalCbt[marketId] -= cbtAmount;
 
-        ITreasury(_treasury).withdrawLendPosition(
-            msg.sender,
-            loanToken,
-            cbtAmount
-        );
+        // Credit lender's available balance in BalanceLedger
+        IBalanceLedger(_balanceLedger).credit(msg.sender, loanToken, cbtAmount);
 
         emit LendPositionWithdrawn(marketId, msg.sender, cbtAmount, cbtAmount);
     }
@@ -337,16 +364,28 @@ contract Centuari is
         emit SettlementUpdated(oldSettlement, newSettlement);
     }
 
-    /// @notice Update the Treasury contract address
+    /// @notice Update the BalanceLedger contract address
     /// @dev Only callable by owner
-    /// @param newTreasury The new Treasury contract address
-    function setTreasury(address newTreasury) external onlyOwner {
-        if (newTreasury == address(0)) revert ZeroAddress();
+    /// @param newBalanceLedger The new BalanceLedger contract address
+    function setBalanceLedger(address newBalanceLedger) external onlyOwner {
+        if (newBalanceLedger == address(0)) revert ZeroAddress();
 
-        address oldTreasury = _treasury;
-        _treasury = newTreasury;
+        address oldBalanceLedger = _balanceLedger;
+        _balanceLedger = newBalanceLedger;
 
-        emit TreasuryUpdated(oldTreasury, newTreasury);
+        emit BalanceLedgerUpdated(oldBalanceLedger, newBalanceLedger);
+    }
+
+    /// @notice Update the fee collector address
+    /// @dev Only callable by owner
+    /// @param newFeeCollector The new fee collector address
+    function setFeeCollector(address newFeeCollector) external onlyOwner {
+        if (newFeeCollector == address(0)) revert ZeroAddress();
+
+        address oldFeeCollector = _feeCollector;
+        _feeCollector = newFeeCollector;
+
+        emit FeeCollectorUpdated(oldFeeCollector, newFeeCollector);
     }
 
     /// @notice Update the Bond Token Factory contract address
@@ -426,8 +465,18 @@ contract Centuari is
     }
 
     /// @inheritdoc ICentuari
-    function treasury() external view returns (address) {
-        return _treasury;
+    function balanceLedger() external view returns (address) {
+        return _balanceLedger;
+    }
+
+    /// @inheritdoc ICentuari
+    function activeDebtCount(address user) external view returns (uint256) {
+        return _activeDebtCount[user];
+    }
+
+    /// @inheritdoc ICentuari
+    function feeCollector() external view returns (address) {
+        return _feeCollector;
     }
 
     /// @inheritdoc ICentuari
