@@ -1,28 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
 /// @title BalanceLedgerStorage
 /// @notice Storage layout for the upgradeable BalanceLedger contract
 /// @dev BalanceLedger is the on-chain source of truth for per-user, per-asset
-///      balances across three sub-states: available, inOrders, inYieldRouter.
+///      balances across three sub-states: available, inOrders, inYieldRouter,
+///      plus an on-chain `usedAsCollateral` flag with per-(user, asset) flag
+///      timestamps used by the 24-hour flag-lock enforced in CollateralManager.
 ///
 ///      Phase 1 only writes `available` (via credit/debit). The `inOrders` and
 ///      `inYieldRouter` fields are reserved for Phase 6 (CentuariRouter) and
 ///      Phase 5B (YieldRouter) and MUST stay in storage from day one so the
 ///      layout remains forward-compatible.
 ///
-///      There is NO on-chain `collateral` sub-state and NO on-chain
-///      `usedAsCollateral` flag in Phase 1. Collateral is HF-gated virtual
-///      (Aave/Compound pattern): the `usedAsCollateral` flag lives off-chain
-///      in indexer-v2's Postgres because (a) it has zero on-chain consumers in
-///      Phase 1 and (b) putting it on-chain would let users spam the protocol's
-///      settlement gas budget for free. See
-///      `docs/phase-1-cross-chain-balance-ledger.md` §Module 1 for the full
-///      rationale and the deferred Phase 2 / 6 migration paths.
+///      The `usedAsCollateral` flag lives ON-CHAIN so that a single HF gate in
+///      `WithdrawalRegistry` (via `IRiskModule.canWithdraw`) can reject
+///      permissionless withdrawals of flagged collateral uniformly for every
+///      caller — app users routed through the backend AND direct on-chain
+///      integrators (Phase 6 `CentuariRouter`). An off-chain flag could not
+///      close that loophole because the permissionless `WithdrawalRegistry`
+///      cannot read Postgres. See
+///      `docs/phase-1-cross-chain-balance-ledger.md` §Module 1 / C1 for the
+///      full rationale and the Phase 2 RiskModule swap path.
 ///
 ///      IMPORTANT: Only append new storage variables to the end of this contract.
 ///      Never reorder, remove, or change types of existing variables.
 abstract contract BalanceLedgerStorage {
+    using EnumerableSet for EnumerableSet.AddressSet;
     // ============ Constants ============
 
     /// @notice Minimum delay between proposing and executing a new authorized writer
@@ -81,11 +87,33 @@ abstract contract BalanceLedgerStorage {
     /// @dev writer address => WriterProposal
     mapping(address => WriterProposal) internal _writerProposals;
 
+    /// @notice Whether a given (user, asset) is flagged as collateral
+    /// @dev Written by authorized writers via `markCollateral` / `unmarkCollateral`.
+    ///      Read on-chain by `IRiskModule` implementations to enforce HF gates
+    ///      inside `CollateralManager.unflagFor` and `WithdrawalRegistry.requestWithdrawal`.
+    mapping(address => mapping(address => bool)) internal _usedAsCollateral;
+
+    /// @notice Per-user set of assets currently flagged as collateral
+    /// @dev Enables the repay-to-zero auto-unflag loop in `Centuari.repay` (P1b)
+    ///      and off-chain HF computations to enumerate a user's active collateral
+    ///      without iterating over every known asset. Maintained in lockstep with
+    ///      `_usedAsCollateral` by `markCollateral` / `unmarkCollateral`.
+    mapping(address => EnumerableSet.AddressSet) internal _flaggedAssets;
+
+    /// @notice Timestamp of the most recent `false → true` transition per (user, asset)
+    /// @dev Used by `CollateralManager.unflagFor` to enforce the 24-hour flag-lock.
+    ///      Idempotent `markCollateral` calls do NOT refresh this value — the lock
+    ///      is pinned to the first mark, so repeated borrows reusing the same
+    ///      collateral do not extend the lockup. Cleared on `unmarkCollateral`.
+    ///      `uint64` holds unix seconds until year 2554 — safe.
+    mapping(address => mapping(address => uint64)) internal _flaggedAt;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 45 slots for future storage variables.
+    /// @dev Provides 42 slots for future storage variables.
     ///      When adding new variables, reduce this gap accordingly.
-    ///      Current usage: 2 bool slots + 3 mappings = 5 slots.
-    uint256[45] private __gap;
+    ///      Current usage: 2 bool slots + 3 balance/writer mappings
+    ///      + 3 collateral mappings (_usedAsCollateral, _flaggedAssets, _flaggedAt) = 8 slots.
+    uint256[42] private __gap;
 }

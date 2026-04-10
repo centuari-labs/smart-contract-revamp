@@ -7,6 +7,7 @@ import {
 import {
     OwnableUpgradeable
 } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
 import {BalanceLedgerStorage} from "./BalanceLedgerStorage.sol";
@@ -38,6 +39,8 @@ contract BalanceLedger is
     BalanceLedgerStorage,
     IBalanceLedger
 {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -116,6 +119,56 @@ contract BalanceLedger is
         }
 
         emit Debited(msg.sender, user, asset, amount, b.available);
+    }
+
+    // ============ Collateral Flag Mutators ============
+
+    /// @inheritdoc IBalanceLedger
+    function markCollateral(
+        address user,
+        address asset
+    ) external onlyAuthorizedWriter whenNotPaused {
+        _setCollateralFlag(user, asset, true);
+    }
+
+    /// @inheritdoc IBalanceLedger
+    function unmarkCollateral(
+        address user,
+        address asset
+    ) external onlyAuthorizedWriter whenNotPaused {
+        _setCollateralFlag(user, asset, false);
+    }
+
+    // ============ Internal ============
+
+    /// @dev Single source of truth for collateral-flag mutations. Idempotent
+    ///      on both sides: already-flagged `true` and already-unflagged `false`
+    ///      calls are no-ops and emit nothing. A repeat `true` MUST NOT refresh
+    ///      `_flaggedAt` — the 24-hour flag-lock in `CollateralManager` is
+    ///      pinned to the first mark so repeated borrows that reuse the same
+    ///      collateral never extend the lockup.
+    function _setCollateralFlag(
+        address user,
+        address asset,
+        bool used
+    ) internal {
+        if (user == address(0)) revert ZeroAddress();
+        if (asset == address(0)) revert ZeroAddress();
+
+        if (used) {
+            if (_usedAsCollateral[user][asset]) return;
+            _usedAsCollateral[user][asset] = true;
+            _flaggedAssets[user].add(asset);
+            uint64 ts = uint64(block.timestamp);
+            _flaggedAt[user][asset] = ts;
+            emit CollateralFlagSet(msg.sender, user, asset, true, ts);
+        } else {
+            if (!_usedAsCollateral[user][asset]) return;
+            _usedAsCollateral[user][asset] = false;
+            _flaggedAssets[user].remove(asset);
+            delete _flaggedAt[user][asset];
+            emit CollateralFlagSet(msg.sender, user, asset, false, 0);
+        }
     }
 
     // ============ Writer Management ============
@@ -234,5 +287,20 @@ contract BalanceLedger is
     /// @inheritdoc IBalanceLedger
     function forceWriterRegistrationEnabled() external view returns (bool) {
         return _forceWriterRegistrationEnabled;
+    }
+
+    /// @inheritdoc IBalanceLedger
+    function usedAsCollateral(address user, address asset) external view returns (bool) {
+        return _usedAsCollateral[user][asset];
+    }
+
+    /// @inheritdoc IBalanceLedger
+    function flaggedAssetsOf(address user) external view returns (address[] memory) {
+        return _flaggedAssets[user].values();
+    }
+
+    /// @inheritdoc IBalanceLedger
+    function flaggedAt(address user, address asset) external view returns (uint64) {
+        return _flaggedAt[user][asset];
     }
 }

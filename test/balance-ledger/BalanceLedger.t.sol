@@ -392,4 +392,129 @@ contract BalanceLedgerTest is Test {
         assertEq(ledger.available(user2, asset1), c);
         assertEq(ledger.available(user2, asset2), d);
     }
+
+    // ============ Collateral flag — mark / unmark / views ============
+
+    function test_MarkCollateral_SetsFlagAndStampsTime() public {
+        vm.warp(1_700_000_000);
+
+        vm.prank(writer);
+        vm.expectEmit(true, true, true, true);
+        emit IBalanceLedger.CollateralFlagSet(
+            writer,
+            user1,
+            asset1,
+            true,
+            uint64(block.timestamp)
+        );
+        ledger.markCollateral(user1, asset1);
+
+        assertTrue(ledger.usedAsCollateral(user1, asset1));
+        assertEq(ledger.flaggedAt(user1, asset1), uint64(block.timestamp));
+
+        address[] memory flagged = ledger.flaggedAssetsOf(user1);
+        assertEq(flagged.length, 1);
+        assertEq(flagged[0], asset1);
+    }
+
+    function test_MarkCollateral_IdempotentDoesNotRefreshTimestamp() public {
+        vm.warp(1_700_000_000);
+
+        vm.prank(writer);
+        ledger.markCollateral(user1, asset1);
+        uint64 firstStamp = ledger.flaggedAt(user1, asset1);
+
+        // Advance time by 12 hours and re-mark — timestamp must NOT refresh.
+        // This is the load-bearing semantic behind the 24h flag-lock: repeat
+        // borrows that reuse the same collateral cannot extend the lockout.
+        vm.warp(block.timestamp + 12 hours);
+
+        // A real state-change emit would fire; capturing no emit would require
+        // `vm.recordLogs`. Simpler: assert the timestamp stayed put.
+        vm.prank(writer);
+        ledger.markCollateral(user1, asset1);
+
+        assertEq(ledger.flaggedAt(user1, asset1), firstStamp);
+        assertTrue(ledger.usedAsCollateral(user1, asset1));
+    }
+
+    function test_UnmarkCollateral_ClearsFlag() public {
+        vm.warp(1_700_000_000);
+        vm.startPrank(writer);
+        ledger.markCollateral(user1, asset1);
+
+        vm.expectEmit(true, true, true, true);
+        emit IBalanceLedger.CollateralFlagSet(writer, user1, asset1, false, 0);
+        ledger.unmarkCollateral(user1, asset1);
+        vm.stopPrank();
+
+        assertFalse(ledger.usedAsCollateral(user1, asset1));
+        assertEq(ledger.flaggedAt(user1, asset1), 0);
+        assertEq(ledger.flaggedAssetsOf(user1).length, 0);
+    }
+
+    function test_UnmarkCollateral_IdempotentNoOp() public {
+        // Unmarking a never-flagged pair is a no-op and must not revert.
+        vm.prank(writer);
+        ledger.unmarkCollateral(user1, asset1);
+        assertFalse(ledger.usedAsCollateral(user1, asset1));
+    }
+
+    function test_FlaggedAssetsOf_ReturnsSet() public {
+        vm.startPrank(writer);
+        ledger.markCollateral(user1, asset1);
+        ledger.markCollateral(user1, asset2);
+        vm.stopPrank();
+
+        address[] memory flagged = ledger.flaggedAssetsOf(user1);
+        assertEq(flagged.length, 2);
+
+        // Order is unspecified (EnumerableSet swap-and-pop); assert contents.
+        bool saw1;
+        bool saw2;
+        for (uint256 i; i < flagged.length; ++i) {
+            if (flagged[i] == asset1) saw1 = true;
+            if (flagged[i] == asset2) saw2 = true;
+        }
+        assertTrue(saw1);
+        assertTrue(saw2);
+
+        // Remove asset1 and confirm the set shrinks.
+        vm.prank(writer);
+        ledger.unmarkCollateral(user1, asset1);
+
+        address[] memory after_ = ledger.flaggedAssetsOf(user1);
+        assertEq(after_.length, 1);
+        assertEq(after_[0], asset2);
+    }
+
+    function test_MarkCollateral_RevertUnauthorized() public {
+        vm.prank(outsider);
+        vm.expectRevert(IBalanceLedger.Unauthorized.selector);
+        ledger.markCollateral(user1, asset1);
+    }
+
+    function test_UnmarkCollateral_RevertUnauthorized() public {
+        vm.prank(outsider);
+        vm.expectRevert(IBalanceLedger.Unauthorized.selector);
+        ledger.unmarkCollateral(user1, asset1);
+    }
+
+    function test_MarkCollateral_RevertWhenPaused() public {
+        vm.prank(owner);
+        ledger.pause();
+
+        vm.prank(writer);
+        vm.expectRevert(IBalanceLedger.ContractPaused.selector);
+        ledger.markCollateral(user1, asset1);
+    }
+
+    function test_MarkCollateral_RevertZeroAddress() public {
+        vm.startPrank(writer);
+        vm.expectRevert(IBalanceLedger.ZeroAddress.selector);
+        ledger.markCollateral(address(0), asset1);
+        vm.expectRevert(IBalanceLedger.ZeroAddress.selector);
+        ledger.markCollateral(user1, address(0));
+        vm.stopPrank();
+    }
 }

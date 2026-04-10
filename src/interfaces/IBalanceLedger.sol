@@ -3,13 +3,14 @@ pragma solidity ^0.8.20;
 
 /// @title IBalanceLedger
 /// @notice Interface for the BalanceLedger contract — the on-chain source of
-///         truth for per-user, per-asset balances across three sub-states.
-/// @dev Phase 1 writers: Centuari.sol (initially), later HubDepositor,
-///      WithdrawalRegistry, HubIntentSettler, etc. via the 48h governance path.
-///      Phase 1 only mutates `available`; `inOrders` and `inYieldRouter` are
-///      forward-compat slots and always read as zero. There is no on-chain
-///      collateral sub-state — collateral is HF-gated virtual and the
-///      `usedAsCollateral` flag lives off-chain (indexer-v2 Postgres).
+///         truth for per-user, per-asset balances across three sub-states plus
+///         the on-chain `usedAsCollateral` flag.
+/// @dev Phase 1 writers: Centuari.sol, CollateralManager.sol, and later
+///      HubDepositor, WithdrawalRegistry, HubIntentSettler, etc. via the 48h
+///      governance path. Phase 1 only mutates `available`; `inOrders` and
+///      `inYieldRouter` are forward-compat slots and always read as zero.
+///      The `usedAsCollateral` flag lives on-chain so that `WithdrawalRegistry`
+///      (permissionless) can enforce the HF gate uniformly for every caller.
 interface IBalanceLedger {
     // ============ Events ============
 
@@ -66,6 +67,26 @@ interface IBalanceLedger {
     /// @param account The account that unpaused the contract
     event Unpaused(address account);
 
+    /// @notice Emitted when a (user, asset) collateral flag transitions state
+    /// @dev Fires on every `false → true` transition (with a fresh `flaggedAt`
+    ///      stamp) and every `true → false` transition (with `flaggedAt = 0`).
+    ///      Idempotent no-op calls (marking an already-flagged pair, unmarking
+    ///      an already-unflagged pair) do NOT emit. Indexer-v2 mirrors the
+    ///      `user_balance.used_as_collateral` / `flagged_at` columns from this
+    ///      event.
+    /// @param writer The authorized writer that performed the flag transition
+    /// @param user The user whose collateral flag changed
+    /// @param asset The asset whose flag changed
+    /// @param used The new flag state (true = flagged, false = unflagged)
+    /// @param flaggedAt The new `_flaggedAt` stamp (block.timestamp on mark, 0 on unmark)
+    event CollateralFlagSet(
+        address indexed writer,
+        address indexed user,
+        address indexed asset,
+        bool used,
+        uint64 flaggedAt
+    );
+
     // ============ Errors ============
 
     /// @notice Thrown when caller is not authorized (not an authorized writer or not owner)
@@ -121,6 +142,28 @@ interface IBalanceLedger {
     /// @param asset The asset address
     /// @param amount The amount to debit (must be > 0)
     function debit(address user, address asset, uint256 amount) external;
+
+    // ============ Collateral Flag Mutators (authorized writers only) ============
+
+    /// @notice Mark a (user, asset) as collateral
+    /// @dev Idempotent. If the pair is already flagged this is a no-op and does
+    ///      NOT refresh `_flaggedAt` — so repeated borrows that reuse the same
+    ///      collateral never extend the 24-hour flag-lock enforced by
+    ///      `CollateralManager.unflagFor`. The lock is always pinned to the
+    ///      first mark. Emits `CollateralFlagSet` only on a real state change.
+    /// @param user The user whose collateral flag to set
+    /// @param asset The asset being marked as collateral
+    function markCollateral(address user, address asset) external;
+
+    /// @notice Unmark a (user, asset) as collateral
+    /// @dev Idempotent. If the pair is not currently flagged this is a no-op.
+    ///      Does NOT enforce the 24-hour flag-lock — that policy lives in the
+    ///      caller (`CollateralManager.unflagFor`). `Centuari.repay` calls this
+    ///      directly on the repay-to-zero path, bypassing the lock, because a
+    ///      fully repaid user is trivially HF-safe and should exit cleanly.
+    /// @param user The user whose collateral flag to clear
+    /// @param asset The asset being unmarked
+    function unmarkCollateral(address user, address asset) external;
 
     // ============ Writer Management (owner only) ============
 
@@ -182,4 +225,27 @@ interface IBalanceLedger {
 
     /// @notice Whether force-writer-registration was enabled at init time
     function forceWriterRegistrationEnabled() external view returns (bool);
+
+    /// @notice Read whether a (user, asset) is currently flagged as collateral
+    /// @param user The user to query
+    /// @param asset The asset to query
+    /// @return True if the asset is flagged as collateral for the user
+    function usedAsCollateral(address user, address asset) external view returns (bool);
+
+    /// @notice Enumerate every asset currently flagged as collateral for a user
+    /// @dev Returns a snapshot copy of the `_flaggedAssets[user]` set. The order
+    ///      is unspecified and may change across calls due to the underlying
+    ///      `EnumerableSet` swap-and-pop removal. Intended for the repay-to-zero
+    ///      auto-unflag loop in `Centuari.repay` and off-chain HF jobs.
+    /// @param user The user to query
+    /// @return Array of asset addresses currently flagged for the user
+    function flaggedAssetsOf(address user) external view returns (address[] memory);
+
+    /// @notice Read the timestamp at which a (user, asset) was most recently flagged
+    /// @dev Zero when the pair is not currently flagged. Used by
+    ///      `CollateralManager.unflagFor` to enforce the 24-hour flag-lock.
+    /// @param user The user to query
+    /// @param asset The asset to query
+    /// @return Unix seconds of the latest `false → true` transition, or 0
+    function flaggedAt(address user, address asset) external view returns (uint64);
 }
