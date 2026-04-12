@@ -18,11 +18,17 @@ abstract contract HubDepositorStorage {
     ///      Managed by the owner via `addSupportedAsset` / `removeSupportedAsset`.
     mapping(address => bool) internal _supportedAssets;
 
+    /// @notice Authorized callers that can invoke `payout` and `payoutDirect`
+    /// @dev Managed by the owner via `setAuthorizedCaller`. In M4,
+    ///      WithdrawalRegistry is added as an authorized caller so it can
+    ///      release tokens for hub-native withdrawals.
+    mapping(address => bool) internal _authorizedCallers;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 48 slots for future storage variables. Two slots consumed
-    ///      by `_balanceLedger` and `_supportedAssets`, leaving 48 from the
-    ///      original 50-slot budget.
-    uint256[48] private __gap;
+    /// @dev Provides 47 slots for future storage variables. Three slots
+    ///      consumed by `_balanceLedger`, `_supportedAssets`, and
+    ///      `_authorizedCallers`, leaving 47 from the original 50-slot budget.
+    uint256[47] private __gap;
 }

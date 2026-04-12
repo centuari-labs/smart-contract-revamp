@@ -33,6 +33,14 @@ interface IHubDepositor {
     /// @param asset The ERC20 token removed
     event AssetRemoved(address indexed asset);
 
+    /// @notice Emitted when an authorized caller is added or removed
+    /// @param caller The caller address
+    /// @param authorized True if added, false if removed
+    event AuthorizedCallerUpdated(
+        address indexed caller,
+        bool authorized
+    );
+
     // ============ Errors ============
 
     /// @notice Thrown when a zero address is provided where a real address is required
@@ -43,6 +51,9 @@ interface IHubDepositor {
 
     /// @notice Thrown when a deposit is attempted with a non-whitelisted asset
     error UnsupportedAsset();
+
+    /// @notice Thrown when an unauthorized caller attempts a restricted action
+    error Unauthorized();
 
     // ============ User actions ============
 
@@ -65,6 +76,22 @@ interface IHubDepositor {
     /// @param amount The amount to release
     function payout(address user, address asset, uint256 amount) external;
 
+    /// @notice Release tokens to a user WITHOUT debiting BalanceLedger
+    /// @dev Used by WithdrawalRegistry for hub-native withdrawals where the
+    ///      debit was already performed in `requestWithdrawal`. Only callable
+    ///      by the owner or authorized callers.
+    /// @param user The recipient of the payout
+    /// @param asset The ERC20 token to release
+    /// @param amount The amount to release
+    function payoutDirect(address user, address asset, uint256 amount) external;
+
+    /// @notice Add or remove an authorized caller for payout/payoutDirect
+    /// @dev Only callable by the owner. In M4, WithdrawalRegistry is set as
+    ///      an authorized caller.
+    /// @param caller The caller address to authorize/deauthorize
+    /// @param authorized True to authorize, false to deauthorize
+    function setAuthorizedCaller(address caller, bool authorized) external;
+
     // ============ Asset management ============
 
     /// @notice Add an asset to the supported whitelist
@@ -86,4 +113,9 @@ interface IHubDepositor {
     /// @param asset The ERC20 token to check
     /// @return True if the asset is supported
     function isSupportedAsset(address asset) external view returns (bool);
+
+    /// @notice Check whether an address is an authorized caller
+    /// @param caller The address to check
+    /// @return True if the caller is authorized
+    function isAuthorizedCaller(address caller) external view returns (bool);
 }

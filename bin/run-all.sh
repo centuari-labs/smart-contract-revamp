@@ -42,6 +42,9 @@
 #   13. SetSettlement on Centuari
 #   14. UpgradeSettlement (optional)
 #   15. SetOperators
+#   16. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger)
+#   17. ConfigureBalanceLedger (Phase 3 — add M4 writers)
+#   18. ConfigureHubDepositorAuth (authorize WithdrawalRegistry on HubDepositor)
 #
 set -e
 
@@ -191,6 +194,15 @@ parse_settlement_impl() {
 parse_upgrade_new_impl() {
   grep -oE 'New Implementation: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/New Implementation: //'
 }
+parse_withdrawal_registry_proxy() {
+  grep -oE 'WithdrawalRegistry proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/WithdrawalRegistry proxy: //'
+}
+parse_hub_intent_settler_proxy() {
+  grep -oE 'HubIntentSettler proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/HubIntentSettler proxy: //'
+}
+parse_settlement_ledger_proxy() {
+  grep -oE 'SettlementLedger proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/SettlementLedger proxy: //'
+}
 
 write_deploy_summary() {
   : "${MOCK_TOKENS_JSON:={}}"
@@ -209,6 +221,9 @@ write_deploy_summary() {
   : "${SETTLEMENT_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
   : "${UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
+  : "${WITHDRAWAL_REGISTRY_ADDRESS:=}"
+  : "${HUB_INTENT_SETTLER_ADDRESS:=}"
+  : "${SETTLEMENT_LEDGER_ADDRESS:=}"
 
   {
     echo "{"
@@ -240,6 +255,9 @@ write_deploy_summary() {
     echo "  \"settlementProxyAdmin\": \"${SETTLEMENT_PROXY_ADMIN_ADDRESS:-}\","
     echo "  \"settlementImplementation\": \"${SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
     echo "  \"upgradedSettlementImplementation\": \"${UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
+    echo "  \"withdrawalRegistryAddress\": \"${WITHDRAWAL_REGISTRY_ADDRESS}\","
+    echo "  \"hubIntentSettlerAddress\": \"${HUB_INTENT_SETTLER_ADDRESS}\","
+    echo "  \"settlementLedgerAddress\": \"${SETTLEMENT_LEDGER_ADDRESS}\","
     echo "  \"proxyAdminEnv\": \"${PROXY_ADMIN:-}\","
     echo "  \"settlementProxyEnv\": \"${SETTLEMENT_PROXY:-}\","
     echo "  \"proxyEnv\": \"${PROXY:-}\","
@@ -330,7 +348,7 @@ build_mock_tokens_json() {
 '
 }
 
-TOTAL_STEPS=15
+TOTAL_STEPS=18
 
 # ===========================
 # Step 1: DeployMockTokens
@@ -623,6 +641,63 @@ if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${
   DEPLOY_JSON="$SUMMARY_FILE" "$ROOT_DIR/bin/set_operators.sh"
 else
   echo "Skipping set_operators.sh (no contract addresses available)"
+fi
+
+# ===========================
+# Step 16: DeployCrossChainHub (M4: WithdrawalRegistry + HubIntentSettler + SettlementLedger)
+# ===========================
+echo "=== 16/$TOTAL_STEPS DeployCrossChainHub ==="
+if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${RISK_MODULE_STUB_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
+  out=$(run_script script/DeployCrossChainHub.s.sol:DeployCrossChainHub \
+    --sig "run(address,address,address,address,address,address)" \
+    "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$RISK_MODULE_STUB_ADDRESS" "$HUB_DEPOSITOR_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
+    status=$?
+    echo "$out"
+    echo "DeployCrossChainHub failed with status $status"
+    exit "$status"
+  }
+  echo "$out"
+  WR_PROXY=$(echo "$out" | parse_withdrawal_registry_proxy)
+  if [[ -n "$WR_PROXY" ]]; then
+    export WITHDRAWAL_REGISTRY_ADDRESS="$WR_PROXY"
+    echo "Captured WITHDRAWAL_REGISTRY_ADDRESS=$WITHDRAWAL_REGISTRY_ADDRESS"
+  fi
+  HIS_PROXY=$(echo "$out" | parse_hub_intent_settler_proxy)
+  if [[ -n "$HIS_PROXY" ]]; then
+    export HUB_INTENT_SETTLER_ADDRESS="$HIS_PROXY"
+    echo "Captured HUB_INTENT_SETTLER_ADDRESS=$HUB_INTENT_SETTLER_ADDRESS"
+  fi
+  SL_PROXY=$(echo "$out" | parse_settlement_ledger_proxy)
+  if [[ -n "$SL_PROXY" ]]; then
+    export SETTLEMENT_LEDGER_ADDRESS="$SL_PROXY"
+    echo "Captured SETTLEMENT_LEDGER_ADDRESS=$SETTLEMENT_LEDGER_ADDRESS"
+  fi
+else
+  echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_STUB_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
+fi
+
+# ===========================
+# Step 17: ConfigureBalanceLedger (Phase 3 — WithdrawalRegistry + HubIntentSettler writers)
+# ===========================
+echo "=== 17/$TOTAL_STEPS ConfigureBalanceLedger (Phase 3 — M4 writers) ==="
+if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${WITHDRAWAL_REGISTRY_ADDRESS:-}" && -n "${HUB_INTENT_SETTLER_ADDRESS:-}" ]]; then
+  run_script script/ConfigureBalanceLedgerPhase3.s.sol:ConfigureBalanceLedgerPhase3 \
+    --sig "run(address,address,address)" \
+    "$BALANCE_LEDGER_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS" "$HUB_INTENT_SETTLER_ADDRESS"
+else
+  echo "Skipping ConfigureBalanceLedger Phase 3 (need BALANCE_LEDGER_ADDRESS, WITHDRAWAL_REGISTRY_ADDRESS, HUB_INTENT_SETTLER_ADDRESS)"
+fi
+
+# ===========================
+# Step 18: ConfigureHubDepositorAuth (authorize WithdrawalRegistry on HubDepositor)
+# ===========================
+echo "=== 18/$TOTAL_STEPS ConfigureHubDepositorAuth ==="
+if [[ -n "${HUB_DEPOSITOR_ADDRESS:-}" && -n "${WITHDRAWAL_REGISTRY_ADDRESS:-}" ]]; then
+  run_script script/ConfigureHubDepositorAuth.s.sol:ConfigureHubDepositorAuth \
+    --sig "run(address,address)" \
+    "$HUB_DEPOSITOR_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS"
+else
+  echo "Skipping ConfigureHubDepositorAuth (need HUB_DEPOSITOR_ADDRESS and WITHDRAWAL_REGISTRY_ADDRESS)"
 fi
 
 echo "=== Writing deployment summary ==="

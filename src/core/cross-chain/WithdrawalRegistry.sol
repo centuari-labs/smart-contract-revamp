@@ -1,0 +1,319 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {
+    Initializable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    OwnableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+import {IWithdrawalRegistry} from "../../interfaces/cross-chain/IWithdrawalRegistry.sol";
+import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
+import {IRiskModule} from "../../interfaces/IRiskModule.sol";
+import {IHubDepositor} from "../../interfaces/cross-chain/IHubDepositor.sol";
+import {WithdrawalRegistryStorage} from "./WithdrawalRegistryStorage.sol";
+import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
+
+/// @title WithdrawalRegistry
+/// @notice Manages the withdrawal state machine with a uniform on-chain HF gate.
+/// @dev Every withdrawal — whether initiated by an app user (via backend), a
+///      direct-contract caller, or a Phase 6 integrator — passes through
+///      `requestWithdrawal`, which calls `IRiskModule.canWithdraw` as its FIRST
+///      action. This is the single enforcement point that closes the collateral
+///      flag loophole.
+///
+///      State machine: PENDING → PROCESSING → COMPLETED (or FAILED terminal).
+///      Hub-native withdrawals (targetChainId == block.chainid) shortcut
+///      directly from PENDING to COMPLETED via `HubDepositor.payoutDirect`.
+///
+///      Must be registered as a BalanceLedger authorized writer (for debit on
+///      request and credit on refund).
+contract WithdrawalRegistry is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    WithdrawalRegistryStorage,
+    IWithdrawalRegistry
+{
+    // ============ Constructor ============
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    // ============ Initializer ============
+
+    /// @notice Initialize the WithdrawalRegistry
+    /// @param owner_ The governance owner
+    /// @param operator_ The backend operator (settlement key)
+    /// @param balanceLedger_ The BalanceLedger to debit/credit
+    /// @param riskModule_ The RiskModule for HF checks
+    /// @param hubDepositor_ The HubDepositor for hub-native payouts
+    function initialize(
+        address owner_,
+        address operator_,
+        address balanceLedger_,
+        address riskModule_,
+        address hubDepositor_
+    ) external initializer {
+        if (owner_ == address(0)) revert ZeroAddress();
+        if (operator_ == address(0)) revert ZeroAddress();
+        if (balanceLedger_ == address(0)) revert ZeroAddress();
+        if (riskModule_ == address(0)) revert ZeroAddress();
+        if (hubDepositor_ == address(0)) revert ZeroAddress();
+
+        __Ownable_init(owner_);
+        __ReentrancyGuard_init();
+
+        _operator = operator_;
+        _balanceLedger = balanceLedger_;
+        _riskModule = riskModule_;
+        _hubDepositor = hubDepositor_;
+        _paused = false;
+
+        emit OperatorUpdated(address(0), operator_);
+        emit RiskModuleUpdated(address(0), riskModule_);
+        emit HubDepositorUpdated(address(0), hubDepositor_);
+    }
+
+    // ============ Modifiers ============
+
+    /// @notice Restricts access to the operator
+    modifier onlyOperator() {
+        if (msg.sender != _operator) revert Unauthorized();
+        _;
+    }
+
+    /// @notice Ensures the contract is not paused
+    modifier whenNotPaused() {
+        if (_paused) revert ContractPaused();
+        _;
+    }
+
+    // ============ User Actions ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function requestWithdrawal(
+        address asset,
+        uint256 amount,
+        uint256 targetChainId
+    ) external whenNotPaused nonReentrant returns (bytes32 requestId) {
+        if (asset == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        // ---- HF GATE (first action) ----
+        // This is the single uniform check that applies to every caller.
+        // Phase 1 stub: rejects if asset is flagged as collateral.
+        // Phase 2 real: rejects if post-withdrawal HF < 1.
+        if (!IRiskModule(_riskModule).canWithdraw(msg.sender, asset, amount)) {
+            revert WithdrawalBlockedByHF();
+        }
+
+        // Debit the user's available balance (reverts with
+        // InsufficientBalance if not enough)
+        IBalanceLedger(_balanceLedger).debit(msg.sender, asset, amount);
+
+        // Generate unique requestId
+        requestId = keccak256(
+            abi.encode(
+                msg.sender,
+                asset,
+                amount,
+                targetChainId,
+                _requestCounter++
+            )
+        );
+
+        // Store the request
+        _requests[requestId] = WithdrawalRequest({
+            user: msg.sender,
+            asset: asset,
+            amount: amount,
+            targetChainId: targetChainId,
+            status: WithdrawalStatus.PENDING,
+            createdAt: uint64(block.timestamp),
+            updatedAt: uint64(block.timestamp)
+        });
+
+        emit WithdrawalRequested(
+            requestId,
+            msg.sender,
+            asset,
+            amount,
+            targetChainId
+        );
+    }
+
+    // ============ Operator Actions ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function authorize(
+        bytes32 requestId
+    ) external onlyOperator whenNotPaused nonReentrant {
+        WithdrawalRequest storage request = _requests[requestId];
+        if (request.user == address(0)) revert InvalidRequestId();
+
+        if (request.status != WithdrawalStatus.PENDING) {
+            revert InvalidStatusTransition(
+                request.status,
+                WithdrawalStatus.PROCESSING
+            );
+        }
+
+        request.updatedAt = uint64(block.timestamp);
+
+        if (request.targetChainId == block.chainid) {
+            // Hub-native shortcut: release tokens directly and complete
+            request.status = WithdrawalStatus.COMPLETED;
+
+            IHubDepositor(_hubDepositor).payoutDirect(
+                request.user,
+                request.asset,
+                request.amount
+            );
+
+            emit WithdrawalAuthorized(requestId);
+            emit WithdrawalCompleted(requestId);
+        } else {
+            // Cross-chain: mark as PROCESSING.
+            // M5 adds LayerZero message dispatch to SpokePayout here.
+            request.status = WithdrawalStatus.PROCESSING;
+
+            emit WithdrawalAuthorized(requestId);
+        }
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function markCompleted(
+        bytes32 requestId
+    ) external onlyOperator nonReentrant {
+        WithdrawalRequest storage request = _requests[requestId];
+        if (request.user == address(0)) revert InvalidRequestId();
+
+        if (request.status != WithdrawalStatus.PROCESSING) {
+            revert InvalidStatusTransition(
+                request.status,
+                WithdrawalStatus.COMPLETED
+            );
+        }
+
+        request.status = WithdrawalStatus.COMPLETED;
+        request.updatedAt = uint64(block.timestamp);
+
+        emit WithdrawalCompleted(requestId);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function markFailed(
+        bytes32 requestId
+    ) external onlyOperator nonReentrant {
+        WithdrawalRequest storage request = _requests[requestId];
+        if (request.user == address(0)) revert InvalidRequestId();
+
+        // Can fail from PENDING or PROCESSING
+        if (
+            request.status != WithdrawalStatus.PENDING &&
+            request.status != WithdrawalStatus.PROCESSING
+        ) {
+            revert InvalidStatusTransition(
+                request.status,
+                WithdrawalStatus.FAILED
+            );
+        }
+
+        request.status = WithdrawalStatus.FAILED;
+        request.updatedAt = uint64(block.timestamp);
+
+        // Refund the user's available balance
+        IBalanceLedger(_balanceLedger).credit(
+            request.user,
+            request.asset,
+            request.amount
+        );
+
+        emit WithdrawalFailed(requestId);
+    }
+
+    // ============ Governance ============
+
+    /// @notice Update the operator address
+    /// @param newOperator The new operator address
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) revert ZeroAddress();
+
+        address oldOperator = _operator;
+        _operator = newOperator;
+
+        emit OperatorUpdated(oldOperator, newOperator);
+    }
+
+    /// @notice Update the RiskModule pointer (Phase 2 swap point)
+    /// @param newRiskModule The new RiskModule address
+    function setRiskModule(address newRiskModule) external onlyOwner {
+        if (newRiskModule == address(0)) revert ZeroAddress();
+
+        address oldRiskModule = _riskModule;
+        _riskModule = newRiskModule;
+
+        emit RiskModuleUpdated(oldRiskModule, newRiskModule);
+    }
+
+    /// @notice Update the HubDepositor pointer
+    /// @param newHubDepositor The new HubDepositor address
+    function setHubDepositor(address newHubDepositor) external onlyOwner {
+        if (newHubDepositor == address(0)) revert ZeroAddress();
+
+        address oldHubDepositor = _hubDepositor;
+        _hubDepositor = newHubDepositor;
+
+        emit HubDepositorUpdated(oldHubDepositor, newHubDepositor);
+    }
+
+    /// @notice Pause the contract
+    function pause() external onlyOwner {
+        _paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Unpause the contract
+    function unpause() external onlyOwner {
+        _paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    // ============ Views ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function getRequest(
+        bytes32 requestId
+    ) external view returns (WithdrawalRequest memory) {
+        return _requests[requestId];
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function balanceLedger() external view returns (address) {
+        return _balanceLedger;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function riskModule() external view returns (address) {
+        return _riskModule;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function hubDepositor() external view returns (address) {
+        return _hubDepositor;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function operator() external view returns (address) {
+        return _operator;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function paused() external view returns (bool) {
+        return _paused;
+    }
+}

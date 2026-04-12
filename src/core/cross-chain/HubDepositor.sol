@@ -66,6 +66,15 @@ contract HubDepositor is
         _balanceLedger = balanceLedger_;
     }
 
+    // ============ Modifiers ============
+
+    /// @notice Restricts access to the owner or authorized callers
+    modifier onlyAuthorized() {
+        if (msg.sender != owner() && !_authorizedCallers[msg.sender])
+            revert Unauthorized();
+        _;
+    }
+
     // ============ User actions ============
 
     /// @inheritdoc IHubDepositor
@@ -90,7 +99,7 @@ contract HubDepositor is
         address user,
         address asset,
         uint256 amount
-    ) external onlyOwner nonReentrant {
+    ) external onlyAuthorized nonReentrant {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -102,6 +111,36 @@ contract HubDepositor is
         IERC20(asset).safeTransfer(user, amount);
 
         emit PayoutReleased(user, asset, amount);
+    }
+
+    /// @inheritdoc IHubDepositor
+    function payoutDirect(
+        address user,
+        address asset,
+        uint256 amount
+    ) external onlyAuthorized nonReentrant {
+        if (user == address(0)) revert ZeroAddress();
+        if (asset == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        // Release tokens WITHOUT debiting BalanceLedger.
+        // Used by WithdrawalRegistry for hub-native withdrawals where the
+        // debit was already performed in requestWithdrawal().
+        IERC20(asset).safeTransfer(user, amount);
+
+        emit PayoutReleased(user, asset, amount);
+    }
+
+    // ============ Authorized caller management ============
+
+    /// @inheritdoc IHubDepositor
+    function setAuthorizedCaller(
+        address caller,
+        bool authorized
+    ) external onlyOwner {
+        if (caller == address(0)) revert ZeroAddress();
+        _authorizedCallers[caller] = authorized;
+        emit AuthorizedCallerUpdated(caller, authorized);
     }
 
     // ============ Asset management ============
@@ -129,5 +168,10 @@ contract HubDepositor is
     /// @inheritdoc IHubDepositor
     function isSupportedAsset(address asset) external view returns (bool) {
         return _supportedAssets[asset];
+    }
+
+    /// @inheritdoc IHubDepositor
+    function isAuthorizedCaller(address caller) external view returns (bool) {
+        return _authorizedCallers[caller];
     }
 }

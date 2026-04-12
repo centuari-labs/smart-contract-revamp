@@ -1,0 +1,229 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {
+    Initializable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    OwnableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {
+    IERC20
+} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {IHubIntentSettler} from "../../interfaces/cross-chain/IHubIntentSettler.sol";
+import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
+import {ISettlementLedger} from "../../interfaces/cross-chain/ISettlementLedger.sol";
+import {HubIntentSettlerStorage} from "./HubIntentSettlerStorage.sol";
+import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
+
+/// @title HubIntentSettler
+/// @notice Processes solver fills for cross-chain deposits arriving from spoke
+///         chains. Credits the user's BalanceLedger.available and registers a
+///         reimbursement obligation on the SettlementLedger.
+/// @dev Token custody: this contract holds the actual ERC20 tokens that solvers
+///      transfer in during `fillFor`. Tokens stay here until the SettlementLedger
+///      calls `releaseToSolver` after the Sweeper Bot bridges spoke tokens and
+///      confirms reimbursement.
+///
+///      M4: operator-gated (solver calls through the protocol operator key).
+///      M5: the operator gate on `fillFor` is replaced by LayerZero proof
+///      verification so the solver can call directly.
+contract HubIntentSettler is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    HubIntentSettlerStorage,
+    IHubIntentSettler
+{
+    using SafeERC20 for IERC20;
+
+    // ============ Constructor ============
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    // ============ Initializer ============
+
+    /// @notice Initialize the HubIntentSettler
+    /// @param owner_ The governance owner
+    /// @param operator_ The solver operator (M4) / to be replaced by LZ in M5
+    /// @param balanceLedger_ The BalanceLedger to credit on fill
+    function initialize(
+        address owner_,
+        address operator_,
+        address balanceLedger_
+    ) external initializer {
+        if (owner_ == address(0)) revert ZeroAddress();
+        if (operator_ == address(0)) revert ZeroAddress();
+        if (balanceLedger_ == address(0)) revert ZeroAddress();
+
+        __Ownable_init(owner_);
+        __ReentrancyGuard_init();
+
+        _operator = operator_;
+        _balanceLedger = balanceLedger_;
+
+        emit OperatorUpdated(address(0), operator_);
+    }
+
+    // ============ Modifiers ============
+
+    /// @notice Restricts access to the operator
+    modifier onlyOperator() {
+        if (msg.sender != _operator) revert Unauthorized();
+        _;
+    }
+
+    /// @notice Ensures the contract is not paused
+    modifier whenNotPaused() {
+        if (_paused) revert ContractPaused();
+        _;
+    }
+
+    // ============ Operator/Solver Actions ============
+
+    /// @inheritdoc IHubIntentSettler
+    function fillFor(
+        bytes32 depositId,
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 sourceChainId
+    ) external onlyOperator whenNotPaused nonReentrant {
+        if (user == address(0)) revert ZeroAddress();
+        if (asset == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        // Replay prevention: only process each depositId once
+        if (_depositStatuses[depositId] != DepositStatus.NONE) {
+            revert DepositAlreadyProcessed(depositId);
+        }
+
+        // Pull tokens from the solver into this contract
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Credit the user's available balance on the hub
+        IBalanceLedger(_balanceLedger).credit(user, asset, amount);
+
+        // Register reimbursement obligation with SettlementLedger
+        ISettlementLedger(_settlementLedger).register(
+            depositId,
+            msg.sender,
+            asset,
+            amount
+        );
+
+        // Mark as filled
+        _depositStatuses[depositId] = DepositStatus.FILLED;
+
+        emit SolverFillRegistered(
+            depositId,
+            msg.sender,
+            user,
+            asset,
+            amount,
+            sourceChainId
+        );
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function markNoFill(
+        bytes32 depositId
+    ) external onlyOperator {
+        // Can only mark unfilled deposits
+        if (_depositStatuses[depositId] != DepositStatus.NONE) {
+            revert DepositAlreadyProcessed(depositId);
+        }
+
+        _depositStatuses[depositId] = DepositStatus.NO_FILL;
+
+        emit DepositMarkedNoFill(depositId);
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function releaseToSolver(
+        address solver,
+        address asset,
+        uint256 amount
+    ) external {
+        if (msg.sender != _settlementLedger) revert Unauthorized();
+
+        IERC20(asset).safeTransfer(solver, amount);
+    }
+
+    // ============ Governance ============
+
+    /// @notice Update the operator address
+    /// @param newOperator The new operator address
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) revert ZeroAddress();
+
+        address oldOperator = _operator;
+        _operator = newOperator;
+
+        emit OperatorUpdated(oldOperator, newOperator);
+    }
+
+    /// @notice Update the SettlementLedger pointer
+    /// @dev Called post-deployment to resolve the circular dependency:
+    ///      HubIntentSettler needs SettlementLedger for register(),
+    ///      SettlementLedger needs HubIntentSettler for releaseToSolver().
+    /// @param newSettlementLedger The new SettlementLedger address
+    function setSettlementLedger(
+        address newSettlementLedger
+    ) external onlyOwner {
+        if (newSettlementLedger == address(0)) revert ZeroAddress();
+
+        address oldSettlementLedger = _settlementLedger;
+        _settlementLedger = newSettlementLedger;
+
+        emit SettlementLedgerUpdated(oldSettlementLedger, newSettlementLedger);
+    }
+
+    /// @notice Pause the contract
+    function pause() external onlyOwner {
+        _paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Unpause the contract
+    function unpause() external onlyOwner {
+        _paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    // ============ Views ============
+
+    /// @inheritdoc IHubIntentSettler
+    function depositStatus(
+        bytes32 depositId
+    ) external view returns (DepositStatus) {
+        return _depositStatuses[depositId];
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function balanceLedger() external view returns (address) {
+        return _balanceLedger;
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function settlementLedger() external view returns (address) {
+        return _settlementLedger;
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function operator() external view returns (address) {
+        return _operator;
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function paused() external view returns (bool) {
+        return _paused;
+    }
+}

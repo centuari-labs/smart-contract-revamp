@@ -484,7 +484,7 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 
 ## Phase 1B — Hub Cross-Chain Contracts
 
-### Module 4: WithdrawalRegistry + HubIntentSettler + SettlementLedger ⚪ NOT STARTED
+### Module 4: WithdrawalRegistry + HubIntentSettler + SettlementLedger 🟢 DONE
 
 **Scope:** the three hub-side cross-chain contracts. Withdrawal state machine, solver intent settlement, solver reimbursement tracking.
 

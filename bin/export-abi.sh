@@ -28,6 +28,9 @@ CONTRACTS=(
   "Settlement.sol:Settlement"
   "Faucet.sol:Faucet"
   "CentuariBondERC20Factory.sol:CentuariBondERC20Factory"
+  "WithdrawalRegistry.sol:WithdrawalRegistry"
+  "HubIntentSettler.sol:HubIntentSettler"
+  "SettlementLedger.sol:SettlementLedger"
 )
 
 # Ensure artifacts exist

@@ -237,12 +237,7 @@ contract HubDepositorTest is Test {
         vm.stopPrank();
 
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(IHubDepositor.Unauthorized.selector);
         depositor.payout(user, address(usdc), depositAmount);
     }
 
@@ -370,5 +365,168 @@ contract HubDepositorTest is Test {
 
     function test_IsSupportedAsset_ReturnsFalseByDefault() public view {
         assertFalse(depositor.isSupportedAsset(address(0xBEEF)));
+    }
+
+    // ============ Authorized Callers ============
+
+    function test_SetAuthorizedCaller_Adds() public {
+        address caller = address(0xCAFE);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit IHubDepositor.AuthorizedCallerUpdated(caller, true);
+        depositor.setAuthorizedCaller(caller, true);
+
+        assertTrue(depositor.isAuthorizedCaller(caller));
+    }
+
+    function test_SetAuthorizedCaller_Removes() public {
+        address caller = address(0xCAFE);
+
+        vm.startPrank(owner);
+        depositor.setAuthorizedCaller(caller, true);
+        depositor.setAuthorizedCaller(caller, false);
+        vm.stopPrank();
+
+        assertFalse(depositor.isAuthorizedCaller(caller));
+    }
+
+    function test_SetAuthorizedCaller_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
+        depositor.setAuthorizedCaller(address(0), true);
+    }
+
+    function test_SetAuthorizedCaller_RevertNonOwner() public {
+        vm.prank(outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
+                outsider
+            )
+        );
+        depositor.setAuthorizedCaller(address(0xCAFE), true);
+    }
+
+    function test_IsAuthorizedCaller_FalseByDefault() public view {
+        assertFalse(depositor.isAuthorizedCaller(address(0xBEEF)));
+    }
+
+    // ============ payoutDirect ============
+
+    function test_PayoutDirect_TransfersTokensWithoutDebit() public {
+        uint256 depositAmount = 100e6;
+        uint256 payoutAmount = 50e6;
+        address authorizedCaller = address(0xCAFE);
+
+        // Deposit first
+        vm.startPrank(user);
+        usdc.approve(address(depositor), depositAmount);
+        depositor.deposit(address(usdc), depositAmount);
+        vm.stopPrank();
+
+        // Authorize caller
+        vm.prank(owner);
+        depositor.setAuthorizedCaller(authorizedCaller, true);
+
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+        uint256 ledgerBefore = ledger.available(user, address(usdc));
+
+        // payoutDirect — should NOT debit the ledger
+        vm.prank(authorizedCaller);
+        depositor.payoutDirect(user, address(usdc), payoutAmount);
+
+        // Tokens transferred
+        assertEq(usdc.balanceOf(user), userBalanceBefore + payoutAmount);
+        // Ledger NOT debited
+        assertEq(ledger.available(user, address(usdc)), ledgerBefore);
+    }
+
+    function test_PayoutDirect_EmitsEvent() public {
+        uint256 depositAmount = 100e6;
+        uint256 payoutAmount = 50e6;
+
+        vm.startPrank(user);
+        usdc.approve(address(depositor), depositAmount);
+        depositor.deposit(address(usdc), depositAmount);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, true);
+        emit IHubDepositor.PayoutReleased(user, address(usdc), payoutAmount);
+        depositor.payoutDirect(user, address(usdc), payoutAmount);
+    }
+
+    function test_PayoutDirect_OwnerCanCall() public {
+        uint256 depositAmount = 100e6;
+
+        vm.startPrank(user);
+        usdc.approve(address(depositor), depositAmount);
+        depositor.deposit(address(usdc), depositAmount);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        depositor.payoutDirect(user, address(usdc), depositAmount);
+
+        assertEq(usdc.balanceOf(user), INITIAL_MINT);
+    }
+
+    function test_PayoutDirect_RevertUnauthorized() public {
+        vm.prank(outsider);
+        vm.expectRevert(IHubDepositor.Unauthorized.selector);
+        depositor.payoutDirect(user, address(usdc), 100e6);
+    }
+
+    function test_PayoutDirect_RevertZeroUser() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
+        depositor.payoutDirect(address(0), address(usdc), 100e6);
+    }
+
+    function test_PayoutDirect_RevertZeroAsset() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
+        depositor.payoutDirect(user, address(0), 100e6);
+    }
+
+    function test_PayoutDirect_RevertZeroAmount() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubDepositor.ZeroAmount.selector);
+        depositor.payoutDirect(user, address(usdc), 0);
+    }
+
+    // ============ payout with authorized callers ============
+
+    function test_Payout_AuthorizedCallerCanCall() public {
+        uint256 depositAmount = 100e6;
+        address authorizedCaller = address(0xCAFE);
+
+        vm.startPrank(user);
+        usdc.approve(address(depositor), depositAmount);
+        depositor.deposit(address(usdc), depositAmount);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        depositor.setAuthorizedCaller(authorizedCaller, true);
+
+        vm.prank(authorizedCaller);
+        depositor.payout(user, address(usdc), depositAmount);
+
+        assertEq(ledger.available(user, address(usdc)), 0);
+        assertEq(usdc.balanceOf(user), INITIAL_MINT);
+    }
+
+    function test_Payout_OwnerStillWorks() public {
+        uint256 depositAmount = 100e6;
+
+        vm.startPrank(user);
+        usdc.approve(address(depositor), depositAmount);
+        depositor.deposit(address(usdc), depositAmount);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        depositor.payout(user, address(usdc), depositAmount);
+
+        assertEq(ledger.available(user, address(usdc)), 0);
     }
 }

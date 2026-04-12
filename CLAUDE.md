@@ -12,7 +12,7 @@ forge test               # run all tests
 forge test -vvvv         # verbose with traces
 forge fmt                # format
 anvil                    # local chain
-./bin/run-all.sh         # deploy all contracts (14-step orchestration)
+./bin/run-all.sh         # deploy all contracts (18-step orchestration)
 ./bin/export-abi.sh      # export ABIs to abi/
 ```
 
@@ -34,7 +34,13 @@ src/
 │   │   └── CollateralManagerStorage.sol # Storage layout with gap
 │   ├── cross-chain/
 │   │   ├── HubDepositor.sol             # Hub-native direct deposit/payout (upgradeable)
-│   │   └── HubDepositorStorage.sol      # Storage layout with gap
+│   │   ├── HubDepositorStorage.sol      # Storage layout with gap
+│   │   ├── WithdrawalRegistry.sol       # Withdrawal state machine + HF gate (upgradeable)
+│   │   ├── WithdrawalRegistryStorage.sol # Storage layout with gap
+│   │   ├── HubIntentSettler.sol         # Solver fill + BalanceLedger credit (upgradeable)
+│   │   ├── HubIntentSettlerStorage.sol  # Storage layout with gap
+│   │   ├── SettlementLedger.sol         # Solver reimbursement tracking (upgradeable)
+│   │   └── SettlementLedgerStorage.sol  # Storage layout with gap
 │   ├── risk/
 │   │   └── RiskModuleStub.sol           # Phase 1 fail-closed stub (canUnflag always false)
 │   └── settlement/
@@ -47,7 +53,10 @@ src/
 │   ├── IRiskModule.sol
 │   ├── ISettlement.sol
 │   └── cross-chain/
-│       └── IHubDepositor.sol
+│       ├── IHubDepositor.sol
+│       ├── IWithdrawalRegistry.sol
+│       ├── IHubIntentSettler.sol
+│       └── ISettlementLedger.sol
 ├── libraries/
 │   └── DateTime.sol                     # Date formatting for bond token names
 ├── mocks/
@@ -72,8 +81,13 @@ BalanceLedger (Upgradeable, ERC1967 proxy)
   ├── HubDepositor (Upgradeable) — hub-native deposit/payout, token custody
   ├── Centuari (Upgradeable) — lending/borrowing, auto-flag at settlement, auto-unflag on repay
   ├── Settlement (Upgradeable) — batch settlement, calls Centuari.settleMatch()
-  └── CollateralManager (Upgradeable) — mid-life unflag path, 24h flag-lock + RiskModule gate
-        └── RiskModuleStub — Phase 1 fail-closed (canUnflag always false)
+  ├── CollateralManager (Upgradeable) — mid-life unflag path, 24h flag-lock + RiskModule gate
+  │     └── RiskModuleStub — Phase 1 fail-closed (canUnflag always false)
+  ├── WithdrawalRegistry (Upgradeable) — withdrawal state machine + HF gate, debits on request
+  │     ├── calls IRiskModule.canWithdraw() as first action
+  │     └── calls HubDepositor.payoutDirect() for hub-native withdrawals
+  └── HubIntentSettler (Upgradeable) — solver fill for cross-chain deposits, credits user
+        └── SettlementLedger (Upgradeable) — solver reimbursement tracking, calls releaseToSolver()
 ```
 
 ### Market Identification
@@ -124,7 +138,7 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 
 ### Deployment Rules
 
-- `run-all.sh` orchestrates the full deployment in 14 steps — maintain this order
+- `run-all.sh` orchestrates the full deployment in 18 steps — maintain this order
 - Each script is idempotent where possible — re-running should not break state
 - Deployment output goes to `deployments/deploy-<network>-latest.json`
 - After deployment, run `export-abi.sh` to update ABI files for off-chain services
