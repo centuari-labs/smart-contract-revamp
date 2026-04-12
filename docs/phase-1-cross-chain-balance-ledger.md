@@ -446,8 +446,10 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 **HubDepositor.sol — hub-native direct deposit/withdrawal:**
 
 - Minimal contract (or equivalent methods on Centuari.sol) that is the single entry point for users already on Arbitrum. Path 1 from Full Architecture §6.5.1.
-- `deposit(asset, amount)` — `safeTransferFrom(msg.sender, this, amount)` then `balanceLedger.credit(msg.sender, asset, amount)` in the same transaction. No intent, no solver, no LayerZero.
-- `payout(user, asset, amount)` — called by `WithdrawalRegistry` when the withdrawal target chain is Arbitrum itself. Releases tokens directly from the hub contract's custody. No LZ message.
+- `deposit(asset, amount)` — `safeTransferFrom(msg.sender, this, amount)` then `balanceLedger.credit(msg.sender, asset, amount)` in the same transaction. No intent, no solver, no LayerZero. **Reverts with `UnsupportedAsset` if `asset` is not on the supported whitelist.**
+- `payout(user, asset, amount)` — called by `WithdrawalRegistry` when the withdrawal target chain is Arbitrum itself. Releases tokens directly from the hub contract's custody. No LZ message. **Not gated by the whitelist** — owner can release any token in custody.
+- `addSupportedAsset(asset)` / `removeSupportedAsset(asset)` — owner-only whitelist management. Emits `AssetAdded` / `AssetRemoved`. Only whitelisted assets can be deposited.
+- `isSupportedAsset(asset)` — view to check whether an asset is on the whitelist.
 - Registered as an authorized writer on BalanceLedger.
 
 **Decision (inline):** keep `HubDepositor.sol` as a *separate contract* rather than folding into Centuari.sol. Keeps Centuari.sol focused on lending/borrowing logic and isolates the token-custody surface. Same pattern as Phase 1B where cross-chain contracts are separate.
@@ -461,7 +463,8 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 - `smart-contract-revamp/script/DeployHubDepositor.s.sol` (new)
 - `smart-contract-revamp/script/DeployCentuari.s.sol` (modify — pass BalanceLedger address into initializer)
 - `smart-contract-revamp/script/ConfigureBalanceLedger.s.sol` (new — register Centuari + HubDepositor as authorized writers via the testnet `FORCE_ADMIN_WRITER_REGISTRATION` path)
-- `smart-contract-revamp/bin/run-all.sh` (modify — add steps for BalanceLedger and HubDepositor)
+- `smart-contract-revamp/script/ConfigureHubDepositor.s.sol` (new — register supported assets on HubDepositor)
+- `smart-contract-revamp/bin/run-all.sh` (modify — add steps for BalanceLedger, HubDepositor, and ConfigureHubDepositor)
 - `smart-contract-revamp/bin/export-abi.sh` (modify — export BalanceLedger + HubDepositor ABIs)
 - `smart-contract-revamp/deployments/deploy-arbitrum-sepolia-latest.json` (regenerated output)
 
@@ -471,7 +474,9 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 
 - `./bin/run-all.sh` deploys the full stack to Arbitrum Sepolia.
 - `deployments/deploy-arbitrum-sepolia-latest.json` contains BalanceLedger proxy address.
-- Manually call `Centuari.deposit()` via cast, confirm BalanceLedger available balance updated for the depositor.
+- Verify `HubDepositor.isSupportedAsset(token)` returns `true` for all deployed mock tokens after ConfigureHubDepositor step.
+- Verify `HubDepositor.deposit(unsupportedToken, amount)` reverts with `UnsupportedAsset`.
+- Manually call `HubDepositor.deposit()` via cast with a supported token, confirm BalanceLedger available balance updated for the depositor.
 - Manually place a lend + borrow match via the existing settlement flow, confirm balances flow through BalanceLedger, not Treasury.
 - Export ABIs and verify they end up in `abi/` for downstream services.
 

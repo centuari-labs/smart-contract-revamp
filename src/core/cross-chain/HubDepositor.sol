@@ -71,6 +71,7 @@ contract HubDepositor is
     /// @inheritdoc IHubDepositor
     function deposit(address asset, uint256 amount) external nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
+        if (!_supportedAssets[asset]) revert UnsupportedAsset();
         if (amount == 0) revert ZeroAmount();
 
         // Pull tokens from the caller into this contract
@@ -103,10 +104,30 @@ contract HubDepositor is
         emit PayoutReleased(user, asset, amount);
     }
 
+    // ============ Asset management ============
+
+    /// @inheritdoc IHubDepositor
+    function addSupportedAsset(address asset) external onlyOwner {
+        if (asset == address(0)) revert ZeroAddress();
+        _supportedAssets[asset] = true;
+        emit AssetAdded(asset);
+    }
+
+    /// @inheritdoc IHubDepositor
+    function removeSupportedAsset(address asset) external onlyOwner {
+        _supportedAssets[asset] = false;
+        emit AssetRemoved(asset);
+    }
+
     // ============ Views ============
 
     /// @inheritdoc IHubDepositor
     function balanceLedger() external view returns (address) {
         return _balanceLedger;
+    }
+
+    /// @inheritdoc IHubDepositor
+    function isSupportedAsset(address asset) external view returns (bool) {
+        return _supportedAssets[asset];
     }
 }

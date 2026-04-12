@@ -13,10 +13,16 @@ abstract contract HubDepositorStorage {
     ///      authorized writer on BalanceLedger before any deposit can succeed.
     address internal _balanceLedger;
 
+    /// @notice Whitelist of supported asset addresses
+    /// @dev Only assets in this mapping can be deposited via `deposit()`.
+    ///      Managed by the owner via `addSupportedAsset` / `removeSupportedAsset`.
+    mapping(address => bool) internal _supportedAssets;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 49 slots for future storage variables. One slot consumed
-    ///      by `_balanceLedger`, leaving 49 from the original 50-slot budget.
-    uint256[49] private __gap;
+    /// @dev Provides 48 slots for future storage variables. Two slots consumed
+    ///      by `_balanceLedger` and `_supportedAssets`, leaving 48 from the
+    ///      original 50-slot budget.
+    uint256[48] private __gap;
 }

@@ -56,6 +56,10 @@ contract HubDepositorTest is Test {
         vm.prank(owner);
         ledger.forceAddWriter(address(depositor));
 
+        // Whitelist USDC as a supported asset
+        vm.prank(owner);
+        depositor.addSupportedAsset(address(usdc));
+
         // Mint tokens to the user for testing
         usdc.mint(user, INITIAL_MINT);
     }
@@ -284,5 +288,87 @@ contract HubDepositorTest is Test {
         assertEq(ledger.available(user, address(usdc)), depositAmount - payoutAmount);
         assertEq(usdc.balanceOf(address(depositor)), depositAmount - payoutAmount);
         assertEq(usdc.balanceOf(user), INITIAL_MINT - depositAmount + payoutAmount);
+    }
+
+    // ============ Supported Asset Whitelist ============
+
+    function test_AddSupportedAsset_SetsFlag() public {
+        MockToken dai = new MockToken("Dai", "DAI", 18, 0);
+
+        vm.prank(owner);
+        depositor.addSupportedAsset(address(dai));
+
+        assertTrue(depositor.isSupportedAsset(address(dai)));
+    }
+
+    function test_AddSupportedAsset_EmitsEvent() public {
+        MockToken dai = new MockToken("Dai", "DAI", 18, 0);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, false);
+        emit IHubDepositor.AssetAdded(address(dai));
+        depositor.addSupportedAsset(address(dai));
+    }
+
+    function test_AddSupportedAsset_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
+        depositor.addSupportedAsset(address(0));
+    }
+
+    function test_AddSupportedAsset_RevertNonOwner() public {
+        MockToken dai = new MockToken("Dai", "DAI", 18, 0);
+
+        vm.prank(outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
+                outsider
+            )
+        );
+        depositor.addSupportedAsset(address(dai));
+    }
+
+    function test_RemoveSupportedAsset_ClearsFlag() public {
+        // USDC is already supported from setUp
+        assertTrue(depositor.isSupportedAsset(address(usdc)));
+
+        vm.prank(owner);
+        depositor.removeSupportedAsset(address(usdc));
+
+        assertFalse(depositor.isSupportedAsset(address(usdc)));
+    }
+
+    function test_RemoveSupportedAsset_EmitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, false);
+        emit IHubDepositor.AssetRemoved(address(usdc));
+        depositor.removeSupportedAsset(address(usdc));
+    }
+
+    function test_RemoveSupportedAsset_RevertNonOwner() public {
+        vm.prank(outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
+                outsider
+            )
+        );
+        depositor.removeSupportedAsset(address(usdc));
+    }
+
+    function test_Deposit_RevertUnsupportedAsset() public {
+        MockToken dai = new MockToken("Dai", "DAI", 18, 0);
+        dai.mint(user, 1000e18);
+
+        vm.startPrank(user);
+        dai.approve(address(depositor), 1000e18);
+        vm.expectRevert(IHubDepositor.UnsupportedAsset.selector);
+        depositor.deposit(address(dai), 1000e18);
+        vm.stopPrank();
+    }
+
+    function test_IsSupportedAsset_ReturnsFalseByDefault() public view {
+        assertFalse(depositor.isSupportedAsset(address(0xBEEF)));
     }
 }

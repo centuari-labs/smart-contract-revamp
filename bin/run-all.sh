@@ -34,13 +34,14 @@
 #   5. DeployBondFactory
 #   6. ConfigureBondFactory
 #   7. DeployHubDepositor
-#   8. DeployCollateralStack (RiskModuleStub + CollateralManager)
-#   9. ConfigureBalanceLedger (add Centuari + HubDepositor as writers)
-#   10. DeploySettlement
-#   11. ConfigureBalanceLedger (add Settlement as writer)
-#   12. SetSettlement on Centuari
-#   13. UpgradeSettlement (optional)
-#   14. SetOperators
+#   8. ConfigureHubDepositor (register supported assets)
+#   9. DeployCollateralStack (RiskModuleStub + CollateralManager)
+#   10. ConfigureBalanceLedger (add Centuari + HubDepositor as writers)
+#   11. DeploySettlement
+#   12. ConfigureBalanceLedger (add Settlement as writer)
+#   13. SetSettlement on Centuari
+#   14. UpgradeSettlement (optional)
+#   15. SetOperators
 #
 set -e
 
@@ -329,7 +330,7 @@ build_mock_tokens_json() {
 '
 }
 
-TOTAL_STEPS=14
+TOTAL_STEPS=15
 
 # ===========================
 # Step 1: DeployMockTokens
@@ -486,9 +487,26 @@ else
 fi
 
 # ===========================
-# Step 8: DeployCollateralStack
+# Step 8: ConfigureHubDepositor (register supported assets)
 # ===========================
-echo "=== 8/$TOTAL_STEPS DeployCollateralStack ==="
+echo "=== 8/$TOTAL_STEPS ConfigureHubDepositor ==="
+if [[ -n "${HUB_DEPOSITOR_ADDRESS:-}" && -n "${FAUCET_TOKENS:-}" ]]; then
+  # Build a Solidity-compatible array literal from the comma-separated FAUCET_TOKENS list.
+  # FAUCET_TOKENS contains all deployed mock token addresses — these are the supported assets.
+  IFS=',' read -ra TOKEN_ARRAY <<< "$FAUCET_TOKENS"
+  SOLIDITY_ARRAY="[$(printf '%s,' "${TOKEN_ARRAY[@]}" | sed 's/,$//' )]"
+
+  run_script script/ConfigureHubDepositor.s.sol:ConfigureHubDepositor \
+    --sig "run(address,address[])" \
+    "$HUB_DEPOSITOR_ADDRESS" "$SOLIDITY_ARRAY"
+else
+  echo "Skipping ConfigureHubDepositor (need HUB_DEPOSITOR_ADDRESS and FAUCET_TOKENS)"
+fi
+
+# ===========================
+# Step 9: DeployCollateralStack
+# ===========================
+echo "=== 9/$TOTAL_STEPS DeployCollateralStack ==="
 if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
   if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" ]]; then
     out=$(run_script script/DeployCollateralStack.s.sol:DeployCollateralStack \
@@ -509,9 +527,9 @@ else
 fi
 
 # ===========================
-# Step 9: ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor writers)
+# Step 10: ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor writers)
 # ===========================
-echo "=== 9/$TOTAL_STEPS ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor) ==="
+echo "=== 10/$TOTAL_STEPS ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor) ==="
 if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
   # CollateralManager is already registered by DeployCollateralStack (step 8),
   # so Phase 1 only adds Centuari + HubDepositor.
@@ -523,9 +541,9 @@ else
 fi
 
 # ===========================
-# Step 10: DeploySettlement
+# Step 11: DeploySettlement
 # ===========================
-echo "=== 10/$TOTAL_STEPS DeploySettlement ==="
+echo "=== 11/$TOTAL_STEPS DeploySettlement ==="
 if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" ]]; then
   deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
     --sig "run(address,address,address,address)" \
@@ -544,9 +562,9 @@ else
 fi
 
 # ===========================
-# Step 11: ConfigureBalanceLedger (Phase 2 — add Settlement as writer)
+# Step 12: ConfigureBalanceLedger (Phase 2 — add Settlement as writer)
 # ===========================
-echo "=== 11/$TOTAL_STEPS ConfigureBalanceLedger (Phase 2 — Settlement) ==="
+echo "=== 12/$TOTAL_STEPS ConfigureBalanceLedger (Phase 2 — Settlement) ==="
 if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" ]]; then
   run_script script/ConfigureBalanceLedger.s.sol:ConfigureBalanceLedger \
     --sig "addSettlement(address,address)" \
@@ -556,9 +574,9 @@ else
 fi
 
 # ===========================
-# Step 12: SetSettlement on Centuari
+# Step 13: SetSettlement on Centuari
 # ===========================
-echo "=== 12/$TOTAL_STEPS SetSettlement on Centuari ==="
+echo "=== 13/$TOTAL_STEPS SetSettlement on Centuari ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
   echo "Updating Centuari._settlement to the deployed Settlement proxy..."
   echo "  Centuari:         $CENTUARI_ADDRESS"
@@ -574,9 +592,9 @@ else
 fi
 
 # ===========================
-# Step 13: UpgradeSettlement (optional)
+# Step 14: UpgradeSettlement (optional)
 # ===========================
-echo "=== 13/$TOTAL_STEPS UpgradeSettlement ==="
+echo "=== 14/$TOTAL_STEPS UpgradeSettlement ==="
 PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
 if [[ "$DEPLOY_ONLY" == true ]]; then
   echo "Skipping UpgradeSettlement (--deploy-only)"
@@ -596,9 +614,9 @@ else
 fi
 
 # ===========================
-# Step 14: SetOperators
+# Step 15: SetOperators
 # ===========================
-echo "=== 14/$TOTAL_STEPS SetOperators ==="
+echo "=== 15/$TOTAL_STEPS SetOperators ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
   echo "Writing deployment summary for set_operators.sh"
   write_deploy_summary

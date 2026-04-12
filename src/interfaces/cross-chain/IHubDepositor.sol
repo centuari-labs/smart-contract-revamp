@@ -25,6 +25,14 @@ interface IHubDepositor {
     /// @param amount The amount released
     event PayoutReleased(address indexed user, address indexed asset, uint256 amount);
 
+    /// @notice Emitted when an asset is added to the supported whitelist
+    /// @param asset The ERC20 token added
+    event AssetAdded(address indexed asset);
+
+    /// @notice Emitted when an asset is removed from the supported whitelist
+    /// @param asset The ERC20 token removed
+    event AssetRemoved(address indexed asset);
+
     // ============ Errors ============
 
     /// @notice Thrown when a zero address is provided where a real address is required
@@ -32,6 +40,9 @@ interface IHubDepositor {
 
     /// @notice Thrown when a zero amount is provided
     error ZeroAmount();
+
+    /// @notice Thrown when a deposit is attempted with a non-whitelisted asset
+    error UnsupportedAsset();
 
     // ============ User actions ============
 
@@ -54,8 +65,25 @@ interface IHubDepositor {
     /// @param amount The amount to release
     function payout(address user, address asset, uint256 amount) external;
 
+    // ============ Asset management ============
+
+    /// @notice Add an asset to the supported whitelist
+    /// @dev Only callable by the owner. Reverts on zero address.
+    /// @param asset The ERC20 token to whitelist
+    function addSupportedAsset(address asset) external;
+
+    /// @notice Remove an asset from the supported whitelist
+    /// @dev Only callable by the owner.
+    /// @param asset The ERC20 token to remove
+    function removeSupportedAsset(address asset) external;
+
     // ============ Views ============
 
     /// @notice The BalanceLedger this depositor writes to
     function balanceLedger() external view returns (address);
+
+    /// @notice Check whether an asset is on the supported whitelist
+    /// @param asset The ERC20 token to check
+    /// @return True if the asset is supported
+    function isSupportedAsset(address asset) external view returns (bool);
 }
