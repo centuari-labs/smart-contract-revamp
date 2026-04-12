@@ -27,7 +27,7 @@ import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
 ///      any caller contract, the policy upgrade flips on instantly.
 contract RiskModuleStub is IRiskModule {
     /// @notice The BalanceLedger whose collateral flag is consulted
-    IBalanceLedger public immutable balanceLedger;
+    IBalanceLedger public immutable BALANCE_LEDGER;
 
     /// @notice Thrown when the BalanceLedger address is zero
     error ZeroAddress();
@@ -35,7 +35,7 @@ contract RiskModuleStub is IRiskModule {
     /// @param balanceLedger_ The BalanceLedger whose flags this stub reads
     constructor(address balanceLedger_) {
         if (balanceLedger_ == address(0)) revert ZeroAddress();
-        balanceLedger = IBalanceLedger(balanceLedger_);
+        BALANCE_LEDGER = IBalanceLedger(balanceLedger_);
     }
 
     /// @inheritdoc IRiskModule
@@ -53,6 +53,6 @@ contract RiskModuleStub is IRiskModule {
         address asset,
         uint256 /* amount */
     ) external view returns (bool) {
-        return !balanceLedger.usedAsCollateral(user, asset);
+        return !BALANCE_LEDGER.usedAsCollateral(user, asset);
     }
 }

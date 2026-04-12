@@ -28,7 +28,7 @@ import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable
 ///      WithdrawalRegistry in M4; onlyOwner in M3).
 ///
 ///      Token custody: this contract holds the actual ERC20 tokens deposited
-///      on the hub chain, replacing Treasury's custodial role.
+///      on the hub chain.
 contract HubDepositor is
     Initializable,
     OwnableUpgradeable,
