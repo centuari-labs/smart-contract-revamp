@@ -68,7 +68,7 @@ User requirement (extended from C1): cross-chain deposits must also be low-signa
 3. `SpokeDepositGateway` pulls the tokens into its escrow and emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`. `depositId = keccak256(chainId, tx.origin, nonce)`. **This event is the intent.** No off-chain signing at all.
 4. Solver service watches `DepositInitiated` events on all 4 spokes. On seeing one, it calls `HubIntentSettler.fillFor(depositId, user, asset, amount, sourceChainId, proof)` on Arbitrum using its own hub-side USDC. The `proof` is a LayerZero message carrying the spoke event (so the hub contract cannot be spoofed — see below).
 5. `HubIntentSettler` verifies the LZ message came from the correct `SpokeDepositGateway` on the correct chain, credits `BalanceLedger.available[user] += amount`, and registers a solver reimbursement obligation with `SettlementLedger`.
-6. User's balance appears on Arbitrum in ~3s (time from spoke tx confirmation + LZ latency for the cheap-message proof). Solver is later reimbursed when the Sweeper bridges the escrowed USDC from spoke → hub via CCTP/OFT (5–20 min).
+6. User's balance appears on Arbitrum in ~3s (time from spoke tx confirmation + LZ latency for the cheap-message proof). Solver is later reimbursed when the Sweeper bridges the escrowed USDC from spoke → hub via CCTP or Stargate V2 (5–20 min).
 
 **Refund race resolution:**
 
@@ -145,6 +145,20 @@ The verify-then-apply pattern is a small shared helper in `indexer-v2/src/shared
 
 The `usedAsCollateral` flag is on-chain in Phase 1 and is written by one of three paths: (a) auto-flag inside `Settlement.settle()` at borrow match settlement, (b) auto-unflag inside `Centuari.repay()` when debt hits zero, (c) mid-life unflag through `CollateralManager.unflagFor()` gated by the 24h flag-lock + `RiskModule.canUnflag`. All three emit `BalanceLedger.CollateralFlagSet(user, asset, used, flaggedAt)` which indexer-v2 tails into the `user_balance.used_as_collateral` column with the same C10 idempotency stamps as every other event. Whichever service submitted the underlying tx (settlement-engine for settle, backend-v2 for repay and unflag) eagerly applies the mutation via `applyOnChainEffect` so the UI reflects the flag change within a few hundred ms rather than waiting on the indexer tail.
 
+### C11. Spoke-native custody and per-chain liquidity tracking
+
+Not all tokens can be bridged to the hub. Tokens like IDRX (Base/BNB only), XAUT (ETH only), and Ondo RWAs (ETH/BNB only) either lack bridge support (no CCTP/Stargate pool) or don't exist on Arbitrum at all. These tokens use SPOKE_NATIVE custody: the token stays on the spoke where deposited, and the hub tracks only accounting (BalanceLedger) plus a per-chain liquidity map.
+
+**Resolution:** the hub maintains `ChainLiquidity[token][chainId]` alongside BalanceLedger. On SPOKE_NATIVE deposit, the spoke sends an LZ message to hub which credits BalanceLedger AND increments ChainLiquidity. On withdrawal, WithdrawalRegistry checks `ChainLiquidity[token][targetChain] >= amount` and decrements atomically. The frontend shows per-chain liquidity for SPOKE_NATIVE tokens so users can pick a chain with sufficient balance.
+
+**Lending/borrowing for SPOKE_NATIVE tokens:** fully supported via hub accounting. A lender depositing XSGD on Base and a borrower withdrawing XSGD on Polygon works as long as someone else deposited XSGD on Polygon (providing liquidity there). The tokens don't move between chains — only the accounting flows through the hub.
+
+**Limitation:** if all XSGD liquidity is on Base and a borrower wants to withdraw to Polygon, the withdrawal is blocked until someone deposits XSGD on Polygon. This is acceptable for lower-volume exotic tokens. High-volume tokens (USDC, USDT) use BRIDGED custody to avoid this fragmentation.
+
+**No Sweeper rebalancing for SPOKE_NATIVE tokens.** There is no bridge to move XSGD from Base to Polygon even if we wanted to. The liquidity distribution reflects organic deposit patterns.
+
+**SPOKE_NATIVE deposits have no solver fast-fill.** The solver model requires fronting capital on the hub and being reimbursed via bridge — impossible for tokens that can't be bridged. SPOKE_NATIVE deposits wait for the LZ message confirmation (~30s-2min). This is acceptable because these are lower-volume tokens.
+
 ---
 
 ## Module Breakdown
@@ -156,7 +170,7 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 - 🟡 **IN PROGRESS** — actively being implemented
 - ⚪ **NOT STARTED** — dependencies not yet met or not yet scheduled
 
-**Current Phase 1 status (as of 2026-04-10):**
+**Current Phase 1 status (as of 2026-04-13):**
 
 | Module | Status | Notes |
 |---|---|---|
@@ -164,11 +178,11 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 | M1b — IRiskModule + RiskModuleStub + CollateralManager | 🟢 **DONE** | Landed 2026-04-09. `IRiskModule.sol`, `RiskModuleStub.sol` (fail-closed: `canUnflag` unconditionally `false`), `ICollateralManager.sol`, `CollateralManagerStorage.sol`, `CollateralManager.sol` (`OwnableUpgradeable + onlyOperator`, NOT `AccessControlUpgradeable`), `DeployCollateralStack.s.sol`. 36 new tests. `MAX_FLAG_LOCK = 30 days` ceiling added. See `collateral-loophole-fix-plan.md` P1a Completion Record for deviations from original spec. |
 | M2 — Centuari.sol migration off Treasury | 🟢 **DONE** | Landed 2026-04-10. All balance ops migrated from Treasury to BalanceLedger (`debit`/`credit`). `_balanceLedger` slot added to `CentuariStorage.sol`. Auto-flag at settlement via `markCollateral(borrower, loanToken)` in `settleMatch()`. Auto-unflag loop in `repay()` clears all flagged assets when `_activeDebtCount[borrower] == 0` (bypasses 24h flag-lock). Zero Treasury references remain. Tests fully ported to BalanceLedger model with dedicated auto-flag/unflag coverage. |
 | M3 — Deployment scripts + testnet cutover + HubDepositor | 🟢 **DONE** | Landed 2026-04-10. HubDepositor.sol (IHubDepositor + HubDepositorStorage + HubDepositor) with deposit/payout via BalanceLedger credit/debit. DeployBalanceLedger.s.sol, DeployHubDepositor.s.sol, ConfigureBalanceLedger.s.sol (two-phase writer registration). run-all.sh rewritten to 14 steps — Treasury fully removed, BalanceLedger + HubDepositor + CollateralStack integrated. export-abi.sh updated (added BalanceLedger, HubDepositor, CollateralManager; removed Treasury). 270 tests passing. Local Anvil smoke test verified: deposit via HubDepositor correctly credits BalanceLedger.available. |
-| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M3 (done). |
-| M5 — Spoke contracts + LayerZero DVN wiring | ⚪ NOT STARTED | blocked on M4 |
+| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | 🟢 **DONE** | Landed 2026-04-12. WithdrawalRegistry (state machine + HF gate via `IRiskModule.canWithdraw`), HubIntentSettler (solver fill + BalanceLedger credit), SettlementLedger (solver reimbursement tracking). 339 tests passing. |
+| M5 — Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M4 (done). |
 | M6 — Solver Service | ⚪ NOT STARTED | blocked on M5 |
 | M7 — Sweeper Bot | ⚪ NOT STARTED | blocked on M6 |
-| M8 — indexer-v2 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M4. Depends on M3 (done). |
+| M8 — indexer-v2 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M5. Depends on M3 (done). |
 | M9 — backend-v2 + settlement-engine + matching-engine updates | ⚪ NOT STARTED | blocked on M8 |
 | M10 — frontend-revamp cross-chain UI + collateral toggle | ⚪ NOT STARTED | blocked on M4/M5 + M9 |
 
@@ -550,74 +564,97 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 
 ## Phase 1C — Spoke Chain Contracts
 
-### Module 5: Spoke contracts + LayerZero DVN wiring ⚪ NOT STARTED
+### Module 5: Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody ⚪ NOT STARTED
 
-**Scope:** the three spoke-side contracts that live on the **four spoke chains only: Base Sepolia, Ethereum Sepolia, BNB Testnet, Polygon Amoy**. No spoke deployment on Arbitrum (hub uses `HubDepositor` from M3 per C9). Also adds LayerZero V2 + Circle CCTP dependencies to the Foundry project.
+**Scope:** the three spoke-side contracts that live on the **four spoke chains only: Base, Ethereum, BNB, Polygon**. No spoke deployment on Arbitrum (hub uses `HubDepositor` from M3 per C9). Also adds LayerZero V2, Circle CCTP, and Stargate V2 dependencies to the Foundry project. Spoke contracts handle **two custody modes** per the token×chain matrix: BRIDGED tokens (escrowed temporarily, bridged to hub) and SPOKE_NATIVE tokens (held permanently, hub tracks accounting only). Additionally, hub contracts gain `ChainLiquidity` tracking for SPOKE_NATIVE tokens and a new receiver for spoke-native deposit confirmations.
 
-**Addresses concerns:** C5 (spoke refund gating — this is where `SpokeDepositGateway` is built from scratch, since the feat branch doesn't have it), C7 (DVN config).
+**Addresses concerns:** C5 (spoke refund gating — `SpokeDepositGateway` built from scratch), C7 (DVN config — D7 now resolved: testnet 1-of-1 LayerZero Labs, mainnet 2-of-2 LayerZero Labs + Google Cloud), C11 (spoke-native custody and per-chain liquidity tracking).
 
 **Files to create:**
 
 - `smart-contract-revamp/lib/layerzero-v2/` (git submodule)
 - `smart-contract-revamp/lib/cctp/` (git submodule for Circle's TokenMessenger interfaces)
-- `smart-contract-revamp/remappings.txt` (add LZ + CCTP paths)
+- `smart-contract-revamp/lib/stargate-v2/` (git submodule for Stargate V2 pool interfaces)
+- `smart-contract-revamp/remappings.txt` (add LZ + CCTP + Stargate paths)
+- `smart-contract-revamp/config/token-chain-matrix.json` (new — single source of truth for token×chain routing)
 - `smart-contract-revamp/src/core/cross-chain/spoke/SpokeVaultStable.sol`
 - `smart-contract-revamp/src/core/cross-chain/spoke/SpokePayout.sol`
 - `smart-contract-revamp/src/core/cross-chain/spoke/SpokeDepositGateway.sol` **(this is new — absent from feat branch)**
+- `smart-contract-revamp/src/libraries/cross-chain/ChainLiquidityTracker.sol` (or integrated into WithdrawalRegistry storage)
 - Matching interfaces + errors + events
 - `smart-contract-revamp/test/cross-chain/spoke/*.t.sol`
 - `smart-contract-revamp/script/DeployCrossChainSpoke.s.sol` — parameterized by target chainId
-- `smart-contract-revamp/config/layerzero-dvn-testnet.json` — DVN stack configuration per pathway
+- `smart-contract-revamp/config/layerzero-dvn.json` — DVN stack configuration per pathway
 
-**SpokeVaultStable:**
+**SpokeVaultStable (dual custody):**
 
-- `deposit(asset, amount)` — user deposit into spoke escrow.
-- `sweepToHub(asset, amount, hubAddress)` — Sweeper calls. Burns via CCTP for USDC, or sends via LZ OFT for USDT/USDe.
-- `HIGH_WATER_MARK` / `LOW_WATER_MARK` config per §6.4.3.
-- View functions for Sweeper monitoring.
+- Holds both **temporary escrow** (BRIDGED tokens waiting for Sweeper) and **permanent custody** (SPOKE_NATIVE tokens that never leave the spoke).
+- `sweepToHub(asset, amount, hubAddress)` — Sweeper calls. **Only for BRIDGED tokens.** Routes by token×chain matrix: CCTP burn/mint for USDC (Base/ETH/Polygon), Stargate V2 pool transfer for USDC on BNB and for USDT/WETH. Reverts with `CannotSweepSpokeNative()` for SPOKE_NATIVE tokens.
+- `custodyBalance(asset) → uint256` — view returning the permanent SPOKE_NATIVE custody balance for an asset. Used by SpokePayout to verify sufficient liquidity before releasing.
+- `HIGH_WATER_MARK` / `LOW_WATER_MARK` config — **only applies to BRIDGED tokens**. SPOKE_NATIVE token liquidity reflects organic deposit patterns and is not rebalanced.
+- View functions for Sweeper monitoring (BRIDGED tokens only).
 
-**SpokePayout:**
+**SpokePayout (dual mode):**
 
 - `release(user, asset, amount)` — callable only after `WithdrawalRegistry` authorization arrives via LayerZero.
-- Queue mechanism if buffer insufficient (queues the withdrawal until Sweeper replenishes).
+- For **BRIDGED withdrawals:** releases from the spoke's BRIDGED buffer (replenished by Sweeper from hub). Queue mechanism if buffer insufficient (queues until Sweeper replenishes).
+- For **SPOKE_NATIVE withdrawals:** releases from SpokeVaultStable's permanent custody. Must verify `SpokeVaultStable.custodyBalance(asset) >= amount`. No queue — if custody is insufficient, the withdrawal should have been rejected at the hub level via `ChainLiquidity` check.
 
-**SpokeDepositGateway — the missing piece (user-driven, no signing):**
+**SpokeDepositGateway (dual mode, user-driven, no signing):**
 
-- `deposit(asset, amount, hubRecipient)` — called directly by the user from their wallet. Pulls tokens via `safeTransferFrom`, generates `depositId = keccak256(block.chainid, msg.sender, nonce)`, emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`, and dispatches a LayerZero message to `HubIntentSettler` on Arbitrum carrying `(depositId, user, asset, amount, sourceChainId)`. The LZ message acts as proof-of-deposit for the solver's subsequent `fillFor` call.
-- `permitAndDeposit(asset, amount, hubRecipient, deadline, v, r, s)` — one-click variant for EIP-2612 tokens. Consumes a permit signature (still just the wallet popup asking for approval, not an EIP-712 intent) and calls `deposit` in the same tx.
-- `releaseToSolver(depositId, lzFillProof)` — called by the solver after they've filled on the hub. `lzFillProof` is the LayerZero message from `HubIntentSettler` attesting to the fill. Releases the escrowed tokens to the solver (this is what makes the Sweeper's bridge job unnecessary for the fast path — on spokes where `releaseToSolver` works, the solver is reimbursed directly on the spoke without bridging; the Sweeper only handles the slow-path top-up flow). Note: for simplicity in Phase 1 we can also pay the solver entirely via the Sweeper's bridge path and skip `releaseToSolver` — decision below.
-- `refund(depositId)` — **user-callable, LayerZero-gated.** Requires a `lzNoFillProof` from `HubIntentSettler.markNoFill()`. If the proof is valid and fresh, releases the escrowed tokens back to the original depositor. Keeper in Module 6 is responsible for triggering `markNoFill` on the hub after the fill timeout; user then calls `refund` on the spoke to reclaim.
+- `deposit(asset, amount, hubRecipient)` — called directly by the user from their wallet. Pulls tokens via `safeTransferFrom`. Behavior depends on token×chain matrix:
+  - **If BRIDGED (CCTP/STARGATE):** generates `depositId = keccak256(block.chainid, msg.sender, nonce)`, escrows tokens temporarily in SpokeDepositGateway, emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`, dispatches LayerZero message to `HubIntentSettler` on Arbitrum carrying `(depositId, user, asset, amount, sourceChainId)`. Solver fast-fills on hub (~3s). Sweeper bridges escrowed tokens later.
+  - **If SPOKE_NATIVE:** transfers tokens to SpokeVaultStable permanent custody, emits `SpokeNativeDeposit(user, asset, amount, sourceChainId)`, dispatches LayerZero message to hub to credit BalanceLedger + update ChainLiquidity. **No solver** — user waits for LZ message confirmation (~30s-2min). No bridge. No escrow.
+- `permitAndDeposit(asset, amount, hubRecipient, deadline, v, r, s)` — one-click variant for EIP-2612 tokens. Works for both BRIDGED and SPOKE_NATIVE paths.
+- `refund(depositId)` — **user-callable, LayerZero-gated. BRIDGED deposits only.** Requires a `lzNoFillProof` from `HubIntentSettler.markNoFill()`. Releases escrowed tokens back to depositor. SPOKE_NATIVE deposits have no refund path — they are confirmed directly via LZ message, not via solver fill.
 
-**Reimbursement decision (locked):** Phase 1 uses the **Sweeper bridge path** for solver reimbursement (simpler, one code path). `releaseToSolver` is NOT implemented in Phase 1 — the escrowed spoke tokens stay in `SpokeDepositGateway` until the Sweeper's outbound flow bridges them to the hub and `SettlementLedger.match()` reimburses the solver's EOA. This adds 5–20 min to reimbursement latency but keeps the contract surface minimal.
+**Reimbursement decision (locked):** Phase 1 uses the **Sweeper bridge path** for solver reimbursement of BRIDGED deposits (simpler, one code path). `releaseToSolver` is NOT implemented in Phase 1. SPOKE_NATIVE deposits do not involve the solver at all.
 
-**LayerZero DVN configuration:**
+**Hub contract changes for SPOKE_NATIVE support:**
 
-- For testnet: configure 2-of-2 DVN per pathway across **all four spoke ↔ hub pathways**: Arbitrum Sepolia ↔ Base Sepolia, Arbitrum Sepolia ↔ Ethereum Sepolia, Arbitrum Sepolia ↔ BNB Testnet, Arbitrum Sepolia ↔ Polygon Amoy.
-- Primary DVN: LayerZero Labs DVN (available everywhere). Secondary DVN: TBD per chain (see D7). For any pathway where the intended secondary isn't available on testnet, fall back to 1-of-1 LayerZero Labs DVN with a TODO to raise to 2-of-2 before mainnet.
+- **`ChainLiquidity` tracking** — new storage mapping `ChainLiquidity[token][chainId] → uint256` tracking physical token balances per chain. Could live on WithdrawalRegistry (simplest — co-located with withdrawal checks) or in a separate `ChainLiquidityTracker.sol`. Updated on: SPOKE_NATIVE deposit confirmation (+), SPOKE_NATIVE withdrawal authorization (−).
+- **New hub receiver for SPOKE_NATIVE deposits** — receives LZ message from spoke confirming a SPOKE_NATIVE deposit. Credits `BalanceLedger.credit(user, asset, amount)` AND increments `ChainLiquidity[asset][sourceChainId] += amount`. Could be a new function on `HubIntentSettler` (e.g., `confirmSpokeNativeDeposit`) or a separate receiver contract.
+- **`WithdrawalRegistry.requestWithdrawal()` update** — for SPOKE_NATIVE tokens, additionally checks `ChainLiquidity[token][targetChain] >= amount` and reverts with `InsufficientChainLiquidity(targetChain, available, requested)` if not enough. Decrements `ChainLiquidity` atomically with the BalanceLedger debit.
+- **`HubIntentSettler.fillFor()`** — unchanged. Only callable for BRIDGED deposits (where the solver fronts capital). SPOKE_NATIVE deposits bypass `fillFor` entirely.
+
+**LayerZero DVN configuration (D7 RESOLVED):**
+
+LayerZero V2 is used for **message passing only** (proof-of-deposit, withdrawal authorization, spoke-native deposit confirmation, refund proofs). It never moves tokens.
+
+- **Testnet:** 1-of-1 DVN (LayerZero Labs DVN only) across all four spoke ↔ hub pathways. Acceptable because testnet has no real money at risk.
+- **Mainnet:** 2-of-2 DVN (LayerZero Labs + Google Cloud) across all pathways. Both DVNs are confirmed available on all five target chains (Arbitrum, Base, Ethereum, BNB, Polygon).
+- 3-of-3 liquidation pathway remains a Phase 2 follow-up (no liquidation engine in Phase 1).
 - Create a `ConfigureDVN.s.sol` script that calls `OAppOptionsType3.setEnforcedOptions` + `EndpointV2.setConfig` per pathway.
-- Hard-code the config values in `config/layerzero-dvn-testnet.json` keyed by `{hubChainId, spokeChainId}` and load them in the script.
+- Hard-code the config values in `config/layerzero-dvn.json` keyed by `{hubChainId, spokeChainId}`.
 - **Test:** deploy on Arbitrum Sepolia + each spoke, send a dummy LZ message per pathway, confirm it arrives.
 
-**Bridge routing per spoke (USDC path):**
+**Bridge routing (D5 RESOLVED — three protocols, distinct roles):**
 
-- Base Sepolia: CCTP v2 (pending D5 confirmation)
-- Ethereum Sepolia: CCTP v2 (pending D5 confirmation)
-- BNB Testnet: LayerZero OFT fallback (CCTP likely unavailable)
-- Polygon Amoy: LayerZero OFT fallback (CCTP likely unavailable)
-- Capture the routing map in `smart-contract-revamp/config/bridge-routing.json` and read it in both M5 (SpokeVaultStable bridge selection) and M7 (Sweeper bridge selection) so there's one source of truth.
+| Protocol | Role | Tokens | Fee |
+|---|---|---|---|
+| **LayerZero V2** | Message passing only | Never moves tokens | Gas only |
+| **CCTP v2** | USDC bridging (burn/mint) | USDC on Base/ETH/Polygon | Free |
+| **Stargate V2** | Token bridging (pool-based) | USDC on BNB, USDT, WETH, WBTC | ~0.06% |
+
+Routing per token per chain is defined in the Token × Chain Matrix (see "Token Classification & Cross-Chain Custody Architecture" section). The machine-readable source of truth is `config/token-chain-matrix.json`, consumed by M5, M7, M8, M9, and M10.
 
 **Testing requirements:**
 
 - Fork tests against Arbitrum Sepolia + Base Sepolia where possible.
-- SpokeDepositGateway: test the refund race — a test where solver fills on hub AND spoke tries to refund; the spoke must reject refund.
-- CCTP mock for unit tests (Circle provides testnet TokenMessenger).
+- SpokeDepositGateway: test the refund race — solver fills on hub AND spoke tries to refund; spoke must reject refund. (BRIDGED path only.)
+- SpokeDepositGateway: test SPOKE_NATIVE deposit — token goes to SpokeVaultStable permanent custody, LZ message dispatched, no solver interaction.
+- SpokeVaultStable: test `sweepToHub` reverts for SPOKE_NATIVE tokens.
+- SpokePayout: test SPOKE_NATIVE withdrawal releases from custody, verify balance check.
+- Hub ChainLiquidity: test increment on spoke-native deposit, decrement on withdrawal, revert on insufficient liquidity.
+- CCTP mock + Stargate mock + LZ mock for unit tests.
 
 **Verification:**
 
-- `forge test` passes locally with CCTP + LZ mocks.
+- `forge test` passes locally with CCTP + Stargate + LZ mocks.
 - Spoke contracts deploy to Base Sepolia via `DeployCrossChainSpoke.s.sol --chainId 84532`.
 - LayerZero DVN config committed to chain, verified via block explorer.
-- End-to-end manual test: deposit USDC to `SpokeVaultStable` on Base Sepolia, confirm it's bridgeable to Arbitrum Sepolia via CCTP (without the solver path yet — that's M6).
+- End-to-end manual test (BRIDGED): deposit USDC to `SpokeDepositGateway` on Base, confirm bridgeable to Arbitrum via CCTP.
+- End-to-end manual test (SPOKE_NATIVE): deposit XSGD to `SpokeDepositGateway` on Base, confirm token stays on Base, BalanceLedger credited on Arbitrum, ChainLiquidity updated.
 
 ---
 
@@ -676,8 +713,8 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 - `sweeper-bot/src/index.ts`
 - `sweeper-bot/src/inbound-flow.ts` — Sweeper Flow A from §6.4.1 (spoke → hub after solver fill)
 - `sweeper-bot/src/outbound-flow.ts` — Sweeper Flow B (hub → spoke to replenish)
-- `sweeper-bot/src/bridge-client.ts` — wraps Circle CCTP + LayerZero OFT calls
-- `sweeper-bot/src/water-marks.ts` — `HIGH_WATER_MARK = 3x rolling 24h`, `LOW_WATER_MARK = 1x rolling 24h` per config
+- `sweeper-bot/src/bridge-client.ts` — wraps Circle CCTP + Stargate V2 calls. Routes by CustodyType per token per chain (reads `token-chain-matrix.json`). CCTP for USDC on Base/ETH/Polygon. Stargate for USDT/WETH/WBTC and USDC-on-BNB. LayerZero is NOT used for token movement — only for message passing in other modules. SPOKE_NATIVE tokens are never bridged by the Sweeper — they stay on their spoke permanently.
+- `sweeper-bot/src/water-marks.ts` — `HIGH_WATER_MARK = 3x rolling 24h`, `LOW_WATER_MARK = 1x rolling 24h` per config. **Water marks only apply to BRIDGED tokens.** SPOKE_NATIVE tokens have no buffer management — their liquidity distribution reflects organic deposit patterns and is not rebalanced.
 - `sweeper-bot/src/ledger-matcher.ts` — calls `SettlementLedger.match(orderId, bridgedAmount)` after bridge confirms. **After the match tx lands**, imports `applyOnChainEffect` from the shared helper (Module 8) and eagerly: (a) flips `intent_order.state` from `FILLED` → `SETTLED`, (b) updates solver-reimbursement bookkeeping, (c) stamps idempotency columns on the affected rows. Verify failures fall through to the indexer safety net.
 - `sweeper-bot/Dockerfile`
 - `docker-compose.yml` (modify — add sweeper-bot)
@@ -883,6 +920,9 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 - **Borrow-order DTO** (`backend-v2/src/orders/`): the borrow POST body gains `collateralAssets: string[]`. Backend validates the array is non-empty and that every listed asset has a positive `available` balance in indexer-v2 before publishing to NATS. The matching engine forwards it unchanged; the settlement engine encodes it per borrower in the `Settlement.settle()` call so the on-chain auto-flag loop can run. See Module 9 matching-engine and Module 2 Settlement changes.
 - `backend-v2/src/chain-indexer/` — deprecate; point consumers at indexer-v2 instead.
 - `backend-v2/src/core/viem/` — add new contract ABIs.
+- `backend-v2/src/config/token-chain-matrix.ts` — imports from `token-chain-matrix.json`. Used by deposit validation (reject deposits for tokens not available on the source chain), withdrawal validation (reject withdrawals to chains where the token is not available or has insufficient liquidity), and portfolio display.
+- **Withdrawal validation for SPOKE_NATIVE tokens:** backend additionally checks `ChainLiquidity[token][targetChain] >= amount` via indexer-v2 before submitting the on-chain tx. Rejects with HTTP 400 `InsufficientChainLiquidity { chain, available, requested }` if the target chain does not have enough physical tokens.
+- **Deposit handling for SPOKE_NATIVE tokens:** when verifying a spoke deposit for a SPOKE_NATIVE token via `POST /deposit/verify`, the backend eagerly updates `ChainLiquidity` alongside the `BalanceLedger` credit through `applyOnChainEffect`.
 
 **settlement-engine changes:**
 
@@ -917,8 +957,8 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 - `frontend-revamp/src/app/(app)/portfolio/` — 3-bucket balance display. For Phase 1, only `available` is non-zero (the other two are forward-compat). Each row also shows: a **Collateral** badge when `used_as_collateral = true`, a countdown label ("Unlocks in 18h 42m") driven by `flagged_at + 24h`, and a **Remove as collateral** button that is disabled until the countdown hits zero.
 - `frontend-revamp/src/components/centuari-borrow/` — borrow order form gains a **collateral asset multi-select** (checkbox list of the user's deposited assets, default all selected). On submit, shows a confirmation modal: *"These assets will be locked as collateral for at least 24 hours after the match settles. You will not be able to unflag them before then, even after partial repayment. Full repayment will release them immediately. Continue?"* — user must tick an ack box before the submit button enables. The selected assets are posted as `collateralAssets: string[]` on the borrow order body.
-- `frontend-revamp/src/components/centuari-deposit/` — source-chain selector with 5 options: **Arbitrum (direct)**, Base Sepolia, Ethereum Sepolia, BNB Testnet, Polygon Amoy. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s; the other 4 route through the spoke deposit flow — balance appears on Arbitrum in ~3s after solver fill.
-- `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector with the same 5 options. Arbitrum (direct) releases via `HubDepositor.payout()` — instant once WithdrawalRegistry authorizes. The other 4 require a LayerZero message to `SpokePayout` — instant from spoke cash buffer or 5–20 min if the buffer needs replenishing from the Sweeper.
+- `frontend-revamp/src/components/centuari-deposit/` — source-chain selector is **token-aware**, driven by the token×chain matrix. For each token, only shows chains where `CustodyType != —` (i.e., the token is available on that chain). Users see "Arbitrum (direct)" for hub-native, spoke chains for cross-chain. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s. BRIDGED spoke deposits use the solver fast-fill flow — balance appears in ~3s. SPOKE_NATIVE spoke deposits wait for LZ message confirmation (~30s-2min). For SPOKE_NATIVE deposits, a note explains "Token will remain on {chain} for custody."
+- `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector is **token-aware and liquidity-aware**. For BRIDGED tokens: shows all chains the bridge supports (hub has full liquidity). Arbitrum (direct) releases via `HubDepositor.payout()` — instant. Cross-chain BRIDGED withdrawals use CCTP or Stargate (~2-5 min). For SPOKE_NATIVE tokens: shows each chain with its available liquidity amount, greys out chains with 0 liquidity. Reads `ChainLiquidity` from indexer-v2 via `GET /liquidity/:token`.
 - `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls `GET /deposit/:depositId` for cross-chain progress (`SPOKE_LOCKED → SOLVER_FILLED → HUB_CREDITED`).
 - `frontend-revamp/src/hooks/use-withdraw.ts` — withdrawal state tracking via indexer-v2 polling.
 - `frontend-revamp/src/hooks/use-unflag-collateral.ts` — **new hook.** No wallet popup. Calls `POST /collateral/unflag { asset }` with the Privy JWT. Optimistic update on click; rolls back on error. Distinct error paths:
@@ -927,7 +967,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
   - `WouldMakeUnhealthy` (HTTP 400, Phase 2 real) → toast "Would drop health factor below 1".
   The hook is purely a backend call; the Phase 2 swap is invisible at the UI layer.
 - `frontend-revamp/src/lib/portfolio-data.ts` — indexer-v2 API, returns the 3 sub-states + `usedAsCollateral` + `flaggedAt` per asset.
-- `frontend-revamp/src/lib/chain-config.ts` — add spoke chain configs.
+- `frontend-revamp/src/lib/chain-config.ts` — spoke chain configs + token×chain matrix. Exports `getDepositChains(token): ChainConfig[]` and `getWithdrawChains(token): ChainConfig[]` for the selectors. For SPOKE_NATIVE tokens, `getWithdrawChains` requires a live liquidity lookup from indexer-v2.
 - `frontend-revamp/e2e/cross-chain-deposit.spec.ts` — Playwright end-to-end.
 - `frontend-revamp/e2e/collateral-flow.spec.ts` — Playwright e2e: (a) place a borrow with `collateralAssets = [USDC]` → collateral badge appears on the portfolio row after settlement; (b) unflag button is disabled with a countdown until `flagged_at + 24h`; (c) direct API call to `POST /collateral/unflag` before 24h returns HTTP 409 `FlagLockActive`; (d) after 24h, unflag while still in debt returns HTTP 400 `WouldMakeUnhealthy` (Phase 1 stub); (e) full repay auto-clears the flag without waiting 24h.
 
@@ -981,9 +1021,111 @@ Any pressure to pull these forward must be routed back through the architecture 
 3. **Spoke refund design:** **Keeper-triggered + LayerZero proof-of-non-fill.** `SpokeDepositGateway.refund()` only executes after a LZ message from hub confirms the intent was not filled. Refund latency: 5–20 min worst case. No double-credit race.
 4. **Testnet cutover:** **Clean wipe + redeploy.** Existing Arbitrum Sepolia Treasury balances are discarded. Testers re-deposit via the faucet after redeploy. No migration script.
 
-## Still Open (Need Resolution Before M5 / M6 Start)
+## Token Classification & Cross-Chain Custody Architecture
 
-- **D5 — CCTP testnet availability per spoke:** Circle CCTP is NOT uniformly available on all 4 target testnets. Known status: Base Sepolia and Ethereum Sepolia have CCTP v2; BNB Testnet and Polygon Amoy do not have reliable CCTP testnet support. For chains without CCTP, **fall back to LayerZero OFT-wrapped USDC** for the USDC bridging path. M5 must verify this per chain before committing bridge selection logic. Document per-spoke bridge routing in `config/bridge-routing.json`.
-- **D6 — Solver bootstrap capital:** who funds the testnet solver wallet for the 4 spokes? Recommend team hot wallet, $25k equivalent per spoke on testnet faucet tokens. Needs team confirmation before M6.
-- **D7 — LayerZero DVN providers on BNB Testnet + Polygon Amoy:** LayerZero Labs DVN is the safe default across all four, but the "2-of-2" selection for the second DVN differs per chain. Need to confirm Google Cloud DVN / Polyhedra DVN availability per spoke and pin the choice before M5 deploys.
+### Three-Protocol Stack
+
+Centuari uses three cross-chain protocols, each with a distinct non-overlapping role:
+
+1. **LayerZero V2** — message passing ONLY. Carries proof-of-deposit messages (spoke → hub), withdrawal authorization (hub → spoke), and refund proofs (hub → spoke). Never moves tokens. DVN config: 1-of-1 testnet (LayerZero Labs), 2-of-2 mainnet (LayerZero Labs + Google Cloud).
+
+2. **CCTP v2** (Circle) — USDC token bridging via burn/mint. Free (no protocol fee). Available on Arbitrum, Base, Ethereum, Polygon. NOT available on BNB. Used for USDC only.
+
+3. **Stargate V2** (LayerZero ecosystem) — Token bridging via liquidity pools. ~0.06% fee. Used for: USDC on BNB (where CCTP unavailable), USDT on all spokes, WETH on ETH/Base, WBTC on ETH. Delivers native tokens from destination pools.
+
+### Two Custody Models
+
+Tokens fall into one of two custody models based on whether a bridge can move them to the hub:
+
+**BRIDGED (hub custody):** Token bridges to Arbitrum hub at deposit time. Hub holds a single consolidated pool. User can withdraw to any chain the bridge supports. This is the model for high-volume tokens (USDC, USDT, WETH on bridgeable chains, WBTC) where liquidity fragmentation would hurt UX.
+
+**SPOKE_NATIVE (per-chain tracking):** Token stays on the spoke chain where it was deposited. Hub tracks only accounting (BalanceLedger credit/debit via LZ message) plus a per-chain liquidity map: `ChainLiquidity[token][chainId] → amount`. User can withdraw to any chain that currently has liquidity for that token. This model applies to tokens that either (a) have no Stargate/CCTP pool, or (b) don't exist on the hub chain at all.
+
+Some tokens are HYBRID — bridgeable on certain chains, spoke-native on others (e.g., WETH is bridged from ETH/Base but spoke-native on BNB/Polygon where Stargate has no WETH pool).
+
+### Per-Chain Liquidity Tracking (for SPOKE_NATIVE tokens)
+
+The hub maintains a `ChainLiquidity[token][chainId]` mapping that tracks how many physical tokens sit on each chain. This enables cross-chain lending even for non-bridgeable tokens:
+
+1. **Deposit:** User deposits 1000 XSGD on Base → XSGD stays on Base → Hub: `BalanceLedger.credit(user, XSGD, 1000)` + `ChainLiquidity[XSGD][Base] += 1000`
+2. **Lend/Borrow:** Pure accounting on hub. ChainLiquidity unchanged (tokens don't move).
+3. **Withdrawal:** User wants to withdraw 500 XSGD → system checks ChainLiquidity per chain → shows available chains + amounts → user picks a chain with sufficient liquidity → spoke releases tokens → `ChainLiquidity[XSGD][chosenChain] -= 500`
+
+Frontend withdrawal UI for spoke-native tokens shows per-chain availability:
+
+```
+Withdraw XSGD — Amount: 500
+  ✅ Base      (1000 available)
+  ✅ Polygon   (200 available)
+  ✅ Arbitrum   (300 available)
+  ❌ BNB       (0 — no liquidity)
+  ❌ Ethereum  (0 — token not available)
+```
+
+For BRIDGED tokens, the hub holds everything — all chains show the full amount (bridge on demand).
+
+### Token × Chain Matrix
+
+| Token | Arbitrum (Hub) | Base | Ethereum | BNB | Polygon |
+|---|---|---|---|---|---|
+| USDC | HUB_DIRECT | CCTP | CCTP | STARGATE | CCTP |
+| USDT | HUB_DIRECT | STARGATE | STARGATE | STARGATE | STARGATE |
+| WETH | HUB_DIRECT | STARGATE | STARGATE | SPOKE_NATIVE | SPOKE_NATIVE |
+| WBTC | HUB_DIRECT | — | STARGATE | — | — |
+| XSGD | SPOKE_NATIVE | SPOKE_NATIVE | — | — | SPOKE_NATIVE |
+| IDRX | — | SPOKE_NATIVE | — | SPOKE_NATIVE | — |
+| XAUT | — | — | SPOKE_NATIVE | — | — |
+| SLVon | — | — | SPOKE_NATIVE | SPOKE_NATIVE | — |
+| NVDAon | — | — | SPOKE_NATIVE | SPOKE_NATIVE | — |
+| AAPLon | — | — | SPOKE_NATIVE | SPOKE_NATIVE | — |
+| TLTon | — | — | SPOKE_NATIVE | SPOKE_NATIVE | — |
+
+Legend: `HUB_DIRECT` = deposit/withdraw via HubDepositor (no bridge). `CCTP` = USDC burn/mint (free). `STARGATE` = pool-based bridge (~0.06%). `SPOKE_NATIVE` = token stays on spoke, per-chain tracking. `—` = token not available on this chain.
+
+### CustodyType Enum
+
+```solidity
+enum CustodyType {
+    HUB_DIRECT,    // Arbitrum-native, deposit/withdraw via HubDepositor
+    CCTP,          // USDC burn/mint, free (Base/ETH/Polygon)
+    STARGATE,      // Pool-based bridge, ~0.06% fee (USDT, WETH, WBTC, USDC-on-BNB)
+    SPOKE_NATIVE   // Token stays on spoke, per-chain liquidity tracking
+}
+```
+
+### Bridge Routing Config
+
+All modules that need custody/routing info read from a single source of truth: `smart-contract-revamp/config/token-chain-matrix.json`. Consumers:
+- **M5** — `SpokeVaultStable.sweepToHub()` routes CCTP vs Stargate; spoke contracts accept SPOKE_NATIVE deposits
+- **M7** — `sweeper-bot/src/bridge-client.ts` wraps CCTP + Stargate calls per token per chain
+- **M8** — `indexer-v2` processors tag events with custody type; track `ChainLiquidity` for SPOKE_NATIVE tokens
+- **M9** — backend validates withdrawal target chain against token×chain matrix; rejects impossible routes
+- **M10** — frontend deposit/withdraw chain selectors filtered by matrix; SPOKE_NATIVE withdrawals show per-chain liquidity
+
+### Token Descriptions
+
+| # | Token | Decimals | Description | Custody Notes |
+|---|---|---|---|---|
+| 1 | USDC | 6 | USD Coin (Circle) | Highest volume. CCTP where available, Stargate on BNB. |
+| 2 | USDT | 6 | Tether USD | Stargate on all spokes. |
+| 3 | WETH | 18 | Wrapped Ether | Stargate on ETH/Base/Arb. Spoke-native on BNB/Polygon (no Stargate pool). |
+| 4 | WBTC | 8 | Wrapped Bitcoin | Stargate on ETH/Arb only. Not available on Base/BNB/Polygon. |
+| 5 | XSGD | 6 | StraitsX Singapore Dollar | Spoke-native on Arb/Base/Polygon. Not on ETH/BNB. |
+| 6 | IDRX | 6 | Indonesian Rupiah stablecoin | Spoke-native on Base/BNB only. Not on Arb/ETH/Polygon. |
+| 7 | XAUT | 6 | Tether Gold | Spoke-native on ETH only. |
+| 8 | SLVon | 18 | iShares Silver Trust (Ondo) | Spoke-native on ETH/BNB. |
+| 9 | NVDAon | 18 | NVIDIA stock (Ondo) | Spoke-native on ETH/BNB. |
+| 10 | AAPLon | 18 | Apple stock (Ondo) | Spoke-native on ETH/BNB. |
+| 11 | TLTon | 18 | Treasury Bond ETF (Ondo) | Spoke-native on ETH/BNB. |
+
+---
+
+## Resolved Decisions (Formerly Open)
+
+- **D5 — Bridge routing (RESOLVED):** CCTP v2 mainnet available on Arbitrum, Base, Ethereum, Polygon. NOT available on BNB. BNB uses Stargate for USDC. Non-USDC tokens (USDT, WETH, WBTC) use Stargate where pools exist. Tokens without any bridge use SPOKE_NATIVE custody with per-chain liquidity tracking. Full routing in "Token × Chain Matrix" section above.
+- **D7 — DVN providers (RESOLVED):** Google Cloud DVN confirmed available on all five target chains (Arbitrum, Base, Ethereum, BNB, Polygon) for mainnet. Testnet: 1-of-1 (LayerZero Labs only). Mainnet: 2-of-2 (LayerZero Labs + Google Cloud).
+
+## Still Open (Need Resolution Before M6 Start)
+
+- **D6 — Solver bootstrap capital:** who funds the solver wallet for the 4 spokes? Recommend team hot wallet. Needs team confirmation before M6.
 
