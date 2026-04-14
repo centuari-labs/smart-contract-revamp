@@ -4,7 +4,7 @@
 
 Centuari is migrating from a single-chain, deposit-at-order-time lending protocol (current staging) to a cross-chain, deposit-first, gasless-orders protocol. This plan covers **Phase 1 only** from the Centuari Full Architecture v6 document and `Centuari_Implementation_Plan.pdf`.
 
-**What Phase 1 delivers:** a user can deposit USDC on Base (or any spoke chain), have balance credited on Arbitrum within ~3 seconds via a solver-fronted cross-chain flow, lend/borrow against that balance (existing flows), then withdraw back to any supported chain. All tracked through a new `BalanceLedger.sol` with 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus a per-(user, asset) **on-chain** `usedAsCollateral` flag, auto-set at borrow-match settlement, auto-cleared on full repay, and otherwise lockable for a minimum 24 hours through a new `CollateralManager.sol` wrapper contract — with every unflag and every withdrawal gated by a single `IRiskModule` seam (stub in Phase 1, real HF math in Phase 2).
+**What Phase 1 delivers:** a user can deposit USDC on Base (or any spoke chain), have balance credited on Arbitrum within ~30s-2min via LayerZero-confirmed cross-chain credits (no solver required), lend/borrow against that balance (existing flows), then withdraw back to any supported chain. All tracked through a new `BalanceLedger.sol` with 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus a per-(user, asset) **on-chain** `usedAsCollateral` flag, auto-set at borrow-match settlement, auto-cleared on full repay, and otherwise lockable for a minimum 24 hours through a new `CollateralManager.sol` wrapper contract — with every unflag and every withdrawal gated by a single `IRiskModule` seam (stub in Phase 1, real HF math in Phase 2). A solver fast-fill layer (~3s deposits) is deferred to a future phase — see "Future: Solver Fast-Fill Layer" section.
 
 **Why this first:** every later phase (Risk/Liquidation, Settlement Upgrade, Maturity Engine, Gasless, DeFi Integration) depends on BalanceLedger's sub-state model. BalanceLedger + cross-chain is the foundation.
 
@@ -51,36 +51,37 @@ Per exploration, the matching engine has no on-chain balance checks today; it tr
 
 **Resolution:** the engine reads from **indexer-v2** (Module 8), not directly from chain RPC. The custom indexer maintains an always-current snapshot of `UserBalance` entities via event subscription; the engine queries the indexer's REST/internal API for `available`. Indexer is colocated with the engine (same Docker network) so latency is sub-ms. If the indexer is down, the engine falls back to a direct RPC read cached per block. Reservation tracking (Redis) subtracts from the snapshot. Full consistency is still enforced at settlement, not at order placement.
 
-### C4. Solver capital commitment is large and not free
+### C4. Solver capital commitment — deferred to a future phase
 
-Full Architecture §2.7: solver must hold "20% of peak 24h deposit volume per spoke" as hub-side Arbitrum balance. For 5 spokes and any non-trivial volume this is meaningful capital. Phase 1D's "Solver Service (new)" description buries this. It is an operational cost, not just a service to run.
+Full Architecture §2.7: solver must hold "20% of peak 24h deposit volume per spoke" as hub-side Arbitrum balance. For 5 spokes and any non-trivial volume this is meaningful capital — impractical for a startup with limited liquidity at launch.
 
-**Resolution:** in Phase 1D, document the solver's funding requirement explicitly, start with a minimum hard-coded cap (e.g., $50k per spoke for testnet), and build the solver so the cap is a config value. Include a dashboard alert for solver balance < 2x peak fill amount.
+**Resolution:** the solver fast-fill layer is **deferred entirely from Phase 1**. Cross-chain deposits use a direct **LZ-confirmed credit** flow instead: `SpokeDepositGateway` escrows the tokens and sends a LayerZero message to the hub, which credits `BalanceLedger.available` on receipt of the LZ proof (~30s-2min latency). A Sweeper Bot bridges the escrowed tokens spoke → hub in the background for custody. This eliminates the solver capital requirement, the Solver Service (M6), and the solver reimbursement tracking (`SettlementLedger`) from Phase 1 scope. The on-chain contracts for the solver path (`HubIntentSettler.fillFor`, `SettlementLedger`) are already built and tested (M4) and remain in the codebase as dormant infrastructure — they can be activated in a future phase when cross-chain volume justifies the capital outlay. See the **"Future: Solver Fast-Fill Layer"** section at the end of this document.
 
-### C5. Cross-chain deposit: no user-signed intents; the on-chain deposit IS the intent
+### C5. Cross-chain deposit: no user-signed intents; the on-chain deposit IS the intent (no solver in Phase 1)
 
 User requirement (extended from C1): cross-chain deposits must also be low-signature. User should NOT sign any EIP-712 `GaslessCrossChainOrder`. The only signature the user ever produces for a cross-chain deposit is the on-chain tx that locks their own tokens on the spoke — unavoidable because funds originate in their wallet.
 
-**Revised flow (no ERC-7683 user signatures):**
+**Phase 1 flow (LZ-confirmed credit, no solver):**
 
 1. User clicks "Deposit 100 USDC from Base" in the frontend.
 2. Wallet opens. User confirms ONE tx: `SpokeDepositGateway.deposit(asset, amount, hubRecipient)` on Base Sepolia. If the token supports EIP-2612, this is a single `permitAndDeposit` call (no prior approve). Otherwise it's approve + deposit (two clicks — same as the current staging UX). The user pays gas on Base (cheap).
 3. `SpokeDepositGateway` pulls the tokens into its escrow and emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`. `depositId = keccak256(chainId, tx.origin, nonce)`. **This event is the intent.** No off-chain signing at all.
-4. Solver service watches `DepositInitiated` events on all 4 spokes. On seeing one, it calls `HubIntentSettler.fillFor(depositId, user, asset, amount, sourceChainId, proof)` on Arbitrum using its own hub-side USDC. The `proof` is a LayerZero message carrying the spoke event (so the hub contract cannot be spoofed — see below).
-5. `HubIntentSettler` verifies the LZ message came from the correct `SpokeDepositGateway` on the correct chain, credits `BalanceLedger.available[user] += amount`, and registers a solver reimbursement obligation with `SettlementLedger`.
-6. User's balance appears on Arbitrum in ~3s (time from spoke tx confirmation + LZ latency for the cheap-message proof). Solver is later reimbursed when the Sweeper bridges the escrowed USDC from spoke → hub via CCTP or Stargate V2 (5–20 min).
+4. `SpokeDepositGateway` dispatches a LayerZero message to the hub carrying `(depositId, user, asset, amount, sourceChainId)`.
+5. The hub's LZ receiver (a new `confirmDeposit` function on `HubIntentSettler`, or a dedicated receiver contract) verifies the LZ message came from the correct `SpokeDepositGateway` on the correct chain, then credits `BalanceLedger.available[user] += amount` and marks the `depositId` as `CREDITED`.
+6. User's balance appears on Arbitrum in **~30s-2min** (LayerZero message confirmation latency). No solver capital required.
+7. The Sweeper Bot bridges the escrowed tokens from spoke → hub via CCTP or Stargate V2 in the background (5-20 min) for actual token custody on the hub. The BalanceLedger credit already happened in step 5 — the bridge is for custody reconciliation, not for user-facing latency.
 
-**Refund race resolution:**
+**Refund path (simplified — no solver race):**
 
-- If the solver never fills (offline, out of capital, timeout), `SpokeDepositGateway` lets the user reclaim their escrow via `refund(depositId)`, gated on a LayerZero message from hub attesting "no fill recorded for this depositId within N minutes". Same pattern as before, but the message carries the `depositId` rather than an intent hash. A keeper (Phase 1: Centuari-operated, same process as the Solver service) fires the proof-of-non-fill messages after the timeout window expires.
-- Double-credit is impossible because `SpokeDepositGateway.refund()` requires the LZ proof-of-non-fill, and the hub will only issue that proof if `HubIntentSettler` has no record of the `depositId`. If the solver fills, the hub records the depositId and the proof-of-non-fill is never issued.
+- If the LZ message fails to arrive on the hub within a configurable timeout (e.g., 30 minutes), the user can call `SpokeDepositGateway.refund(depositId)` to reclaim their escrowed tokens. The refund is gated on either: (a) a timeout check (`block.timestamp >= depositTimestamp + REFUND_WINDOW`) with a hub-side check confirming no credit was issued, or (b) a LayerZero message from hub attesting "no credit recorded for this depositId". The simpler timeout approach (a) is preferred for Phase 1.
+- Double-credit is impossible because `confirmDeposit` on the hub marks the `depositId` as `CREDITED` and reverts on replay. The refund path checks that no credit was issued before releasing escrow.
 
 **Impact on module structure:**
 
-- `SpokeDepositGateway` in the original plan is renamed to `SpokeDepositGateway` and built from scratch (still absent from the feat branch).
-- `HubIntentSettler.fillFor` no longer takes an EIP-712-signed `GaslessCrossChainOrder`. It takes a `depositId` + LayerZero proof of the spoke event.
+- `SpokeDepositGateway` is built from scratch (still absent from the feat branch). It handles escrow + LZ message dispatch + refund. No solver interaction.
+- `HubIntentSettler` gains a new `confirmDeposit(depositId, user, asset, amount, sourceChainId)` function callable only by the LZ endpoint (replaces the solver-gated `fillFor` path for Phase 1). The existing `fillFor` function remains in the contract for future solver integration but is not used in Phase 1.
 - Frontend deposit hook does NOT call `signTypedData`. It calls `useWriteContract` against `SpokeDepositGateway.permitAndDeposit` (or plain `deposit`).
-- Backend does NOT construct or forward signed intents. It may optionally surface the pending deposit state to the frontend by polling indexer-v2, but the user's wallet drives the deposit directly.
+- Backend does NOT construct or forward signed intents. It surfaces the pending deposit state to the frontend by polling indexer-v2, but the user's wallet drives the deposit directly.
 
 ### C6. indexer-v2 must be built from scratch in Phase 1 (custom, not Ponder)
 
@@ -116,7 +117,7 @@ Indexer-v2 tails chain events and is eventually consistent with chain state, but
 
 **Resolution — two-writer pattern for every on-chain mutation:**
 
-For every tx that mutates DB-visible state (deposit, settlement, withdrawal authorization, solver fill, sweeper bridge, etc.), the **service that submitted the tx** is also responsible for **eagerly writing the resulting DB mutation as soon as the tx receipt lands and is verified**. The indexer tails the same event in parallel as a **safety net** — if the eager path fails (service crash mid-verification, network blip, receipt fetch timeout, a reorg that replaces the tx), the indexer backfills from the chain event and the DB converges.
+For every tx that mutates DB-visible state (deposit, settlement, withdrawal authorization, sweeper bridge, etc.), the **service that submitted the tx** is also responsible for **eagerly writing the resulting DB mutation as soon as the tx receipt lands and is verified**. The indexer tails the same event in parallel as a **safety net** — if the eager path fails (service crash mid-verification, network blip, receipt fetch timeout, a reorg that replaces the tx), the indexer backfills from the chain event and the DB converges.
 
 **The pattern:**
 
@@ -131,15 +132,14 @@ For every tx that mutates DB-visible state (deposit, settlement, withdrawal auth
 **Consequence for module design:**
 
 - **Settlement engine (Module 9)** updates `user_balance.available` immediately after each successful batch submission; indexer tails `BalanceLedger.Credited/Debited` as backup.
-- **Solver service (Module 6)** updates `intent_order.state = FILLED` and `user_balance.available += amount` for the credited user immediately after its `HubIntentSettler.fillFor` tx lands; indexer tails `SolverFillRegistered` as backup.
-- **Sweeper bot (Module 7)** updates `intent_order.state = SETTLED` and `solver_reimbursement.state = REIMBURSED` immediately after its bridge + `SettlementLedger.match` txs land; indexer tails as backup.
-- **Backend deposit module (Module 9)** — when the frontend POSTs a deposit tx hash, the backend fetches the receipt, verifies the `HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated` event, and eagerly applies the row update; indexer tails as backup.
+- **Sweeper bot (Module 7)** updates `cross_chain_deposit.state = BRIDGED` immediately after its bridge tx lands; indexer tails as backup. (Phase 1 has no solver reimbursement flow — the Sweeper only bridges escrowed tokens spoke → hub for custody.)
+- **Backend deposit module (Module 9)** — when the frontend POSTs a deposit tx hash, the backend fetches the receipt, verifies the `HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated` event, and eagerly applies the row update; indexer tails as backup. For cross-chain deposits, the LZ-confirmed credit on the hub is tailed by the indexer as the primary path; the backend eagerly applies the credit if it detects the hub-side event first.
 - **WithdrawalRegistry state transitions (Module 9)** — backend updates `withdrawal_request.state` on each authorize / complete / fail tx; indexer tails as backup.
 - **Frontend (Module 10)** always reads from the same DB (via backend or indexer REST — they return the same rows). Because the eager path is usually faster than the indexer, the user sees updated state within a few hundred ms of the tx landing, not seconds later.
 
 **What lives on the shared library vs. per-service:**
 
-The verify-then-apply pattern is a small shared helper in `indexer-v2/src/shared/apply-on-chain-effect.ts` (exported for re-use) that takes `(txHash, expectedEventSelector, expectedArgs, mutationFn)` and handles receipt fetch, log parsing, idempotency stamping, and transactional commit. Both the indexer processors and the eager-path services import it so there is exactly one place where the idempotency invariant is enforced.
+The verify-then-apply pattern is a small shared helper in `indexer-v2/src/shared/apply-on-chain-effect.ts` (exported for re-use) that takes `(txHash, expectedEventSelector, expectedArgs, mutationFn)` and handles receipt fetch, log parsing, idempotency stamping, and transactional commit. Both the indexer processors and the eager-path services (backend-v2, settlement-engine, sweeper-bot) import it so there is exactly one place where the idempotency invariant is enforced.
 
 **Note on the collateral flag (now on-chain):**
 
@@ -157,7 +157,7 @@ Not all tokens can be bridged to the hub. Tokens like IDRX (Base/BNB only), XAUT
 
 **No Sweeper rebalancing for SPOKE_NATIVE tokens.** There is no bridge to move XSGD from Base to Polygon even if we wanted to. The liquidity distribution reflects organic deposit patterns.
 
-**SPOKE_NATIVE deposits have no solver fast-fill.** The solver model requires fronting capital on the hub and being reimbursed via bridge — impossible for tokens that can't be bridged. SPOKE_NATIVE deposits wait for the LZ message confirmation (~30s-2min). This is acceptable because these are lower-volume tokens.
+**SPOKE_NATIVE deposits use the same LZ-confirmed credit flow as BRIDGED deposits in Phase 1.** Both custody types wait for the LZ message confirmation (~30s-2min). The difference is that SPOKE_NATIVE tokens are never bridged to the hub by the Sweeper — they stay on the spoke permanently. (In a future phase with the solver fast-fill layer, BRIDGED deposits could be instant ~3s while SPOKE_NATIVE deposits would still wait for LZ confirmation, since the solver model requires fronting capital on the hub and being reimbursed via bridge — impossible for tokens that can't be bridged.)
 
 ---
 
@@ -178,10 +178,10 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 | M1b — IRiskModule + RiskModuleStub + CollateralManager | 🟢 **DONE** | Landed 2026-04-09. `IRiskModule.sol`, `RiskModuleStub.sol` (fail-closed: `canUnflag` unconditionally `false`), `ICollateralManager.sol`, `CollateralManagerStorage.sol`, `CollateralManager.sol` (`OwnableUpgradeable + onlyOperator`, NOT `AccessControlUpgradeable`), `DeployCollateralStack.s.sol`. 36 new tests. `MAX_FLAG_LOCK = 30 days` ceiling added. See `collateral-loophole-fix-plan.md` P1a Completion Record for deviations from original spec. |
 | M2 — Centuari.sol migration off Treasury | 🟢 **DONE** | Landed 2026-04-10. All balance ops migrated from Treasury to BalanceLedger (`debit`/`credit`). `_balanceLedger` slot added to `CentuariStorage.sol`. Auto-flag at settlement via `markCollateral(borrower, loanToken)` in `settleMatch()`. Auto-unflag loop in `repay()` clears all flagged assets when `_activeDebtCount[borrower] == 0` (bypasses 24h flag-lock). Zero Treasury references remain. Tests fully ported to BalanceLedger model with dedicated auto-flag/unflag coverage. |
 | M3 — Deployment scripts + testnet cutover + HubDepositor | 🟢 **DONE** | Landed 2026-04-10. HubDepositor.sol (IHubDepositor + HubDepositorStorage + HubDepositor) with deposit/payout via BalanceLedger credit/debit. DeployBalanceLedger.s.sol, DeployHubDepositor.s.sol, ConfigureBalanceLedger.s.sol (two-phase writer registration). run-all.sh rewritten to 14 steps — Treasury fully removed, BalanceLedger + HubDepositor + CollateralStack integrated. export-abi.sh updated (added BalanceLedger, HubDepositor, CollateralManager; removed Treasury). 270 tests passing. Local Anvil smoke test verified: deposit via HubDepositor correctly credits BalanceLedger.available. |
-| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | 🟢 **DONE** | Landed 2026-04-12. WithdrawalRegistry (state machine + HF gate via `IRiskModule.canWithdraw`), HubIntentSettler (solver fill + BalanceLedger credit), SettlementLedger (solver reimbursement tracking). 339 tests passing. |
+| M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | 🟢 **DONE** | Landed 2026-04-12. WithdrawalRegistry (state machine + HF gate via `IRiskModule.canWithdraw`) is **active in Phase 1**. HubIntentSettler and SettlementLedger are built and tested but **dormant** — their solver-facing functions (`fillFor`, `register`, `releaseToSolver`) are not used in Phase 1. `HubIntentSettler` will gain a new `confirmDeposit` function in M5 to handle LZ-confirmed cross-chain credits (the Phase 1 deposit path). 339 tests passing. |
 | M5 — Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M4 (done). |
-| M6 — Solver Service | ⚪ NOT STARTED | blocked on M5 |
-| M7 — Sweeper Bot | ⚪ NOT STARTED | blocked on M6 |
+| ~~M6 — Solver Service~~ | ⏭️ **DEFERRED** | Deferred to a future phase. Solver fast-fill requires significant capital (20% of peak 24h deposit volume per spoke). Phase 1 uses LZ-confirmed credits instead (~30s-2min latency). See "Future: Solver Fast-Fill Layer" section. |
+| M7 — Sweeper Bot (simplified) | ⚪ NOT STARTED | blocked on M5. **Simplified scope:** bridges escrowed tokens spoke → hub for custody + replenishes spoke withdrawal buffers. No solver reimbursement flow. |
 | M8 — indexer-v2 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M5. Depends on M3 (done). |
 | M9 — backend-v2 + settlement-engine + matching-engine updates | ⚪ NOT STARTED | blocked on M8 |
 | M10 — frontend-revamp cross-chain UI + collateral toggle | ⚪ NOT STARTED | blocked on M4/M5 + M9 |
@@ -194,14 +194,14 @@ M1 (BalanceLedger core)
      └─ M3 (Deploy scripts + testnet redeploy)
          ├─ M4 (WithdrawalRegistry + Hub cross-chain contracts)
          │   └─ M5 (SpokeDepositGateway + Spoke contracts + LayerZero wiring)
-         │       └─ M6 (Solver Service)
-         │           └─ M7 (Sweeper Bot)
+         │       └─ M7 (Sweeper Bot — simplified, no solver reimbursement)
          ├─ M8 (indexer-v2 from scratch)
          │   └─ M9 (backend-v2 + settlement-engine + matching-engine updates)
          │       └─ M10 (frontend-revamp cross-chain UI)
+         [M6 (Solver Service) — DEFERRED to future phase]
 ```
 
-After M3 is merged, M4 and M8 can be worked on in parallel (different trees). M9 depends on M8 being live with event schemas. M10 depends on M4/M5 (to know the deposit intent shape) and M9 (to know the API shape).
+After M3 is merged, M4 and M8 can be worked on in parallel (different trees). M9 depends on M8 being live with event schemas. M10 depends on M4/M5 (to know the deposit intent shape) and M9 (to know the API shape). M6 (Solver Service) is deferred — see "Future: Solver Fast-Fill Layer" section.
 
 ---
 
@@ -500,9 +500,9 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 
 ### Module 4: WithdrawalRegistry + HubIntentSettler + SettlementLedger 🟢 DONE
 
-**Scope:** the three hub-side cross-chain contracts. Withdrawal state machine, solver intent settlement, solver reimbursement tracking.
+**Scope:** the three hub-side cross-chain contracts. Withdrawal state machine (active in Phase 1), plus solver intent settlement and reimbursement tracking (built but **dormant** — activated when the solver fast-fill layer is added in a future phase; see "Future: Solver Fast-Fill Layer" section).
 
-**Addresses concerns:** C5 (intent fill race — this module implements the hub half), C10 (events emitted here — `WithdrawalRequested`, `WithdrawalStateChanged`, `IntentFilled`, `SettlementMatched` — are the exact ones the eager-path services and the indexer tail both consume through the shared `applyOnChainEffect` helper).
+**Addresses concerns:** C5 (deposit confirmation — `HubIntentSettler` will gain a `confirmDeposit` function in M5 for LZ-confirmed credits), C10 (events emitted here — `WithdrawalRequested`, `WithdrawalStateChanged`, `DepositConfirmed` — are tailed by the indexer and eagerly applied by services through `applyOnChainEffect`).
 
 **Files to create:**
 
@@ -533,32 +533,34 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 - With an unflagged asset and `totalDebt > 0`: succeeds (not collateral).
 - Swap `RiskModule` to a permissive mock via governance and re-run the flagged-with-debt case: now succeeds, proving the Phase 2 swap is zero-code-change in `WithdrawalRegistry`.
 
-**HubIntentSettler — solver flow (no user signatures; LZ-proof based):**
+**HubIntentSettler — Phase 1 role (LZ-confirmed deposit credits):**
 
-- `fillFor(depositId, user, asset, amount, sourceChainId, lzProof)` — solver calls after seeing a `DepositInitiated` event on a spoke. `lzProof` is a LayerZero message (dispatched by `SpokeDepositGateway` as part of its own `deposit()` call) carrying `(depositId, user, asset, amount, sourceChainId)`. The contract verifies the message originated from the registered `SpokeDepositGateway` on the expected chain, rejects replays by tracking used `depositId`s, validates the solver has pulled actual USDC into the hub contract (Invariant #6 — balance-delta check), credits `BalanceLedger.available[user] += amount`, registers a solver reimbursement obligation with `SettlementLedger`, and emits `SolverFillRegistered(depositId, solver, amount)`.
-- `markNoFill(depositId)` — keeper callable after the fill window (e.g., 5 minutes) passes with no `fillFor` for this `depositId`. Records the no-fill state and sends a LayerZero proof-of-non-fill message back to `SpokeDepositGateway` on the source chain so the user can reclaim their escrow.
+The M4 landing includes the solver-facing `fillFor` and `markNoFill` functions (built and tested), but these are **dormant in Phase 1**. The Phase 1 deposit credit path is a new `confirmDeposit` function added in M5:
+
+- `confirmDeposit(depositId, user, asset, amount, sourceChainId)` — **added in M5.** Callable only by the LayerZero endpoint from a trusted `SpokeDepositGateway`. Verifies the LZ message origin, rejects replay by tracking used `depositId`s, credits `BalanceLedger.available[user] += amount`, marks the deposit as `CREDITED`, emits `DepositConfirmed(depositId, user, asset, amount, sourceChainId)`. For SPOKE_NATIVE tokens, also updates `ChainLiquidity`.
+- `fillFor(...)` — **dormant in Phase 1.** Remains for future solver integration. Gated by `onlyOperator`.
+- `markNoFill(...)` — **dormant in Phase 1.** Remains for future solver integration.
 - No EIP-712 signing. No user-constructed intent. The spoke deposit event is the sole source of truth.
 
-**SettlementLedger — reimbursement tracking:**
+**SettlementLedger — dormant in Phase 1:**
 
-- `register(orderId, solver, amount)` — called by HubIntentSettler on fill.
-- `match(orderId, bridgedAmount)` — called by Sweeper Bot after bridge confirmation; releases `bridgedAmount` of hub USDC to solver's own BalanceLedger.available (or to solver EOA — decision point, see D1 below).
+Built and tested but not used in Phase 1 (no solver reimbursement flow). All functions remain for future solver activation:
+- `register(orderId, solver, amount)` — called by HubIntentSettler on solver fill (future).
+- `match(orderId, bridgedAmount)` — called by Sweeper Bot after bridge confirmation (future).
 - Tracks per-orderId state: `REGISTERED → BRIDGED → REIMBURSED`.
 
-**Solver reimbursement destination (locked):** **Solver EOA.** `SettlementLedger.match()` calls `IERC20.safeTransfer(solver, bridgedAmount)` to release reimbursement to the solver's own wallet. Solvers are off-chain agents, not protocol users. BalanceLedger stays free of operational accounts.
+See **"Future: Solver Fast-Fill Layer"** section for when and how to activate.
 
 **Testing requirements:**
 
 - WithdrawalRegistry: unit tests for every state transition; SLA timeout test with `vm.warp`.
-- HubIntentSettler: test `fillFor` reverts if the solver did not actually transfer tokens (Invariant #6 — balance-delta check); test LZ-proof origin validation (must come from the registered `SpokeDepositGateway` on the declared sourceChainId); test `depositId` replay protection; test `markNoFill` only callable after the fill window.
-- SettlementLedger: test full register → match flow; test out-of-order matching; test match-before-register rejection.
-- **Cross-contract invariant test:** after a complete ERC-7683 intent fill + sweep + reimburse, total hub USDC + solver USDC == original user USDC (no tokens created or destroyed).
+- HubIntentSettler: test `fillFor` replay protection, `depositId` tracking, operator gate. (Solver-path tests are passing but dormant in Phase 1 — they validate the contract is ready for future activation.)
+- SettlementLedger: test full register → match flow; test out-of-order matching; test match-before-register rejection. (Tests are passing but cover dormant functionality.)
 
 **Verification:**
 
 - `forge test --match-path 'test/cross-chain/*' -vv` passes.
 - Deploy to Arbitrum Sepolia via `DeployCrossChainHub.s.sol`.
-- Simulate an end-to-end intent fill with a mock solver EOA, confirm BalanceLedger credited + SettlementLedger entry created.
 
 ---
 
@@ -600,22 +602,20 @@ The loop is O(n) in the number of flagged assets — bounded in practice by the 
 - For **BRIDGED withdrawals:** releases from the spoke's BRIDGED buffer (replenished by Sweeper from hub). Queue mechanism if buffer insufficient (queues until Sweeper replenishes).
 - For **SPOKE_NATIVE withdrawals:** releases from SpokeVaultStable's permanent custody. Must verify `SpokeVaultStable.custodyBalance(asset) >= amount`. No queue — if custody is insufficient, the withdrawal should have been rejected at the hub level via `ChainLiquidity` check.
 
-**SpokeDepositGateway (dual mode, user-driven, no signing):**
+**SpokeDepositGateway (dual mode, user-driven, no signing, no solver):**
 
 - `deposit(asset, amount, hubRecipient)` — called directly by the user from their wallet. Pulls tokens via `safeTransferFrom`. Behavior depends on token×chain matrix:
-  - **If BRIDGED (CCTP/STARGATE):** generates `depositId = keccak256(block.chainid, msg.sender, nonce)`, escrows tokens temporarily in SpokeDepositGateway, emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`, dispatches LayerZero message to `HubIntentSettler` on Arbitrum carrying `(depositId, user, asset, amount, sourceChainId)`. Solver fast-fills on hub (~3s). Sweeper bridges escrowed tokens later.
-  - **If SPOKE_NATIVE:** transfers tokens to SpokeVaultStable permanent custody, emits `SpokeNativeDeposit(user, asset, amount, sourceChainId)`, dispatches LayerZero message to hub to credit BalanceLedger + update ChainLiquidity. **No solver** — user waits for LZ message confirmation (~30s-2min). No bridge. No escrow.
+  - **If BRIDGED (CCTP/STARGATE):** generates `depositId = keccak256(block.chainid, msg.sender, nonce)`, escrows tokens temporarily in SpokeDepositGateway, emits `DepositInitiated(depositId, user, asset, amount, hubRecipient)`, dispatches LayerZero message to hub carrying `(depositId, user, asset, amount, sourceChainId)`. Hub receives the LZ message and credits `BalanceLedger.available` immediately (~30s-2min). Sweeper bridges escrowed tokens spoke → hub in the background for custody (5-20 min). **No solver involved.**
+  - **If SPOKE_NATIVE:** transfers tokens to SpokeVaultStable permanent custody, emits `SpokeNativeDeposit(user, asset, amount, sourceChainId)`, dispatches LayerZero message to hub to credit BalanceLedger + update ChainLiquidity. User waits for LZ message confirmation (~30s-2min). No bridge. No escrow.
 - `permitAndDeposit(asset, amount, hubRecipient, deadline, v, r, s)` — one-click variant for EIP-2612 tokens. Works for both BRIDGED and SPOKE_NATIVE paths.
-- `refund(depositId)` — **user-callable, LayerZero-gated. BRIDGED deposits only.** Requires a `lzNoFillProof` from `HubIntentSettler.markNoFill()`. Releases escrowed tokens back to depositor. SPOKE_NATIVE deposits have no refund path — they are confirmed directly via LZ message, not via solver fill.
+- `refund(depositId)` — **user-callable. BRIDGED deposits only.** Gated on a timeout: `block.timestamp >= depositTimestamp + REFUND_WINDOW` (e.g., 30 min). Before releasing escrow, the refund path must verify that no hub-side credit was issued for this `depositId` — either via a hub-side LZ message confirming no credit, or a timeout-based approach with replay protection. SPOKE_NATIVE deposits have no refund path — tokens go directly to SpokeVaultStable permanent custody and are confirmed via LZ message.
 
-**Reimbursement decision (locked):** Phase 1 uses the **Sweeper bridge path** for solver reimbursement of BRIDGED deposits (simpler, one code path). `releaseToSolver` is NOT implemented in Phase 1. SPOKE_NATIVE deposits do not involve the solver at all.
-
-**Hub contract changes for SPOKE_NATIVE support:**
+**Hub contract changes for cross-chain deposit credits (both BRIDGED and SPOKE_NATIVE):**
 
 - **`ChainLiquidity` tracking** — new storage mapping `ChainLiquidity[token][chainId] → uint256` tracking physical token balances per chain. Could live on WithdrawalRegistry (simplest — co-located with withdrawal checks) or in a separate `ChainLiquidityTracker.sol`. Updated on: SPOKE_NATIVE deposit confirmation (+), SPOKE_NATIVE withdrawal authorization (−).
-- **New hub receiver for SPOKE_NATIVE deposits** — receives LZ message from spoke confirming a SPOKE_NATIVE deposit. Credits `BalanceLedger.credit(user, asset, amount)` AND increments `ChainLiquidity[asset][sourceChainId] += amount`. Could be a new function on `HubIntentSettler` (e.g., `confirmSpokeNativeDeposit`) or a separate receiver contract.
+- **New hub LZ receiver for ALL cross-chain deposits** — `HubIntentSettler.confirmDeposit(depositId, user, asset, amount, sourceChainId)`, callable only by the LayerZero endpoint from a trusted `SpokeDepositGateway`. Credits `BalanceLedger.credit(user, asset, amount)`, marks the `depositId` as `CREDITED`, and emits `DepositConfirmed(depositId, user, asset, amount, sourceChainId)`. For SPOKE_NATIVE tokens, also increments `ChainLiquidity[asset][sourceChainId] += amount`. This single function handles both BRIDGED and SPOKE_NATIVE deposit confirmations — the only difference is whether the Sweeper later bridges the tokens (BRIDGED) or they stay on the spoke permanently (SPOKE_NATIVE).
 - **`WithdrawalRegistry.requestWithdrawal()` update** — for SPOKE_NATIVE tokens, additionally checks `ChainLiquidity[token][targetChain] >= amount` and reverts with `InsufficientChainLiquidity(targetChain, available, requested)` if not enough. Decrements `ChainLiquidity` atomically with the BalanceLedger debit.
-- **`HubIntentSettler.fillFor()`** — unchanged. Only callable for BRIDGED deposits (where the solver fronts capital). SPOKE_NATIVE deposits bypass `fillFor` entirely.
+- **`HubIntentSettler.fillFor()`** — **dormant in Phase 1.** Remains in the contract for future solver integration (see "Future: Solver Fast-Fill Layer" section) but is not called by any Phase 1 flow. The `onlyOperator` gate prevents unauthorized use.
 
 **LayerZero DVN configuration (D7 RESOLVED):**
 
@@ -641,8 +641,9 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 **Testing requirements:**
 
 - Fork tests against Arbitrum Sepolia + Base Sepolia where possible.
-- SpokeDepositGateway: test the refund race — solver fills on hub AND spoke tries to refund; spoke must reject refund. (BRIDGED path only.)
-- SpokeDepositGateway: test SPOKE_NATIVE deposit — token goes to SpokeVaultStable permanent custody, LZ message dispatched, no solver interaction.
+- SpokeDepositGateway: test BRIDGED deposit — tokens escrowed, LZ message dispatched, hub credits BalanceLedger on LZ receipt.
+- SpokeDepositGateway: test refund — refund after timeout succeeds if no hub credit; refund after hub credit reverts (replay protection).
+- SpokeDepositGateway: test SPOKE_NATIVE deposit — token goes to SpokeVaultStable permanent custody, LZ message dispatched, hub credits BalanceLedger + ChainLiquidity.
 - SpokeVaultStable: test `sweepToHub` reverts for SPOKE_NATIVE tokens.
 - SpokePayout: test SPOKE_NATIVE withdrawal releases from custody, verify balance check.
 - Hub ChainLiquidity: test increment on spoke-native deposit, decrement on withdrawal, revert on insufficient liquidity.
@@ -653,82 +654,59 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 - `forge test` passes locally with CCTP + Stargate + LZ mocks.
 - Spoke contracts deploy to Base Sepolia via `DeployCrossChainSpoke.s.sol --chainId 84532`.
 - LayerZero DVN config committed to chain, verified via block explorer.
-- End-to-end manual test (BRIDGED): deposit USDC to `SpokeDepositGateway` on Base, confirm bridgeable to Arbitrum via CCTP.
-- End-to-end manual test (SPOKE_NATIVE): deposit XSGD to `SpokeDepositGateway` on Base, confirm token stays on Base, BalanceLedger credited on Arbitrum, ChainLiquidity updated.
+- End-to-end manual test (BRIDGED): deposit USDC to `SpokeDepositGateway` on Base → LZ message arrives on Arbitrum → `HubIntentSettler.confirmDeposit` credits BalanceLedger → Sweeper bridges escrowed USDC to Arbitrum via CCTP. User sees balance in ~30s-2min.
+- End-to-end manual test (SPOKE_NATIVE): deposit XSGD to `SpokeDepositGateway` on Base → token stays on Base in SpokeVaultStable custody → LZ message credits BalanceLedger on Arbitrum + ChainLiquidity updated. User sees balance in ~30s-2min.
 
 ---
 
 ## Phase 1D — Off-Chain Services
 
-### Module 6: Solver Service ⚪ NOT STARTED
+### ~~Module 6: Solver Service~~ ⏭️ DEFERRED
 
-**Scope:** new standalone Node.js/TypeScript service that monitors ERC-7683 intent broadcasts, validates them, and calls `HubIntentSettler.fillFor` on Arbitrum hub using the solver's own capital.
+**Status:** deferred to a future phase. See **"Future: Solver Fast-Fill Layer"** section at the end of this document.
 
-**Addresses concerns:** C4 (document capital requirement + make it a config), C5 (solver must not fill past deadline), C10 (solver eagerly applies DB mutations after its own on-chain txs via the shared helper from Module 8).
+**Why deferred:** the solver requires significant upfront capital (Full Architecture §2.7: 20% of peak 24h deposit volume per spoke × 5 spokes) that is impractical for a startup at launch. Phase 1 uses LZ-confirmed credits instead (~30s-2min latency vs ~3s with solver). The on-chain contracts (`HubIntentSettler.fillFor`, `SettlementLedger`) are already built and tested in M4 and remain dormant until activated.
 
-**Files to create:**
-
-- `solver-service/` — new top-level directory
-- `solver-service/package.json` — Node 22, Viem, Zod, Redis, NATS
-- `solver-service/src/index.ts` — main entry
-- `solver-service/src/deposit-watcher.ts` — subscribes to `DepositInitiated` events on all 4 spoke `SpokeDepositGateway` contracts via Viem `watchEvent`. No webhook, no backend coupling.
-- `solver-service/src/deposit-validator.ts` — validates asset is whitelisted, amount within per-spoke + per-fill caps, source chain is recognized, `depositId` not already filled (check hub state).
-- `solver-service/src/filler.ts` — waits for the LayerZero proof-of-deposit message to arrive on Arbitrum (or fetches it from the LZ scan API), then calls `HubIntentSettler.fillFor(depositId, ..., lzProof)`. Handles nonce management. **After the fill tx lands**, imports `applyOnChainEffect` from the shared helper (Module 8) and eagerly: (a) flips `intent_order.state` from `BROADCAST` → `FILLED`, (b) credits `user_balance.available += filledAmount` for the user, (c) stamps idempotency columns (`applied_by_tx_hash`, `applied_by_log_index`, `applied_by_block_hash`, `applied_by_block_number`) on both rows so the indexer tail skips them. If the verify call fails (receipt not found, log mismatch), the mutation is skipped and the indexer will pick it up as safety net.
-- `solver-service/src/no-fill-keeper.ts` — secondary loop that calls `HubIntentSettler.markNoFill(depositId)` for any depositId older than the fill window that the solver chose NOT to fill (e.g., cap exceeded). This unblocks the user's refund path on the spoke.
-- `solver-service/src/capital-manager.ts` — tracks solver's own BalanceLedger + per-spoke 24h rolling volume; enforces `max-fill = min(intentAmount, capitalRemaining, perSpokeCap)`
-- `solver-service/src/config.ts` — loads env: `SOLVER_PRIVATE_KEY`, `PER_SPOKE_CAP_USD`, `MAX_FILL_AMOUNT_USD`, `HUB_RPC_URL`, `HUB_INTENT_SETTLER_ADDRESS`, supported spoke list
-- `solver-service/src/__tests__/*.test.ts` — Jest
-- `solver-service/Dockerfile`
-- `docker-compose.yml` (modify — add solver-service)
-
-**Capital bootstrap for testnet:** start with a fixed $50k per-spoke cap hardcoded as default, using the deployer's own funded hot wallet.
-
-**Operational:**
-
-- Prometheus metrics endpoint: `solver_capital_available`, `solver_fill_success_count`, `solver_fill_failure_count`, `solver_fill_latency_ms`.
-- Alert if `solver_capital_available < 2 × MAX_FILL_AMOUNT_USD` (per C4).
-
-**Testing requirements:**
-
-- Unit tests for intent validation, capital capping.
-- Integration test against a local Anvil fork with deployed hub contracts.
-
-**Verification:**
-
-- Broadcast a test intent manually → solver picks it up, fills on hub, event emitted, BalanceLedger credited.
-- Kill the solver mid-fill → it recovers on restart without double-filling.
+**What this removes from Phase 1 scope:**
+- `solver-service/` directory and all its files
+- `solver-service` entry in `docker-compose.yml`
+- Solver capital management, monitoring, and alerting
+- `HubIntentSettler.markNoFill()` keeper flow (refund path simplified to timeout-based)
 
 ---
 
-### Module 7: Sweeper Bot ⚪ NOT STARTED
+### Module 7: Sweeper Bot (simplified — no solver reimbursement) ⚪ NOT STARTED
 
-**Scope:** new service that moves real tokens from spoke to hub (after solver fills), and from hub to spoke (to replenish withdrawal buffers). Matches bridge arrivals against `SettlementLedger` to release solver reimbursement.
+**Scope:** new service that bridges escrowed tokens from spoke to hub after LZ-confirmed deposits, and from hub to spoke to replenish withdrawal buffers. **No solver reimbursement flow** — the Sweeper is a pure bridge bot in Phase 1.
 
-**Addresses concerns:** C10 (sweeper eagerly applies DB mutations after its bridge + `SettlementLedger.match` txs via the shared helper from Module 8; indexer tails as safety net).
+**Addresses concerns:** C10 (sweeper eagerly applies DB mutations after its bridge txs via the shared helper from Module 8; indexer tails as safety net).
 
 **Files to create:**
 
 - `sweeper-bot/` — new top-level directory
 - `sweeper-bot/package.json`
 - `sweeper-bot/src/index.ts`
-- `sweeper-bot/src/inbound-flow.ts` — Sweeper Flow A from §6.4.1 (spoke → hub after solver fill)
-- `sweeper-bot/src/outbound-flow.ts` — Sweeper Flow B (hub → spoke to replenish)
+- `sweeper-bot/src/inbound-flow.ts` — monitors `DepositInitiated` events on spoke `SpokeDepositGateway` contracts for BRIDGED tokens. After the hub confirms the deposit via LZ (BalanceLedger already credited), the Sweeper calls `SpokeVaultStable.sweepToHub(asset, amount, hubAddress)` to bridge the escrowed tokens from spoke → hub via CCTP or Stargate. This is a background custody reconciliation operation — it does NOT affect user-visible balance (that was already credited by `confirmDeposit`). **After the bridge tx lands**, imports `applyOnChainEffect` from the shared helper (Module 8) and eagerly updates `cross_chain_deposit.state = BRIDGED`, stamps idempotency columns.
+- `sweeper-bot/src/outbound-flow.ts` — Sweeper Flow B (hub → spoke to replenish withdrawal buffers for BRIDGED tokens)
 - `sweeper-bot/src/bridge-client.ts` — wraps Circle CCTP + Stargate V2 calls. Routes by CustodyType per token per chain (reads `token-chain-matrix.json`). CCTP for USDC on Base/ETH/Polygon. Stargate for USDT/WETH/WBTC and USDC-on-BNB. LayerZero is NOT used for token movement — only for message passing in other modules. SPOKE_NATIVE tokens are never bridged by the Sweeper — they stay on their spoke permanently.
 - `sweeper-bot/src/water-marks.ts` — `HIGH_WATER_MARK = 3x rolling 24h`, `LOW_WATER_MARK = 1x rolling 24h` per config. **Water marks only apply to BRIDGED tokens.** SPOKE_NATIVE tokens have no buffer management — their liquidity distribution reflects organic deposit patterns and is not rebalanced.
-- `sweeper-bot/src/ledger-matcher.ts` — calls `SettlementLedger.match(orderId, bridgedAmount)` after bridge confirms. **After the match tx lands**, imports `applyOnChainEffect` from the shared helper (Module 8) and eagerly: (a) flips `intent_order.state` from `FILLED` → `SETTLED`, (b) updates solver-reimbursement bookkeeping, (c) stamps idempotency columns on the affected rows. Verify failures fall through to the indexer safety net.
 - `sweeper-bot/Dockerfile`
 - `docker-compose.yml` (modify — add sweeper-bot)
 
+**What is NOT in Phase 1 Sweeper (deferred with solver):**
+- `ledger-matcher.ts` / `SettlementLedger.match()` — no solver reimbursement tracking
+- Solver capital restoration — no solver to reimburse
+
 **Monitoring:**
 
-- Prometheus: `sweeper_pending_settlements`, `sweeper_bridge_latency_ms`, `sweeper_last_event_age_s`.
+- Prometheus: `sweeper_pending_bridges`, `sweeper_bridge_latency_ms`, `sweeper_last_event_age_s`.
 - Alert if `sweeper_last_event_age_s > 1800` (30 min = stale; backup Sweeper should take over).
 
 **Backup strategy:** primary is the Centuari-run Sweeper. Gelato-based backup is a Phase 2+ concern per architecture. For Phase 1 testnet, a single Sweeper is acceptable; document the SPOF.
 
 **Verification:**
 
-- After M6's end-to-end fill test, confirm Sweeper detects the event, bridges via CCTP, calls `SettlementLedger.match`, solver is reimbursed.
+- After a cross-chain deposit is LZ-confirmed on the hub, confirm Sweeper detects the escrowed tokens on the spoke, bridges via CCTP/Stargate, and tokens arrive on hub.
 - Manually drain a spoke's `SpokeVaultStable` below `LOW_WATER_MARK`, confirm Sweeper replenishes from hub.
 
 ---
@@ -763,21 +741,21 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 - `indexer-v2/src/db/queries.ts` — typed query helpers for each entity
 - `indexer-v2/src/chain/chain-watcher.ts` — generic ChainWatcher class, takes a chain config + list of (contract, processor) pairs
 - `indexer-v2/src/chain/reorg-detector.ts` — block-hash comparison logic
-- `indexer-v2/src/shared/apply-on-chain-effect.ts` — **shared idempotency helper (C10).** Exported for re-use by backend-v2, settlement-engine, solver-service, and sweeper-bot. Takes `(txHash, expectedEventSelector, expectedArgsPredicate, mutationFn)`. Fetches the receipt via Viem, verifies status and event, and applies the mutation inside a transaction that also stamps `applied_by_tx_hash`, `applied_by_log_index`, `applied_by_block_hash`, `applied_by_block_number` on the affected row. Skips the write if a row is already stamped with the same tx hash — idempotent across the eager path and the indexer tail.
+- `indexer-v2/src/shared/apply-on-chain-effect.ts` — **shared idempotency helper (C10).** Exported for re-use by backend-v2, settlement-engine, and sweeper-bot. Takes `(txHash, expectedEventSelector, expectedArgsPredicate, mutationFn)`. Fetches the receipt via Viem, verifies status and event, and applies the mutation inside a transaction that also stamps `applied_by_tx_hash`, `applied_by_log_index`, `applied_by_block_hash`, `applied_by_block_number` on the affected row. Skips the write if a row is already stamped with the same tx hash — idempotent across the eager path and the indexer tail.
 - `indexer-v2/src/processors/balance-ledger.processor.ts` — handles `Credited` / `Debited` → updates `user_balance.available`, and `CollateralFlagSet(user, asset, used, flaggedAt)` → updates `user_balance.used_as_collateral` + `user_balance.flagged_at` with the C10 idempotency stamps. The indexer is the authoritative read path for both the balance and the flag.
 - `indexer-v2/src/processors/centuari.processor.ts` — handles Order / Match / Repay / Bond mint events. When `Centuari.repay()` triggers the auto-unflag loop, the resulting `CollateralFlagSet(..., used=false)` events come through `balance-ledger.processor.ts` above — this processor does not need to touch the flag column directly.
 - `indexer-v2/src/processors/hub-depositor.processor.ts` — handles `Deposit` / `Payout` events on Arbitrum
-- `indexer-v2/src/processors/hub-intent-settler.processor.ts` — handles `SolverFillRegistered` / `IntentExpired`
+- `indexer-v2/src/processors/hub-intent-settler.processor.ts` — handles `DepositConfirmed` events (LZ-confirmed cross-chain deposit credits). The solver-related events (`SolverFillRegistered`) are dormant in Phase 1 — processor should still decode them gracefully for forward compatibility but no solver fills will occur.
 - `indexer-v2/src/processors/withdrawal-registry.processor.ts` — handles state transitions on `WithdrawalRequest`
-- `indexer-v2/src/processors/settlement-ledger.processor.ts` — handles `Registered` / `Bridged` / `Reimbursed`
-- `indexer-v2/src/processors/spoke-vault.processor.ts` — handles spoke deposits
-- `indexer-v2/src/processors/spoke-intent-settler.processor.ts` — handles `OrderOpened` / `SettledWithProof` / `Refunded`
+- `indexer-v2/src/processors/settlement-ledger.processor.ts` — **dormant in Phase 1** (no solver reimbursement flow). Keep the processor stub for forward compatibility but it will not receive events.
+- `indexer-v2/src/processors/spoke-deposit-gateway.processor.ts` — handles `DepositInitiated` events on spoke chains, seeds `cross_chain_deposit` rows
+- `indexer-v2/src/processors/spoke-vault.processor.ts` — handles spoke custody events
 - `indexer-v2/src/api/server.ts` — Fastify bootstrap
 - `indexer-v2/src/api/routes/balance.ts` — `GET /balance/:user` + `GET /balance/:user/:asset`
 - `indexer-v2/src/api/routes/collateral.ts` — **read-only** `GET /collateral/:user/:asset` returning `{ used: boolean, flaggedAt: number | null, unlocksAt: number | null }`. Flag writes happen on-chain via `CollateralFlagSet` events and flow through `balance-ledger.processor.ts` — there is **no internal write endpoint**. The old `PUT /internal/collateral/:user/:asset` from the earlier draft is removed along with the backend module that called it (see Module 9).
 - `indexer-v2/src/api/routes/withdrawals.ts` — `GET /withdrawals/:user`
-- `indexer-v2/src/api/routes/intents.ts` — `GET /intents/:user` + `GET /intents/:orderId`
-- `indexer-v2/src/api/routes/portfolio.ts` — `GET /portfolio/:user` (aggregates balance + open withdrawals + in-flight intents in one call for frontend)
+- `indexer-v2/src/api/routes/deposits.ts` — `GET /deposits/:user` + `GET /deposits/:depositId` (cross-chain deposit tracking)
+- `indexer-v2/src/api/routes/portfolio.ts` — `GET /portfolio/:user` (aggregates balance + open withdrawals + in-flight cross-chain deposits in one call for frontend)
 - `indexer-v2/src/api/routes/health.ts` — `GET /health` reports per-chain cursor lag
 - `indexer-v2/src/abi/` — generated TypeScript ABI constants imported from `smart-contract-revamp/abi/` via a small `copy-abi.ts` script run on build
 
@@ -849,24 +827,27 @@ CREATE TABLE withdrawal_request (
 );
 CREATE INDEX ON withdrawal_request (user_address, created_at DESC);
 
-CREATE TABLE intent_order (
-  order_id BYTEA PRIMARY KEY,
+CREATE TABLE cross_chain_deposit (
+  deposit_id BYTEA PRIMARY KEY,
   user_address BYTEA NOT NULL,
   source_chain BIGINT NOT NULL,
   asset BYTEA NOT NULL,
   amount NUMERIC(78,0) NOT NULL,
-  solver BYTEA,
-  state TEXT NOT NULL, -- OPENED|FILLED|SETTLED|REFUNDED|EXPIRED
-  opened_at TIMESTAMPTZ NOT NULL,
-  filled_at TIMESTAMPTZ,
-  reimbursed_at TIMESTAMPTZ,
+  custody_type TEXT NOT NULL,    -- BRIDGED|SPOKE_NATIVE
+  state TEXT NOT NULL,           -- INITIATED|CREDITED|BRIDGED|REFUNDED
+  initiated_at TIMESTAMPTZ NOT NULL,
+  credited_at TIMESTAMPTZ,      -- when hub confirmed via LZ message
+  bridged_at TIMESTAMPTZ,       -- when Sweeper bridged tokens to hub (BRIDGED only)
   -- C10 idempotency stamps for the LAST state-transition tx
   applied_by_tx_hash BYTEA,
   applied_by_log_index INT,
   applied_by_block_hash BYTEA,
   applied_by_block_number BIGINT
 );
-CREATE INDEX ON intent_order (user_address, opened_at DESC);
+CREATE INDEX ON cross_chain_deposit (user_address, initiated_at DESC);
+-- Note: no `solver` column — solver is deferred to a future phase.
+-- When solver is added, this table gains `solver BYTEA` + `filled_at TIMESTAMPTZ`
+-- and the state machine adds FILLED between INITIATED and CREDITED.
 
 CREATE TABLE bond_token (
   address BYTEA PRIMARY KEY,
@@ -895,7 +876,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 - `pnpm run dev` starts the indexer, runs migrations, connects to all configured chains, begins tailing.
 - `curl localhost:42069/health` returns per-chain block-lag (< 10s for testnet).
 - Trigger a deposit via HubDepositor on Arbitrum Sepolia → `GET /balance/0x<user>` returns the updated `available` within 2 seconds.
-- Trigger a deposit on Base Sepolia's SpokeVaultStable → `GET /intents/<orderId>` shows the intent moving `OPENED → FILLED → SETTLED`.
+- Trigger a cross-chain deposit on Base Sepolia's `SpokeDepositGateway` → `GET /deposits/<depositId>` shows the deposit moving `INITIATED → CREDITED → BRIDGED`.
 
 ---
 
@@ -907,7 +888,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 **backend-v2 changes:**
 
-- `backend-v2/src/deposit/` — no signing, no intent forwarding. The frontend drives the deposit tx directly against `HubDepositor` (Arbitrum) or `SpokeDepositGateway` (spokes), then POSTs the resulting `txHash + sourceChainId` back to `POST /deposit/verify`. The backend fetches the receipt via Viem, calls the shared `applyOnChainEffect` helper to verify the expected event (`HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated`), and eagerly applies the resulting DB mutation (`user_balance.available += amount` for hub-direct, or `deposit_event` row + `intent_order` seed for spoke). Returns the updated state to the frontend so the UI reflects it without waiting on the indexer. Indexer tails the same events as the safety net per C10. `GET /deposit/targets` returns the supported source-chain metadata. `GET /deposit/:depositId` reads the canonical row for progress polling. The existing `POST /deposit` Treasury-writing endpoint is removed. No webhook to solver — the solver watches chain events directly.
+- `backend-v2/src/deposit/` — no signing, no intent forwarding. The frontend drives the deposit tx directly against `HubDepositor` (Arbitrum) or `SpokeDepositGateway` (spokes), then POSTs the resulting `txHash + sourceChainId` back to `POST /deposit/verify`. The backend fetches the receipt via Viem, calls the shared `applyOnChainEffect` helper to verify the expected event (`HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated`), and eagerly applies the resulting DB mutation (`user_balance.available += amount` for hub-direct, or `deposit_event` row + `cross_chain_deposit` seed for spoke). Returns the updated state to the frontend so the UI reflects it without waiting on the indexer. Indexer tails the same events as the safety net per C10. `GET /deposit/targets` returns the supported source-chain metadata. `GET /deposit/:depositId` reads the canonical row for progress polling. The existing `POST /deposit` Treasury-writing endpoint is removed. For cross-chain deposits, the hub-side BalanceLedger credit happens automatically when the LZ message arrives — no solver or backend intervention needed for the credit itself.
 - `backend-v2/src/withdraw/` — replace `Treasury.withdraw` call path. New flow: backend calls `Centuari.requestWithdrawal(user, asset, amount, targetChain)` which hits `WithdrawalRegistry`, then eagerly applies the PENDING-state row via `applyOnChainEffect`. Subsequent state transitions (PROCESSING on LZ send, COMPLETED on LZ ack, FAILED on timeout) are applied the same way when the backend/settlement-engine submits each follow-up tx. Indexer tails as safety net per C10.
 - `backend-v2/src/portfolio/` — replace Treasury balance queries with indexer-v2 REST calls. Surface the 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus the per-asset `usedAsCollateral` flag in the portfolio response shape.
 - `backend-v2/src/collateral/` — **new module, on-chain-backed.** Single endpoint `POST /collateral/unflag { asset }` gated on Privy JWT. There is **no flag endpoint** — flagging happens implicitly at borrow-match settlement time (see matching-engine/settlement-engine in Module 9 and Settlement.sol auto-flag loop in Module 2). The unflag path:
@@ -957,9 +938,9 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 - `frontend-revamp/src/app/(app)/portfolio/` — 3-bucket balance display. For Phase 1, only `available` is non-zero (the other two are forward-compat). Each row also shows: a **Collateral** badge when `used_as_collateral = true`, a countdown label ("Unlocks in 18h 42m") driven by `flagged_at + 24h`, and a **Remove as collateral** button that is disabled until the countdown hits zero.
 - `frontend-revamp/src/components/centuari-borrow/` — borrow order form gains a **collateral asset multi-select** (checkbox list of the user's deposited assets, default all selected). On submit, shows a confirmation modal: *"These assets will be locked as collateral for at least 24 hours after the match settles. You will not be able to unflag them before then, even after partial repayment. Full repayment will release them immediately. Continue?"* — user must tick an ack box before the submit button enables. The selected assets are posted as `collateralAssets: string[]` on the borrow order body.
-- `frontend-revamp/src/components/centuari-deposit/` — source-chain selector is **token-aware**, driven by the token×chain matrix. For each token, only shows chains where `CustodyType != —` (i.e., the token is available on that chain). Users see "Arbitrum (direct)" for hub-native, spoke chains for cross-chain. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s. BRIDGED spoke deposits use the solver fast-fill flow — balance appears in ~3s. SPOKE_NATIVE spoke deposits wait for LZ message confirmation (~30s-2min). For SPOKE_NATIVE deposits, a note explains "Token will remain on {chain} for custody."
+- `frontend-revamp/src/components/centuari-deposit/` — source-chain selector is **token-aware**, driven by the token×chain matrix. For each token, only shows chains where `CustodyType != —` (i.e., the token is available on that chain). Users see "Arbitrum (direct)" for hub-native, spoke chains for cross-chain. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s. All cross-chain deposits (both BRIDGED and SPOKE_NATIVE) use the LZ-confirmed credit flow — balance appears in **~30s-2min** after LayerZero message confirmation. For SPOKE_NATIVE deposits, a note explains "Token will remain on {chain} for custody."
 - `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector is **token-aware and liquidity-aware**. For BRIDGED tokens: shows all chains the bridge supports (hub has full liquidity). Arbitrum (direct) releases via `HubDepositor.payout()` — instant. Cross-chain BRIDGED withdrawals use CCTP or Stargate (~2-5 min). For SPOKE_NATIVE tokens: shows each chain with its available liquidity amount, greys out chains with 0 liquidity. Reads `ChainLiquidity` from indexer-v2 via `GET /liquidity/:token`.
-- `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls `GET /deposit/:depositId` for cross-chain progress (`SPOKE_LOCKED → SOLVER_FILLED → HUB_CREDITED`).
+- `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls `GET /deposits/:depositId` for cross-chain progress (`INITIATED → CREDITED → BRIDGED`).
 - `frontend-revamp/src/hooks/use-withdraw.ts` — withdrawal state tracking via indexer-v2 polling.
 - `frontend-revamp/src/hooks/use-unflag-collateral.ts` — **new hook.** No wallet popup. Calls `POST /collateral/unflag { asset }` with the Privy JWT. Optimistic update on click; rolls back on error. Distinct error paths:
   - `FlagLockActive` (HTTP 409) → toast "Locked until {unlocksAt}", disables button until the countdown elapses.
@@ -973,21 +954,21 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 **Verification:**
 
-- `pnpm run test:e2e` passes the new cross-chain deposit test (uses mocked solver or local devnet).
-- Manual smoke test: deposit 100 USDC on Base Sepolia from the UI, see balance appear on Arbitrum portfolio within 3 seconds.
+- `pnpm run test:e2e` passes the new cross-chain deposit test (uses local devnet with mocked LZ endpoint).
+- Manual smoke test: deposit 100 USDC on Base Sepolia from the UI, see balance appear on Arbitrum portfolio within ~30s-2min (LZ message confirmation).
 
 ---
 
 ## Overall Phase 1 Verification (End-to-End)
 
-After all 10 modules merged, the following manual verification must pass before Phase 1 is declared done. This is the "definition of done" for Phase 1.
+After all modules merged (M1-M5, M7-M10; M6 deferred), the following manual verification must pass before Phase 1 is declared done. This is the "definition of done" for Phase 1.
 
-1. Deposit 100 USDC on Base Sepolia via the frontend. Balance appears in `available` on Arbitrum within 3 seconds. Indexer-v2 shows the intent flow: broadcast → filled → swept → reimbursed. Final state: user's `available` = 100, solver's capital restored, SettlementLedger entry = REIMBURSED.
+1. Deposit 100 USDC on Base Sepolia via the frontend. Balance appears in `available` on Arbitrum within **~30s-2min** (LZ message confirmation). Indexer-v2 shows the deposit flow: `INITIATED → CREDITED → BRIDGED`. Final state: user's `available` = 100, escrowed tokens bridged to hub by Sweeper.
 2. Place a lend order for 50 USDC at 8% APY, 30-day maturity. Matching engine accepts (available > order). Match against a borrower. Settlement batch submitted. Post-settlement: lender has CBT-USDC-YYYY-MM-01 tokens, borrower has 50 USDC in available + debt position in Centuari. BalanceLedger invariant holds.
 3. Request withdrawal of 50 USDC to Base Sepolia. Frontend shows "estimated 5–20 min". WithdrawalRegistry enters PENDING → PROCESSING → COMPLETED. User receives USDC on Base Sepolia. BalanceLedger available decremented by 50.
 4. Kill the matching engine mid-operation. Restart. Confirm it recovers from Redis + re-reads BalanceLedger; no orders lost, no double fills.
-5. Kill the Sweeper mid-bridge. Restart. Confirm it picks up unmatched SettlementLedger entries and retries.
-6. Run the invariant test suite: total tokens locked in all contracts == sum of all BalanceLedger balances + all in-flight intents + all in-flight withdrawals + all outstanding CBT supply.
+5. Kill the Sweeper mid-bridge. Restart. Confirm it picks up un-bridged deposits and retries the spoke → hub bridge.
+6. Run the invariant test suite: total tokens locked in all contracts == sum of all BalanceLedger balances + all in-flight cross-chain deposits + all in-flight withdrawals + all outstanding CBT supply.
 
 If all 6 pass, Phase 1 is complete. Move to Phase 2 (Risk + Liquidation).
 
@@ -1009,6 +990,8 @@ To prevent scope creep, the following features from the Full Architecture docume
 - CBT secondary market / early exit (Phase 5C).
 - Keeper Bot infrastructure (Phase 8C).
 - Protocol monitoring (Phase 8B) — only basic Prometheus metrics on the new services.
+- **Solver Service / fast-fill layer** — deferred due to capital requirements (20% of peak 24h deposit volume per spoke). Phase 1 uses LZ-confirmed credits (~30s-2min) instead of solver fast-fill (~3s). On-chain contracts (`HubIntentSettler.fillFor`, `SettlementLedger`) are built and dormant — see **"Future: Solver Fast-Fill Layer"** section.
+- **SettlementLedger solver reimbursement flow** — deferred with solver. Contract exists but is dormant.
 
 Any pressure to pull these forward must be routed back through the architecture doc and this plan updated.
 
@@ -1016,9 +999,9 @@ Any pressure to pull these forward must be routed back through the architecture 
 
 ## Resolved Decisions (Locked in for Phase 1)
 
-1. **Hub + spoke chains:** Hub = **Arbitrum Sepolia**. Spokes = **Base Sepolia, Ethereum Sepolia, BNB Testnet, Polygon Amoy**. Four spoke chains total. M5 deploys `SpokeVaultStable` / `SpokePayout` / `SpokeDepositGateway` to all four. M6 (Solver) and M7 (Sweeper) must support all four spokes from day one.
-2. **Solver reimbursement destination:** **Solver EOA.** `SettlementLedger.match()` releases reimbursement directly to the solver's wallet, not to a BalanceLedger entry. Keeps BalanceLedger clean of operational accounts.
-3. **Spoke refund design:** **Keeper-triggered + LayerZero proof-of-non-fill.** `SpokeDepositGateway.refund()` only executes after a LZ message from hub confirms the intent was not filled. Refund latency: 5–20 min worst case. No double-credit race.
+1. **Hub + spoke chains:** Hub = **Arbitrum Sepolia**. Spokes = **Base Sepolia, Ethereum Sepolia, BNB Testnet, Polygon Amoy**. Four spoke chains total. M5 deploys `SpokeVaultStable` / `SpokePayout` / `SpokeDepositGateway` to all four. M7 (Sweeper) must support all four spokes from day one.
+2. **Solver deferred:** solver fast-fill layer is deferred to a future phase due to capital requirements. On-chain contracts (`HubIntentSettler.fillFor`, `SettlementLedger`) are built and dormant. See **"Future: Solver Fast-Fill Layer"** section.
+3. **Spoke refund design:** **Timeout-based.** `SpokeDepositGateway.refund(depositId)` is callable after `REFUND_WINDOW` (e.g., 30 min) if the hub has not credited the deposit. Simpler than the original solver-dependent proof-of-non-fill design. Replay protection ensures no double-credit.
 4. **Testnet cutover:** **Clean wipe + redeploy.** Existing Arbitrum Sepolia Treasury balances are discarded. Testers re-deposit via the faucet after redeploy. No migration script.
 
 ## Token Classification & Cross-Chain Custody Architecture
@@ -1125,7 +1108,77 @@ All modules that need custody/routing info read from a single source of truth: `
 - **D5 — Bridge routing (RESOLVED):** CCTP v2 mainnet available on Arbitrum, Base, Ethereum, Polygon. NOT available on BNB. BNB uses Stargate for USDC. Non-USDC tokens (USDT, WETH, WBTC) use Stargate where pools exist. Tokens without any bridge use SPOKE_NATIVE custody with per-chain liquidity tracking. Full routing in "Token × Chain Matrix" section above.
 - **D7 — DVN providers (RESOLVED):** Google Cloud DVN confirmed available on all five target chains (Arbitrum, Base, Ethereum, BNB, Polygon) for mainnet. Testnet: 1-of-1 (LayerZero Labs only). Mainnet: 2-of-2 (LayerZero Labs + Google Cloud).
 
-## Still Open (Need Resolution Before M6 Start)
+## Still Open
 
-- **D6 — Solver bootstrap capital:** who funds the solver wallet for the 4 spokes? Recommend team hot wallet. Needs team confirmation before M6.
+_No open decisions remaining for Phase 1. D6 (solver bootstrap capital) is deferred with the solver._
+
+---
+
+## Future: Solver Fast-Fill Layer
+
+> **This section is a reference for future implementation.** None of this is in Phase 1 scope. It documents what was deferred, why, and what to build when the time comes.
+
+### What the solver adds
+
+The solver is a **latency optimization** for cross-chain deposits. Instead of waiting ~30s-2min for the LZ message to confirm a deposit on the hub, the solver fronts the equivalent tokens on the hub immediately (~3s), and is reimbursed later when the Sweeper bridges the escrowed tokens from spoke → hub.
+
+| | Phase 1 (no solver) | Future (with solver) |
+|---|---|---|
+| Cross-chain deposit latency | ~30s-2min (LZ confirmation) | ~3s (solver front-run) |
+| Capital required | Zero | 20% of peak 24h deposit volume per spoke |
+| Services to operate | Sweeper only | Solver Service + Sweeper with reimbursement |
+| Complexity | Lower | Higher (capital management, reimbursement tracking) |
+
+### Why it was deferred
+
+The solver requires significant upfront capital: Full Architecture §2.7 specifies 20% of peak 24h deposit volume per spoke as hub-side Arbitrum balance. For 5 spokes with any non-trivial volume, this is meaningful capital that a startup with limited liquidity cannot commit at launch. The 30s-2min latency of LZ-confirmed credits is acceptable for a lending protocol where users deposit infrequently and trade against their balance.
+
+### When to revisit
+
+Consider adding the solver when:
+- Cross-chain deposit volume exceeds a threshold where 30s-2min latency becomes a competitive disadvantage
+- The protocol has sufficient capital or external solver partners willing to front liquidity
+- User feedback indicates deposit latency is a pain point
+
+### What's already built (dormant in Phase 1)
+
+The on-chain infrastructure for the solver is complete and tested:
+
+- **`HubIntentSettler.fillFor(depositId, user, asset, amount, sourceChainId)`** — solver calls this to front tokens on hub. Pulls tokens from solver, credits `BalanceLedger.available`, registers reimbursement with `SettlementLedger`. Currently gated by `onlyOperator` (M5 will replace with LZ proof verification).
+- **`HubIntentSettler.markNoFill(depositId)`** — solver calls when it decides not to fill (cap exceeded, offline). Unblocks refund on spoke.
+- **`SettlementLedger.register(depositId, solver, asset, amount)`** — records reimbursement obligation.
+- **`SettlementLedger.match(depositId, bridgedAmount)`** — Sweeper calls after bridging escrowed tokens from spoke to hub. Releases reimbursement to solver.
+- **`HubIntentSettler.releaseToSolver(solver, asset, amount)`** — called by `SettlementLedger` to transfer tokens to solver wallet.
+
+All contracts have passing tests (339 total as of M4 landing).
+
+### What to build when ready
+
+1. **Solver Service (`solver-service/`)** — new Node.js/TypeScript service:
+   - `deposit-watcher.ts` — subscribes to `DepositInitiated` events on all spoke chains
+   - `deposit-validator.ts` — validates asset, amount caps, source chain
+   - `filler.ts` — waits for LZ proof, calls `HubIntentSettler.fillFor`, eagerly applies DB mutations via `applyOnChainEffect`
+   - `no-fill-keeper.ts` — calls `markNoFill` for unfilled deposits past timeout
+   - `capital-manager.ts` — tracks solver balance, enforces per-spoke + per-fill caps
+   - Capital bootstrap: start with $50k per-spoke cap, team-funded hot wallet
+   - Monitoring: `solver_capital_available`, `solver_fill_success_count`, `solver_fill_latency_ms`
+   - Alert if `solver_capital_available < 2 × MAX_FILL_AMOUNT_USD`
+
+2. **Sweeper reimbursement flow** — extend `sweeper-bot/src/inbound-flow.ts`:
+   - After bridging escrowed tokens from spoke → hub, call `SettlementLedger.match(depositId, bridgedAmount)`
+   - Eagerly apply DB mutation: `cross_chain_deposit.state = SETTLED`, solver reimbursement bookkeeping
+
+3. **DB schema changes** — add to `cross_chain_deposit` table:
+   - `solver BYTEA` — solver address that filled
+   - `filled_at TIMESTAMPTZ` — when solver filled
+   - `reimbursed_at TIMESTAMPTZ` — when solver was reimbursed
+   - State machine gains `FILLED` between `INITIATED` and `CREDITED`
+
+4. **Indexer processors** — activate dormant `settlement-ledger.processor.ts`, update `hub-intent-settler.processor.ts` to handle `SolverFillRegistered` events
+
+5. **Refund path** — switch from timeout-based to solver-aware proof-of-non-fill via `markNoFill`
+
+### Solver reimbursement destination (pre-decided)
+
+**Solver EOA.** `SettlementLedger.match()` releases reimbursement directly to the solver's wallet, not to a BalanceLedger entry. Keeps BalanceLedger clean of operational accounts.
 
