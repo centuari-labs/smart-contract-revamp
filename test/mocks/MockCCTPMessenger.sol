@@ -33,7 +33,7 @@ contract MockCCTPMessenger {
     // ============ Storage ============
 
     /// @notice Local CCTP "domain" id (e.g. Ethereum = 0, Base = 6).
-    uint32 public immutable localDomain;
+    uint32 public immutable LOCAL_DOMAIN;
 
     /// @notice Next nonce returned by `depositForBurn`.
     uint64 public nextNonce;
@@ -70,7 +70,7 @@ contract MockCCTPMessenger {
     // ============ Constructor ============
 
     constructor(uint32 localDomain_) {
-        localDomain = localDomain_;
+        LOCAL_DOMAIN = localDomain_;
     }
 
     // ============ Burn side (TokenMessengerV2-like) ============

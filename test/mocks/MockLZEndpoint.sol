@@ -68,7 +68,7 @@ contract MockLZEndpoint {
 
     // ============ Storage ============
 
-    uint32 public immutable eid;
+    uint32 public immutable EID;
     uint256 public nativeFee;
     uint256 public lzTokenFee;
     bool public autoDeliver;
@@ -106,7 +106,7 @@ contract MockLZEndpoint {
     // ============ Constructor ============
 
     constructor(uint32 eid_) {
-        eid = eid_;
+        EID = eid_;
         nativeFee = 0.0001 ether;
         lzTokenFee = 0;
     }
@@ -160,7 +160,7 @@ contract MockLZEndpoint {
         bytes32 guid = keccak256(
             abi.encodePacked(
                 _outboundNonce,
-                eid,
+                EID,
                 msg.sender,
                 params.dstEid,
                 params.receiver,
@@ -240,7 +240,7 @@ contract MockLZEndpoint {
         // — the canonical entry on `OAppReceiver`. The receiving OApp is
         // expected to trust `msg.sender == address(destEndpoint)`.
         Origin memory origin = Origin({
-            srcEid: eid,
+            srcEid: EID,
             sender: _addressToBytes32(sender),
             nonce: nonce
         });
@@ -261,7 +261,7 @@ contract MockLZEndpoint {
             }
         }
 
-        emit PacketDelivered(receiverAddr, eid, origin.sender, nonce, guid);
+        emit PacketDelivered(receiverAddr, EID, origin.sender, nonce, guid);
     }
 
     function _bytes32ToAddress(bytes32 value) internal pure returns (address) {

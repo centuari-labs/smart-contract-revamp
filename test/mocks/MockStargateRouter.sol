@@ -24,7 +24,9 @@ contract MockStargateRouter {
     struct SendParam {
         uint32 dstEid;
         bytes32 to;
+        // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountLD;
+        // forge-lint: disable-next-line(mixed-case-variable)
         uint256 minAmountLD;
         bytes extraOptions;
         bytes composeMsg;
@@ -47,7 +49,7 @@ contract MockStargateRouter {
     // ============ Storage ============
 
     /// @notice Underlying ERC20 this router bridges (one per mock instance).
-    address public immutable token;
+    address public immutable TOKEN;
 
     /// @notice Basis-points pool fee (e.g. 6 = 0.06%). Default matches docs.
     uint256 public poolFeeBps;
@@ -63,7 +65,9 @@ contract MockStargateRouter {
         bytes32 indexed guid,
         uint32 indexed dstEid,
         address indexed from,
+        // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountSentLD,
+        // forge-lint: disable-next-line(mixed-case-variable)
         uint256 amountReceivedLD
     );
 
@@ -76,7 +80,7 @@ contract MockStargateRouter {
     // ============ Constructor ============
 
     constructor(address token_) {
-        token = token_;
+        TOKEN = token_;
         poolFeeBps = 6; // 0.06%
         nativeFee = 0.0001 ether;
     }
@@ -111,27 +115,29 @@ contract MockStargateRouter {
         return MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
     }
 
-    /// @notice Mirrors `IStargate.send`.
+    /// @notice Mirrors `IStargate.send`. The return name drops the `LD`
+    ///         suffix (vs. the `OFTSent` event) to satisfy mixedCase lint;
+    ///         semantics are identical (Local Decimals).
     function send(
         SendParam calldata params,
         MessagingFee calldata fee,
         address /* refundAddress */
-    ) external payable returns (bytes32 guid, uint256 amountReceivedLD) {
+    ) external payable returns (bytes32 guid, uint256 amountReceived) {
         if (params.amountLD == 0) revert ZeroAmount();
         if (msg.value < fee.nativeFee) {
             revert InsufficientNativeFee(msg.value, fee.nativeFee);
         }
 
-        IERC20(token).safeTransferFrom(
+        IERC20(TOKEN).safeTransferFrom(
             msg.sender,
             address(this),
             params.amountLD
         );
 
         // Apply pool fee: received = amount * (10_000 - bps) / 10_000
-        amountReceivedLD = (params.amountLD * (10_000 - poolFeeBps)) / 10_000;
-        if (amountReceivedLD < params.minAmountLD) {
-            revert SlippageExceeded(amountReceivedLD, params.minAmountLD);
+        amountReceived = (params.amountLD * (10_000 - poolFeeBps)) / 10_000;
+        if (amountReceived < params.minAmountLD) {
+            revert SlippageExceeded(amountReceived, params.minAmountLD);
         }
 
         guid = keccak256(
@@ -148,10 +154,10 @@ contract MockStargateRouter {
         _sends.push(
             CapturedSend({
                 sender: msg.sender,
-                token: token,
+                token: TOKEN,
                 params: params,
                 feePaid: fee.nativeFee,
-                amountReceivedAfterFee: amountReceivedLD
+                amountReceivedAfterFee: amountReceived
             })
         );
 
@@ -160,7 +166,7 @@ contract MockStargateRouter {
             params.dstEid,
             msg.sender,
             params.amountLD,
-            amountReceivedLD
+            amountReceived
         );
     }
 }
