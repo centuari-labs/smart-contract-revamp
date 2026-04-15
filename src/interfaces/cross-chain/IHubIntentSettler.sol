@@ -19,10 +19,15 @@ interface IHubIntentSettler {
     /// @notice Status of a cross-chain deposit
     /// @dev NONE (0) is the default for uninitialized mapping entries,
     ///      ensuring unprocessed deposits are correctly identified.
+    ///      CREDITED is used by the M5 LayerZero-confirmed credit path
+    ///      (`confirmDeposit`) — it is mutually exclusive with FILLED
+    ///      (the dormant Phase 1 solver path) and is set once per depositId
+    ///      to prevent replay of hub-side credits.
     enum DepositStatus {
         NONE,
         FILLED,
-        NO_FILL
+        NO_FILL,
+        CREDITED
     }
 
     // ============ Events ============

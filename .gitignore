@@ -18,4 +18,10 @@ abi/
 # Deployment summaries (per-run address snapshots)
 deployments/
 
-config/
+# M5 cross-chain config: the token-chain matrix and LayerZero DVN config are
+# the source of truth for every off-chain service (indexer-v2, backend-v2,
+# matching-engine, frontend-revamp) and must be committed. Only local secrets
+# like config/keys.json stay ignored.
+config/*
+!config/token-chain-matrix.json
+!config/layerzero-dvn.json

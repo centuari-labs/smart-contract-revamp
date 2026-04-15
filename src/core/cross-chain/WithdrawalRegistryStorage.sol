@@ -34,9 +34,24 @@ abstract contract WithdrawalRegistryStorage {
     mapping(bytes32 => IWithdrawalRegistry.WithdrawalRequest)
         internal _requests;
 
+    /// @notice Physical-token liquidity available per (token, chainId) pair.
+    /// @dev Used by M5 to capacity-gate SPOKE_NATIVE withdrawals: tokens that
+    ///      never bridge back to the hub (e.g. XSGD on Base) can only be
+    ///      withdrawn to chains where their liquidity has been previously
+    ///      registered via `confirmDeposit`. Incremented on spoke-native
+    ///      deposit confirmation, decremented atomically with the
+    ///      `BalanceLedger.debit` inside `requestWithdrawal`.
+    ///
+    ///      For BRIDGED assets this mapping is expected to stay at 0 — the
+    ///      capacity gate is bypassed when the target chain routing flag
+    ///      indicates the token is bridgeable (matrix lookup lives off-chain
+    ///      in matching-engine / backend; the on-chain check only runs if
+    ///      the operator flags the request as SPOKE_NATIVE).
+    mapping(address => mapping(uint256 => uint256)) internal _chainLiquidity;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 7 slots consumed, leaving 43 from the 50-slot budget.
-    uint256[43] private __gap;
+    /// @dev 8 slots consumed, leaving 42 from the 50-slot budget.
+    uint256[42] private __gap;
 }
