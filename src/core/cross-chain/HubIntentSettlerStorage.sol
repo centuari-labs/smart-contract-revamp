@@ -29,9 +29,24 @@ abstract contract HubIntentSettlerStorage {
     mapping(bytes32 => IHubIntentSettler.DepositStatus)
         internal _depositStatuses;
 
+    /// @notice The trusted LayerZero V2 endpoint on the hub chain.
+    /// @dev Set by governance via `setLzEndpoint`. `lzReceive` only accepts
+    ///      calls where `msg.sender == _lzEndpoint`.
+    address internal _lzEndpoint;
+
+    /// @notice eid → trusted spoke peer address as bytes32.
+    /// @dev Set by governance via `setTrustedRemote`. `lzReceive` verifies
+    ///      `origin.sender == _trustedRemotes[origin.srcEid]`.
+    mapping(uint32 => bytes32) internal _trustedRemotes;
+
+    /// @notice The WithdrawalRegistry on the hub, used to bump chain-liquidity
+    ///         when a SPOKE_NATIVE deposit is confirmed.
+    address internal _withdrawalRegistry;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 5 slots consumed, leaving 45 from the 50-slot budget.
-    uint256[45] private __gap;
+    /// @dev 8 slots consumed (5 original + lzEndpoint + trustedRemotes +
+    ///      withdrawalRegistry), leaving 42 from the 50-slot budget.
+    uint256[42] private __gap;
 }

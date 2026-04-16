@@ -115,6 +115,29 @@ contract WithdrawalRegistry is
         // InsufficientBalance if not enough)
         IBalanceLedger(_balanceLedger).debit(msg.sender, asset, amount);
 
+        // ---- CHAIN-LIQUIDITY GATE (M5) ----
+        // For SPOKE_NATIVE routes, enforce that sufficient physical liquidity
+        // exists on the target chain. Decrement atomically with the debit.
+        if (_isSpokeNativeRoute[asset][targetChainId]) {
+            uint256 available = _chainLiquidity[asset][targetChainId];
+            if (available < amount) {
+                revert InsufficientChainLiquidity(
+                    asset,
+                    targetChainId,
+                    available,
+                    amount
+                );
+            }
+            _chainLiquidity[asset][targetChainId] = available - amount;
+
+            emit ChainLiquidityDecremented(
+                asset,
+                targetChainId,
+                amount,
+                available - amount
+            );
+        }
+
         // Generate unique requestId
         requestId = keccak256(
             abi.encode(
@@ -236,7 +259,45 @@ contract WithdrawalRegistry is
         emit WithdrawalFailed(requestId);
     }
 
+    // ============ M5 — Chain-liquidity management ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function incrementChainLiquidity(
+        address asset,
+        uint256 chainId,
+        uint256 amount
+    ) external {
+        if (msg.sender != _hubIntentSettler) revert Unauthorized();
+        if (amount == 0) revert ZeroAmount();
+
+        _chainLiquidity[asset][chainId] += amount;
+
+        emit ChainLiquidityIncremented(
+            asset,
+            chainId,
+            amount,
+            _chainLiquidity[asset][chainId]
+        );
+    }
+
     // ============ Governance ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function setHubIntentSettler(address settler) external onlyOwner {
+        _hubIntentSettler = settler;
+        emit HubIntentSettlerUpdated(settler);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function setSpokeNativeRoute(
+        address asset,
+        uint256 chainId,
+        bool enabled
+    ) external onlyOwner {
+        if (asset == address(0)) revert ZeroAddress();
+        _isSpokeNativeRoute[asset][chainId] = enabled;
+        emit SpokeNativeRouteSet(asset, chainId, enabled);
+    }
 
     /// @notice Update the operator address
     /// @param newOperator The new operator address
@@ -315,5 +376,26 @@ contract WithdrawalRegistry is
     /// @inheritdoc IWithdrawalRegistry
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function chainLiquidity(
+        address asset,
+        uint256 chainId
+    ) external view returns (uint256) {
+        return _chainLiquidity[asset][chainId];
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function isSpokeNativeRoute(
+        address asset,
+        uint256 chainId
+    ) external view returns (bool) {
+        return _isSpokeNativeRoute[asset][chainId];
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function hubIntentSettler() external view returns (address) {
+        return _hubIntentSettler;
     }
 }

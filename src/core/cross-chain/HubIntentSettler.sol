@@ -17,6 +17,7 @@ import {
 import {IHubIntentSettler} from "../../interfaces/cross-chain/IHubIntentSettler.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
 import {ISettlementLedger} from "../../interfaces/cross-chain/ISettlementLedger.sol";
+import {IWithdrawalRegistry} from "../../interfaces/cross-chain/IWithdrawalRegistry.sol";
 import {HubIntentSettlerStorage} from "./HubIntentSettlerStorage.sol";
 import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
@@ -157,7 +158,102 @@ contract HubIntentSettler is
         IERC20(asset).safeTransfer(solver, amount);
     }
 
+    // ============ M5 — LZ receive path ============
+
+    /// @notice Minimal LayerZero V2 Origin struct. Matches `MockLZEndpoint.Origin`.
+    struct Origin {
+        uint32 srcEid;
+        bytes32 sender;
+        uint64 nonce;
+    }
+
+    /// @notice SPOKE_NATIVE classification constant (matches ISpokeVaultStable).
+    uint8 internal constant _SPOKE_NATIVE = 2;
+
+    /// @notice Receive and confirm a cross-chain deposit via LayerZero V2.
+    /// @dev Called by the LZ endpoint (through `_deliver`). Verifies the message
+    ///      came from a trusted spoke peer, decodes the payload, credits the
+    ///      user on the BalanceLedger, and (for SPOKE_NATIVE) increments
+    ///      chain liquidity on the WithdrawalRegistry.
+    function lzReceive(
+        Origin calldata origin,
+        address, // receiver — unused
+        bytes32, // guid — unused
+        bytes calldata message,
+        bytes calldata // extraData — unused
+    ) external whenNotPaused nonReentrant {
+        // Gate 1: only accept calls from the LZ endpoint.
+        if (msg.sender != _lzEndpoint) revert InvalidLzEndpoint();
+
+        // Gate 2: the source must be a registered trusted remote.
+        bytes32 expectedPeer = _trustedRemotes[origin.srcEid];
+        if (expectedPeer == bytes32(0) || origin.sender != expectedPeer) {
+            revert UntrustedRemote(origin.srcEid, origin.sender);
+        }
+
+        // Decode the payload (same schema as SpokeDepositGateway._lzSend).
+        (
+            bytes32 depositId,
+            address user,
+            address asset,
+            uint256 amount,
+            uint8 classification,
+            uint256 sourceChainId
+        ) = abi.decode(
+                message,
+                (bytes32, address, address, uint256, uint8, uint256)
+            );
+
+        // Replay prevention.
+        if (_depositStatuses[depositId] != DepositStatus.NONE) {
+            revert DepositAlreadyProcessed(depositId);
+        }
+
+        // Credit the user's available balance on the hub.
+        IBalanceLedger(_balanceLedger).credit(user, asset, amount);
+
+        // For SPOKE_NATIVE deposits, bump chain liquidity so the
+        // WithdrawalRegistry can capacity-gate outbound withdrawals.
+        if (classification == _SPOKE_NATIVE && _withdrawalRegistry != address(0)) {
+            IWithdrawalRegistry(_withdrawalRegistry)
+                .incrementChainLiquidity(asset, sourceChainId, amount);
+        }
+
+        _depositStatuses[depositId] = DepositStatus.CREDITED;
+
+        emit DepositConfirmed(
+            depositId,
+            user,
+            asset,
+            amount,
+            sourceChainId,
+            classification
+        );
+    }
+
     // ============ Governance ============
+
+    /// @notice Update the LZ endpoint pointer
+    function setLzEndpoint(address endpoint) external onlyOwner {
+        if (endpoint == address(0)) revert ZeroAddress();
+        _lzEndpoint = endpoint;
+        emit LzEndpointUpdated(endpoint);
+    }
+
+    /// @notice Register a trusted remote spoke peer
+    function setTrustedRemote(
+        uint32 eid,
+        bytes32 peer
+    ) external onlyOwner {
+        _trustedRemotes[eid] = peer;
+        emit TrustedRemoteSet(eid, peer);
+    }
+
+    /// @notice Set the WithdrawalRegistry pointer
+    function setWithdrawalRegistry(address registry) external onlyOwner {
+        _withdrawalRegistry = registry;
+        emit WithdrawalRegistryUpdated(registry);
+    }
 
     /// @notice Update the operator address
     /// @param newOperator The new operator address
@@ -225,5 +321,20 @@ contract HubIntentSettler is
     /// @inheritdoc IHubIntentSettler
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function lzEndpoint() external view returns (address) {
+        return _lzEndpoint;
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function trustedRemote(uint32 eid) external view returns (bytes32) {
+        return _trustedRemotes[eid];
+    }
+
+    /// @inheritdoc IHubIntentSettler
+    function withdrawalRegistry() external view returns (address) {
+        return _withdrawalRegistry;
     }
 }

@@ -49,9 +49,18 @@ abstract contract WithdrawalRegistryStorage {
     ///      the operator flags the request as SPOKE_NATIVE).
     mapping(address => mapping(uint256 => uint256)) internal _chainLiquidity;
 
+    /// @notice Marks (asset, chainId) pairs as spoke-native routes for
+    ///         capacity gating in `requestWithdrawal`. Set by owner during
+    ///         spoke deployment configuration.
+    mapping(address => mapping(uint256 => bool)) internal _isSpokeNativeRoute;
+
+    /// @notice The HubIntentSettler allowed to call `incrementChainLiquidity`.
+    address internal _hubIntentSettler;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 8 slots consumed, leaving 42 from the 50-slot budget.
-    uint256[42] private __gap;
+    /// @dev 10 slots consumed (8 original + _isSpokeNativeRoute +
+    ///      _hubIntentSettler), leaving 40 from the 50-slot budget.
+    uint256[40] private __gap;
 }

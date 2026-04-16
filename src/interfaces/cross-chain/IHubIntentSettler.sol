@@ -52,6 +52,31 @@ interface IHubIntentSettler {
     /// @param depositId The deposit that was not filled
     event DepositMarkedNoFill(bytes32 indexed depositId);
 
+    /// @notice Emitted when a LayerZero-confirmed deposit credits the user
+    /// @param depositId Deterministic id from the spoke gateway
+    /// @param user The user whose BalanceLedger.available was credited
+    /// @param asset The ERC20 token credited
+    /// @param amount The amount credited
+    /// @param sourceChainId The spoke chain where the deposit originated
+    /// @param classification 1 = BRIDGED, 2 = SPOKE_NATIVE
+    event DepositConfirmed(
+        bytes32 indexed depositId,
+        address indexed user,
+        address asset,
+        uint256 amount,
+        uint256 sourceChainId,
+        uint8 classification
+    );
+
+    /// @notice Emitted when the LZ endpoint pointer is updated
+    event LzEndpointUpdated(address indexed endpoint);
+
+    /// @notice Emitted when a trusted remote is set for a spoke eid
+    event TrustedRemoteSet(uint32 indexed eid, bytes32 peer);
+
+    /// @notice Emitted when the WithdrawalRegistry pointer is updated
+    event WithdrawalRegistryUpdated(address indexed registry);
+
     /// @notice Emitted when the operator address is updated
     event OperatorUpdated(
         address indexed previousOperator,
@@ -86,6 +111,12 @@ interface IHubIntentSettler {
 
     /// @notice Thrown when the contract is paused
     error ContractPaused();
+
+    /// @notice Thrown when `lzReceive` is called by a non-endpoint address
+    error InvalidLzEndpoint();
+
+    /// @notice Thrown when the LZ origin sender does not match the trusted remote
+    error UntrustedRemote(uint32 eid, bytes32 sender);
 
     // ============ Operator/Solver Actions ============
 
@@ -141,7 +172,27 @@ interface IHubIntentSettler {
     /// @notice Unpause the contract
     function unpause() external;
 
+    // ============ M5 LZ administration ============
+
+    /// @notice Set the LayerZero V2 endpoint on the hub (owner-only).
+    function setLzEndpoint(address endpoint) external;
+
+    /// @notice Set the trusted remote spoke peer for an eid (owner-only).
+    function setTrustedRemote(uint32 eid, bytes32 peer) external;
+
+    /// @notice Set the WithdrawalRegistry pointer (owner-only).
+    function setWithdrawalRegistry(address registry) external;
+
     // ============ Views ============
+
+    /// @notice The LZ V2 endpoint on the hub
+    function lzEndpoint() external view returns (address);
+
+    /// @notice The trusted remote peer for a given eid
+    function trustedRemote(uint32 eid) external view returns (bytes32);
+
+    /// @notice The WithdrawalRegistry pointer
+    function withdrawalRegistry() external view returns (address);
 
     /// @notice Get the status of a deposit
     /// @param depositId The deposit to query

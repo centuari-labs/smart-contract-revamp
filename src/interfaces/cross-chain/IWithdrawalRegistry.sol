@@ -88,6 +88,34 @@ interface IWithdrawalRegistry {
     /// @notice Emitted when the contract is unpaused
     event Unpaused(address account);
 
+    /// @notice Emitted when chain liquidity is incremented by a confirmed
+    ///         SPOKE_NATIVE deposit.
+    event ChainLiquidityIncremented(
+        address indexed asset,
+        uint256 indexed chainId,
+        uint256 amount,
+        uint256 newTotal
+    );
+
+    /// @notice Emitted when chain liquidity is decremented by a SPOKE_NATIVE
+    ///         withdrawal request.
+    event ChainLiquidityDecremented(
+        address indexed asset,
+        uint256 indexed chainId,
+        uint256 amount,
+        uint256 newTotal
+    );
+
+    /// @notice Emitted when the HubIntentSettler pointer is updated.
+    event HubIntentSettlerUpdated(address indexed settler);
+
+    /// @notice Emitted when a spoke-native route flag is set.
+    event SpokeNativeRouteSet(
+        address indexed asset,
+        uint256 indexed chainId,
+        bool enabled
+    );
+
     // ============ Errors ============
 
     /// @notice Thrown when a zero address is provided
@@ -115,6 +143,14 @@ interface IWithdrawalRegistry {
 
     /// @notice Thrown when the contract is paused
     error ContractPaused();
+
+    /// @notice Thrown when a SPOKE_NATIVE withdrawal exceeds chain liquidity
+    error InsufficientChainLiquidity(
+        address asset,
+        uint256 chainId,
+        uint256 available,
+        uint256 requested
+    );
 
     // ============ User Actions ============
 
@@ -166,6 +202,25 @@ interface IWithdrawalRegistry {
     /// @param newHubDepositor The new HubDepositor address
     function setHubDepositor(address newHubDepositor) external;
 
+    /// @notice Increment chain liquidity for a SPOKE_NATIVE deposit.
+    ///         Callable only by the HubIntentSettler.
+    function incrementChainLiquidity(
+        address asset,
+        uint256 chainId,
+        uint256 amount
+    ) external;
+
+    /// @notice Set the HubIntentSettler pointer (owner-only).
+    function setHubIntentSettler(address settler) external;
+
+    /// @notice Mark/unmark an (asset, chainId) pair as a spoke-native route
+    ///         for the chain-liquidity capacity gate (owner-only).
+    function setSpokeNativeRoute(
+        address asset,
+        uint256 chainId,
+        bool enabled
+    ) external;
+
     /// @notice Pause the contract
     function pause() external;
 
@@ -195,4 +250,19 @@ interface IWithdrawalRegistry {
 
     /// @notice Whether the contract is paused
     function paused() external view returns (bool);
+
+    /// @notice Physical chain liquidity for a (token, chainId) pair.
+    function chainLiquidity(
+        address asset,
+        uint256 chainId
+    ) external view returns (uint256);
+
+    /// @notice Whether (asset, chainId) is flagged as a spoke-native route.
+    function isSpokeNativeRoute(
+        address asset,
+        uint256 chainId
+    ) external view returns (bool);
+
+    /// @notice The HubIntentSettler allowed to increment chain liquidity.
+    function hubIntentSettler() external view returns (address);
 }
