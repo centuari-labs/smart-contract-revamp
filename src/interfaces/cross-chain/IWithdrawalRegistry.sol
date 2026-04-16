@@ -116,6 +116,22 @@ interface IWithdrawalRegistry {
         bool enabled
     );
 
+    /// @notice Emitted when a payout message is dispatched via LZ to a spoke.
+    event PayoutDispatched(
+        bytes32 indexed requestId,
+        uint256 indexed targetChainId,
+        bytes32 lzGuid
+    );
+
+    /// @notice Emitted when the payout endpoint is updated.
+    event PayoutEndpointUpdated(address indexed endpoint);
+
+    /// @notice Emitted when a payout peer is set.
+    event PayoutPeerSet(uint32 indexed eid, bytes32 peer);
+
+    /// @notice Emitted when a spoke eid mapping is set.
+    event SpokeEidSet(uint256 indexed chainId, uint32 eid);
+
     // ============ Errors ============
 
     /// @notice Thrown when a zero address is provided
@@ -144,6 +160,15 @@ interface IWithdrawalRegistry {
     /// @notice Thrown when the contract is paused
     error ContractPaused();
 
+    /// @notice Thrown when the LZ endpoint is not configured.
+    error PayoutEndpointNotSet();
+
+    /// @notice Thrown when the spoke eid is not mapped for a target chain.
+    error SpokeEidNotMapped(uint256 chainId);
+
+    /// @notice Thrown when the payout peer is not set for the spoke eid.
+    error PayoutPeerNotSet(uint32 eid);
+
     /// @notice Thrown when a SPOKE_NATIVE withdrawal exceeds chain liquidity
     error InsufficientChainLiquidity(
         address asset,
@@ -170,12 +195,14 @@ interface IWithdrawalRegistry {
 
     // ============ Operator Actions ============
 
-    /// @notice Authorize a pending withdrawal for processing
+    /// @notice Authorize a pending withdrawal for processing.
     /// @dev Hub-native (targetChainId == block.chainid): calls
     ///      `HubDepositor.payoutDirect` and transitions directly to COMPLETED.
-    ///      Cross-chain: transitions to PROCESSING (M5 adds LayerZero send).
+    ///      Cross-chain: dispatches a LayerZero payout message to the spoke's
+    ///      `SpokePayout` and transitions to PROCESSING. The operator must
+    ///      supply the LZ native fee via `msg.value`.
     /// @param requestId The request to authorize
-    function authorize(bytes32 requestId) external;
+    function authorize(bytes32 requestId) external payable;
 
     /// @notice Mark a PROCESSING withdrawal as completed
     /// @dev Called when cross-chain delivery is confirmed (LZ ack in M5).
@@ -221,6 +248,15 @@ interface IWithdrawalRegistry {
         bool enabled
     ) external;
 
+    /// @notice Set the LZ endpoint for payout dispatch (owner-only).
+    function setPayoutEndpoint(address endpoint) external;
+
+    /// @notice Set the SpokePayout peer for a given eid (owner-only).
+    function setPayoutPeer(uint32 eid, bytes32 peer) external;
+
+    /// @notice Map an EIP-155 chainId to a LZ eid (owner-only).
+    function setSpokeEid(uint256 chainId, uint32 eid) external;
+
     /// @notice Pause the contract
     function pause() external;
 
@@ -265,4 +301,13 @@ interface IWithdrawalRegistry {
 
     /// @notice The HubIntentSettler allowed to increment chain liquidity.
     function hubIntentSettler() external view returns (address);
+
+    /// @notice The LZ endpoint for payout dispatch.
+    function payoutEndpoint() external view returns (address);
+
+    /// @notice The SpokePayout peer for a given eid.
+    function payoutPeer(uint32 eid) external view returns (bytes32);
+
+    /// @notice The LZ eid for a given EIP-155 chainId.
+    function spokeEidByChainId(uint256 chainId) external view returns (uint32);
 }

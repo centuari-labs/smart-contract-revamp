@@ -264,6 +264,34 @@ contract MockLZEndpoint {
         emit PacketDelivered(receiverAddr, EID, origin.sender, nonce, guid);
     }
 
+    /// @notice Forwarding entry called by a peer endpoint's `_deliver`. Mirrors
+    ///         the real `EndpointV2.lzReceive` which routes inbound packets to
+    ///         the destination OApp. This endpoint becomes `msg.sender` so the
+    ///         OApp's trust check (`msg.sender == _lzEndpoint`) passes.
+    function lzReceive(
+        Origin calldata origin,
+        address receiver,
+        bytes32 guid,
+        bytes calldata message,
+        bytes calldata extraData
+    ) external {
+        (bool ok, bytes memory ret) = receiver.call(
+            abi.encodeWithSignature(
+                "lzReceive((uint32,bytes32,uint64),address,bytes32,bytes,bytes)",
+                origin,
+                receiver,
+                guid,
+                message,
+                extraData
+            )
+        );
+        if (!ok) {
+            assembly {
+                revert(add(ret, 32), mload(ret))
+            }
+        }
+    }
+
     function _bytes32ToAddress(bytes32 value) internal pure returns (address) {
         return address(uint160(uint256(value)));
     }

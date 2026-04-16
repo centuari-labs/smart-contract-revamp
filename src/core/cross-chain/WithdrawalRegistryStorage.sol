@@ -57,10 +57,19 @@ abstract contract WithdrawalRegistryStorage {
     /// @notice The HubIntentSettler allowed to call `incrementChainLiquidity`.
     address internal _hubIntentSettler;
 
+    /// @notice LZ V2 endpoint for dispatching payout messages to spoke chains.
+    address internal _payoutEndpoint;
+
+    /// @notice LZ eid → SpokePayout peer (bytes32) on each spoke chain.
+    mapping(uint32 => bytes32) internal _payoutPeers;
+
+    /// @notice EIP-155 chainId → LZ eid mapping for spoke chains.
+    mapping(uint256 => uint32) internal _spokeEidByChainId;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 10 slots consumed (8 original + _isSpokeNativeRoute +
-    ///      _hubIntentSettler), leaving 40 from the 50-slot budget.
-    uint256[40] private __gap;
+    /// @dev 13 slots consumed (10 + _payoutEndpoint + _payoutPeers +
+    ///      _spokeEidByChainId), leaving 37 from the 50-slot budget.
+    uint256[37] private __gap;
 }

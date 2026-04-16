@@ -15,6 +15,33 @@ import {IHubDepositor} from "../../interfaces/cross-chain/IHubDepositor.sol";
 import {WithdrawalRegistryStorage} from "./WithdrawalRegistryStorage.sol";
 import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
+/// @notice Minimal LZ V2 endpoint surface for payout dispatch.
+interface ILzEndpointSend {
+    struct MessagingParams {
+        uint32 dstEid;
+        bytes32 receiver;
+        bytes message;
+        bytes options;
+        bool payInLzToken;
+    }
+
+    struct MessagingFee {
+        uint256 nativeFee;
+        uint256 lzTokenFee;
+    }
+
+    struct MessagingReceipt {
+        bytes32 guid;
+        uint64 nonce;
+        MessagingFee fee;
+    }
+
+    function send(
+        MessagingParams calldata params,
+        address refundAddress
+    ) external payable returns (MessagingReceipt memory);
+}
+
 /// @title WithdrawalRegistry
 /// @notice Manages the withdrawal state machine with a uniform on-chain HF gate.
 /// @dev Every withdrawal — whether initiated by an app user (via backend), a
@@ -174,7 +201,7 @@ contract WithdrawalRegistry is
     /// @inheritdoc IWithdrawalRegistry
     function authorize(
         bytes32 requestId
-    ) external onlyOperator whenNotPaused nonReentrant {
+    ) external payable onlyOperator whenNotPaused nonReentrant {
         WithdrawalRequest storage request = _requests[requestId];
         if (request.user == address(0)) revert InvalidRequestId();
 
@@ -200,11 +227,47 @@ contract WithdrawalRegistry is
             emit WithdrawalAuthorized(requestId);
             emit WithdrawalCompleted(requestId);
         } else {
-            // Cross-chain: mark as PROCESSING.
-            // M5 adds LayerZero message dispatch to SpokePayout here.
+            // Cross-chain: dispatch payout via LayerZero to SpokePayout.
+            if (_payoutEndpoint == address(0)) revert PayoutEndpointNotSet();
+            uint32 spokeEid = _spokeEidByChainId[request.targetChainId];
+            if (spokeEid == 0) revert SpokeEidNotMapped(request.targetChainId);
+            bytes32 peer = _payoutPeers[spokeEid];
+            if (peer == bytes32(0)) revert PayoutPeerNotSet(spokeEid);
+
+            // Determine classification: check if this route is spoke-native.
+            uint8 classification = _isSpokeNativeRoute[request.asset][request.targetChainId]
+                ? uint8(2) // SPOKE_NATIVE
+                : uint8(1); // BRIDGED
+
+            bytes memory payload = abi.encode(
+                requestId,
+                request.user,
+                request.asset,
+                request.amount,
+                classification
+            );
+
+            ILzEndpointSend.MessagingParams memory params = ILzEndpointSend
+                .MessagingParams({
+                    dstEid: spokeEid,
+                    receiver: peer,
+                    message: payload,
+                    options: bytes(""),
+                    payInLzToken: false
+                });
+
+            ILzEndpointSend.MessagingReceipt memory receipt = ILzEndpointSend(
+                _payoutEndpoint
+            ).send{value: msg.value}(params, msg.sender);
+
             request.status = WithdrawalStatus.PROCESSING;
 
             emit WithdrawalAuthorized(requestId);
+            emit PayoutDispatched(
+                requestId,
+                request.targetChainId,
+                receipt.guid
+            );
         }
     }
 
@@ -281,6 +344,24 @@ contract WithdrawalRegistry is
     }
 
     // ============ Governance ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function setPayoutEndpoint(address endpoint_) external onlyOwner {
+        _payoutEndpoint = endpoint_;
+        emit PayoutEndpointUpdated(endpoint_);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function setPayoutPeer(uint32 eid, bytes32 peer) external onlyOwner {
+        _payoutPeers[eid] = peer;
+        emit PayoutPeerSet(eid, peer);
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function setSpokeEid(uint256 chainId, uint32 eid) external onlyOwner {
+        _spokeEidByChainId[chainId] = eid;
+        emit SpokeEidSet(chainId, eid);
+    }
 
     /// @inheritdoc IWithdrawalRegistry
     function setHubIntentSettler(address settler) external onlyOwner {
@@ -397,5 +478,22 @@ contract WithdrawalRegistry is
     /// @inheritdoc IWithdrawalRegistry
     function hubIntentSettler() external view returns (address) {
         return _hubIntentSettler;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function payoutEndpoint() external view returns (address) {
+        return _payoutEndpoint;
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function payoutPeer(uint32 eid) external view returns (bytes32) {
+        return _payoutPeers[eid];
+    }
+
+    /// @inheritdoc IWithdrawalRegistry
+    function spokeEidByChainId(
+        uint256 chainId
+    ) external view returns (uint32) {
+        return _spokeEidByChainId[chainId];
     }
 }

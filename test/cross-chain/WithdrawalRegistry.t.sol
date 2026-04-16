@@ -15,6 +15,7 @@ import {WithdrawalRegistry} from "../../src/core/cross-chain/WithdrawalRegistry.
 import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
 import {IWithdrawalRegistry} from "../../src/interfaces/cross-chain/IWithdrawalRegistry.sol";
 import {MockToken} from "../../src/mocks/MockToken.sol";
+import {MockLZEndpoint} from "../mocks/MockLZEndpoint.sol";
 
 contract WithdrawalRegistryTest is Test {
     BalanceLedger internal ledger;
@@ -85,6 +86,18 @@ contract WithdrawalRegistryTest is Test {
         // Authorize WithdrawalRegistry to call payoutDirect on HubDepositor
         depositor.setAuthorizedCaller(address(registry), true);
         vm.stopPrank();
+
+        // Wire LZ payout dispatch (needed for cross-chain authorize tests).
+        MockLZEndpoint lz = new MockLZEndpoint(30110);
+        vm.startPrank(owner);
+        registry.setPayoutEndpoint(address(lz));
+        registry.setSpokeEid(8453, 30184); // Base chain → Base eid
+        registry.setPayoutPeer(
+            30184,
+            bytes32(uint256(uint160(address(0xFACE))))
+        );
+        vm.stopPrank();
+        vm.deal(operator, 10 ether); // Fund operator for LZ fees
 
         // Seed user: mint tokens, deposit via HubDepositor
         usdc.mint(user, INITIAL_MINT);
@@ -307,7 +320,7 @@ contract WithdrawalRegistryTest is Test {
         bytes32 requestId = _requestCrossChain(amount);
 
         vm.prank(operator);
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
 
         IWithdrawalRegistry.WithdrawalRequest memory req = registry.getRequest(requestId);
         assertEq(uint8(req.status), uint8(IWithdrawalRegistry.WithdrawalStatus.PROCESSING));
@@ -320,7 +333,7 @@ contract WithdrawalRegistryTest is Test {
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
         emit IWithdrawalRegistry.WithdrawalAuthorized(requestId);
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
     }
 
     // ============ authorize access control ============
@@ -344,7 +357,7 @@ contract WithdrawalRegistryTest is Test {
 
         // Authorize → PROCESSING
         vm.prank(operator);
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
 
         // Try to authorize again → should revert
         vm.prank(operator);
@@ -355,7 +368,7 @@ contract WithdrawalRegistryTest is Test {
                 IWithdrawalRegistry.WithdrawalStatus.PROCESSING
             )
         );
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
     }
 
     function test_Authorize_RevertWhenPaused() public {
@@ -375,7 +388,7 @@ contract WithdrawalRegistryTest is Test {
         bytes32 requestId = _requestCrossChain(1000e6);
 
         vm.prank(operator);
-        registry.authorize(requestId); // → PROCESSING
+        registry.authorize{value: 0.001 ether}(requestId); // → PROCESSING
 
         vm.prank(operator);
         registry.markCompleted(requestId);
@@ -388,7 +401,7 @@ contract WithdrawalRegistryTest is Test {
         bytes32 requestId = _requestCrossChain(1000e6);
 
         vm.prank(operator);
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
 
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
@@ -414,7 +427,7 @@ contract WithdrawalRegistryTest is Test {
         bytes32 requestId = _requestCrossChain(1000e6);
 
         vm.prank(operator);
-        registry.authorize(requestId);
+        registry.authorize{value: 0.001 ether}(requestId);
 
         vm.prank(outsider);
         vm.expectRevert(IWithdrawalRegistry.Unauthorized.selector);
@@ -447,7 +460,7 @@ contract WithdrawalRegistryTest is Test {
         bytes32 requestId = _requestCrossChain(amount);
 
         vm.prank(operator);
-        registry.authorize(requestId); // → PROCESSING
+        registry.authorize{value: 0.001 ether}(requestId); // → PROCESSING
 
         vm.prank(operator);
         registry.markFailed(requestId);
