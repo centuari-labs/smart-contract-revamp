@@ -31,6 +31,9 @@ CONTRACTS=(
   "WithdrawalRegistry.sol:WithdrawalRegistry"
   "HubIntentSettler.sol:HubIntentSettler"
   "SettlementLedger.sol:SettlementLedger"
+  "SpokeVaultStable.sol:SpokeVaultStable"
+  "SpokeDepositGateway.sol:SpokeDepositGateway"
+  "SpokePayout.sol:SpokePayout"
 )
 
 # Ensure artifacts exist

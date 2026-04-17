@@ -566,7 +566,7 @@ See **"Future: Solver Fast-Fill Layer"** section for when and how to activate.
 
 ## Phase 1C — Spoke Chain Contracts
 
-### Module 5: Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody ⚪ NOT STARTED
+### Module 5: Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody ⭐ DONE
 
 **Scope:** the three spoke-side contracts that live on the **four spoke chains only: Base, Ethereum, BNB, Polygon**. No spoke deployment on Arbitrum (hub uses `HubDepositor` from M3 per C9). Also adds LayerZero V2, Circle CCTP, and Stargate V2 dependencies to the Foundry project. Spoke contracts handle **two custody modes** per the token×chain matrix: BRIDGED tokens (escrowed temporarily, bridged to hub) and SPOKE_NATIVE tokens (held permanently, hub tracks accounting only). Additionally, hub contracts gain `ChainLiquidity` tracking for SPOKE_NATIVE tokens and a new receiver for spoke-native deposit confirmations.
 
@@ -656,6 +656,23 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 - LayerZero DVN config committed to chain, verified via block explorer.
 - End-to-end manual test (BRIDGED): deposit USDC to `SpokeDepositGateway` on Base → LZ message arrives on Arbitrum → `HubIntentSettler.confirmDeposit` credits BalanceLedger → Sweeper bridges escrowed USDC to Arbitrum via CCTP. User sees balance in ~30s-2min.
 - End-to-end manual test (SPOKE_NATIVE): deposit XSGD to `SpokeDepositGateway` on Base → token stays on Base in SpokeVaultStable custody → LZ message credits BalanceLedger on Arbitrum + ChainLiquidity updated. User sees balance in ~30s-2min.
+
+**M5 implementation deviations (recorded for audit):**
+
+1. **Refund semantics**: doc left open "hub LZ confirmation vs timeout-based". Implementation chose **timeout-based**: `REFUND_WINDOW = 30 min`, combined with hub-side `_depositStatuses[depositId] == CREDITED` idempotency check. Simpler and race-free.
+2. **Chain liquidity storage**: placed inside `WithdrawalRegistryStorage` (as `_chainLiquidity` mapping) rather than a standalone `ChainLiquidityTracker.sol` — fewer proxies, same invariant. Reversible if M9 needs cross-contract reads.
+3. **Trusted remote config**: added as owner-only `setTrustedRemote(eid, peer)` on `HubIntentSettler` rather than via a separate registry.
+4. **No OAppSender/OAppReceiver inheritance**: the LZ V2 package only ships non-upgradeable variants (immutable endpoint). All spoke and hub contracts store `_endpoint` + `_peers` in their `*Storage` contracts and call the endpoint directly. PR 5 can migrate to `@layerzerolabs/oapp-evm-upgradeable` as a follow-up if needed.
+5. **SpokePayout bridged queue**: uses a per-user per-asset array (`_pendingPayouts[user][asset][]`) with FIFO flush. No cap on queue depth — the Sweeper Bot is expected to replenish the buffer before the queue grows large.
+
+**M5 final test count:** 438 tests passing (339 hub baseline + 99 M5 additions across 6 new test files).
+
+**M5 PR breakdown:**
+- PR 1: Dependencies + config + mocks + storage scaffolding (339→339 tests, no behavior change)
+- PR 2: SpokeVaultStable + SpokeDepositGateway (339→396 tests)
+- PR 3: HubIntentSettler.confirmDeposit + WithdrawalRegistry capacity gate (396→424 tests)
+- PR 4: SpokePayout + WithdrawalRegistry LZ dispatch + integration tests (424→438 tests)
+- PR 5: Deploy scripts + ABI export + docs (no test changes)
 
 ---
 
