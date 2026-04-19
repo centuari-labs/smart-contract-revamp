@@ -12,7 +12,7 @@ Execution is split per service boundary so each change set can be reviewed, test
 | **P1b-explicit** | **Smart Contracts — explicit-flag plumbing** | ✅ DONE (2026-04-17) | Removed implicit auto-flag at settlement and auto-unflag on repay. Added `address[] collateralAssets` to `ISettlement.MatchData`; `Settlement._processMatch` forwards it; `Centuari.settleMatch` iterates and calls `markCollateral` only for the assets the borrower explicitly requested. `Centuari.repay` no longer touches flags. Supersedes the previous P1b-ext multi-asset plumbing scope. | P1b-core ✅ |
 | **P2** | **Matching Engine** | 🔒 BLOCKED | Add `collateralAssets: string[]` to borrow-order output so the settlement engine can pull the user's pending unfulfilled flag requests from the queue and attach them to each match. | P1b-explicit ABI + M9 start |
 | **P3** | **Settlement Engine** | 🔒 BLOCKED | Encode the borrower's pending flag requests into `MatchData.collateralAssets` per borrower in the `Settlement.settleMatches` ABI; clear the queue on settlement success. | P1b-explicit ABI + P2 + M9 start |
-| **P4** | **Backend** | 🔒 BLOCKED | Delete old `/internal/collateral` relay. Add two app-user endpoints backed by Privy JWT + 5/user/24h Redis rate limit: `POST /collateral/flag { asset }` enqueues an unfulfilled flag request for the user (persisted so the settlement engine can attach it to the next match, **or** directly via `CollateralManager.flagFor` for users with no pending borrow), and `POST /collateral/unflag { asset }` drives `CollateralManager.unflagFor` via the protocol settlement key + `applyOnChainEffect` (C10). | P1a + indexer-v2 existing (M8 start) |
+| **P4** | **Backend** | 🔒 BLOCKED | Delete old `/internal/collateral` relay. Add two app-user endpoints backed by Privy JWT + 5/user/24h Redis rate limit: `POST /collateral/flag { asset }` enqueues an unfulfilled flag request for the user (persisted so the settlement engine can attach it to the next match, **or** directly via `CollateralManager.flagFor` for users with no pending borrow), and `POST /collateral/unflag { asset }` drives `CollateralManager.unflagFor` via the protocol settlement key + `applyOnChainEffect` (C10). | P1a + indexer-v3 existing (M8 start) |
 | **P5** | **Indexer** | 🔒 BLOCKED | Add `CollateralFlagSet` processor writing `user_balance.used_as_collateral` + `flagged_at` with C10 idempotency stamps. | P1a events + M8 start |
 | **P6** | **Frontend** | 🔒 BLOCKED | Borrow form collateral multi-select + 24h-lock confirmation modal; portfolio row countdown + disabled unflag button; error surfacing for `FlagLockActive` / `WouldMakeUnhealthy`. | P4 API + M10 start |
 
@@ -29,7 +29,7 @@ If you are picking this up in a fresh Claude session, the loophole fix is **most
 - **Every remaining phase is blocked on module starts**, not on prior code work:
   - **P2** → blocked behind M9 start (matching engine work). Scope: add `collateralAssets: string[]` to borrow-order output so the settlement engine can attach pending user flag requests to each match.
   - **P3** → blocked behind P2 + M9 start. Scope: settlement engine encodes the borrower's pending unfulfilled flag requests into `MatchData.collateralAssets` per borrower; clears the queue on settlement success.
-  - **P4 backend** → only gated on P1a (✅ DONE) + M8 start (indexer-v2). Becomes actionable the moment M8 kicks off. Scope: delete old `/internal/collateral` relay; add `POST /collateral/flag { asset }` (enqueues the flag request or falls back to `CollateralManager.flagFor` when the user has no pending borrow); add `POST /collateral/unflag { asset }` (drives `CollateralManager.unflagFor`); both with Privy JWT + 5/user/24h Redis rate limit + C10 `applyOnChainEffect`.
+  - **P4 backend** → only gated on P1a (✅ DONE) + M8 start (indexer-v3). Becomes actionable the moment M8 kicks off. Scope: delete old `/internal/collateral` relay; add `POST /collateral/flag { asset }` (enqueues the flag request or falls back to `CollateralManager.flagFor` when the user has no pending borrow); add `POST /collateral/unflag { asset }` (drives `CollateralManager.unflagFor`); both with Privy JWT + 5/user/24h Redis rate limit + C10 `applyOnChainEffect`.
   - **P5 indexer** → only gated on P1a (✅ DONE) + M8 start. Scope: `CollateralFlagSet` processor writing `user_balance.used_as_collateral` + `flagged_at` with C10 idempotency stamps.
   - **P6 frontend** → blocked behind P4 + M10 start.
 
@@ -101,7 +101,7 @@ The fix: flag mutations are always explicit. At settlement time, the borrower's 
 
 ## Context
 
-The current Phase 1 design (`phase-1-cross-chain-balance-ledger.md`, Module 1 "Why the flag is off-chain", C1, Module 2) originally kept the `usedAsCollateral` opt-in flag in indexer-v2's Postgres, written by the backend only. The stated reasons were:
+The current Phase 1 design (`phase-1-cross-chain-balance-ledger.md`, Module 1 "Why the flag is off-chain", C1, Module 2) originally kept the `usedAsCollateral` opt-in flag in indexer-v3's Postgres, written by the backend only. The stated reasons were:
 
 1. **Zero user signatures after deposit** — users never sign anything except the initial deposit tx.
 2. **Protocol pays all non-deposit gas** — all other mutations go through the protocol's settlement key.
@@ -226,7 +226,7 @@ Supersedes the previously planned P1b-ext scope. The shipped changes:
 
 ### P4 — backend (blocked on M8 start; P1a done)
 
-- `backend-v2/src/collateral/collateral.controller.ts` — **rewrite**. Delete the existing PUT `/internal/collateral` → indexer-v2 endpoint. New surface (all Privy JWT + 5/user/24h Redis rate limit):
+- `backend-v2/src/collateral/collateral.controller.ts` — **rewrite**. Delete the existing PUT `/internal/collateral` → indexer-v3 endpoint. New surface (all Privy JWT + 5/user/24h Redis rate limit):
   - `POST /collateral/flag { asset }` — when the user has no pending borrow, call `CollateralManager.flagFor(user, asset)` directly via the protocol settlement key. When the user has a pending borrow, enqueue the flag request to a persistent `pending_collateral_flags` table so the settlement engine (P3) can attach it to the next match via `MatchData.collateralAssets`.
   - `POST /collateral/unflag { asset }` — call `CollateralManager.unflagFor(user, asset)` via the protocol settlement key. Surface `FlagLockActive` / `WouldMakeUnhealthy` to the client with machine-readable error codes.
   - Both eagerly apply the DB mutation through the Module 8 `applyOnChainEffect` helper (C10 pattern).
@@ -234,8 +234,8 @@ Supersedes the previously planned P1b-ext scope. The shipped changes:
 
 ### P5 — indexer (blocked on M8 start; P1a done)
 
-- `indexer-v2/src/processors/balance-ledger.processor.ts` — add `CollateralFlagSet` handler writing `user_balance.used_as_collateral` + `flagged_at` with full C10 idempotency stamps. Decoder MUST match the 5-param `(writer, user, asset, used, flaggedAt)` event shape.
-- `indexer-v2/src/api/routes/collateral.ts` — **delete** (reads flow through `/portfolio/:user`).
+- `indexer-v3/src/processors/balance-ledger.processor.ts` — add `CollateralFlagSet` handler writing `user_balance.used_as_collateral` + `flagged_at` with full C10 idempotency stamps. Decoder MUST match the 5-param `(writer, user, asset, used, flaggedAt)` event shape.
+- `indexer-v3/src/api/routes/collateral.ts` — **delete** (reads flow through `/portfolio/:user`).
 
 ### P6 — frontend (blocked on P4 + M10 start)
 
@@ -280,4 +280,4 @@ Supersedes the previously planned P1b-ext scope. The shipped changes:
    - **Backend rate-limit test:** call `POST /collateral/unflag` 10 times in 60 seconds — assert the 6th request is rejected with HTTP 429 and the protocol settlement key never submitted a tx for it.
    - **Phase 2 rehearsal:** deploy a mock `RiskModule` returning `canUnflag = true` for debt-free users; `governance.setRiskModule(mock)` via 48h timelock; confirm that AFTER the 24h flag-lock expires and after full repay, `CollateralManager.unflagFor` succeeds — validating zero-code-change Phase 2 swap.
 
-4. **Regression:** run `backend-v2` test suite + `indexer-v2` migration tests to confirm the new collateral flag/unflag endpoints and the pending-flag queue do not break the module graph or leave dangling routes.
+4. **Regression:** run `backend-v2` test suite + `indexer-v3` migration tests to confirm the new collateral flag/unflag endpoints and the pending-flag queue do not break the module graph or leave dangling routes.

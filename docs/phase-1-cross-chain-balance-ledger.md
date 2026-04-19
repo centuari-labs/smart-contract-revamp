@@ -12,7 +12,7 @@ Centuari is migrating from a single-chain, deposit-at-order-time lending protoco
 
 **Collateral model — HF-gated, no physical lockup, on-chain flag.** Centuari does NOT lock collateral into a separate balance bucket when a user borrows. Instead, collateral is "virtual": the user flags assets they're willing to use as collateral, and the (Phase 2) RiskModule continuously computes a health factor from the user's `available` balances across all flagged assets against their outstanding debt. Any user-initiated outflow (withdrawal, cross-asset transfer, yield routing) is gated by "post-action HF >= 1". This matches Aave/Compound/Morpho, is strictly more capital-efficient than physical lockup, composes cleanly with Phase 6 on-chain integrators (they only read `available` + HF, not a zoo of lock-sub-states), and avoids per-borrow allocation bookkeeping entirely. **The flag lives on-chain** on `BalanceLedger`, but users never sign or pay gas to set it — flagging is an automatic side effect of the protocol-signed settlement tx that records a borrow match, and unflagging on full repay is an automatic side effect of the protocol-signed repay tx. Mid-life unflagging (while still in debt) goes through a small `CollateralManager.sol` wrapper with a 24-hour flag-lock and a `RiskModule` gate. Phase 1 ships a conservative `RiskModuleStub` (rejects any unflag while debt > 0); Phase 2 swaps in the real oracle-backed `RiskModule` via a single governance call. This design closes the loophole where a user with off-chain collateral state could bypass the backend and call `WithdrawalRegistry` directly to exit with borrowed funds — see Module 1's "Why the flag is on-chain" section and the `CollateralManager` spec below.
 
-**Reference, not gospel:** the branch `feat/centuari-full-implementation` in `smart-contract-revamp/` already contains first-pass versions of `BalanceLedger.sol`, `HubIntentSettler.sol`, `SettlementLedger.sol`, `WithdrawalRegistry.sol`, `SpokeVaultStable.sol`, `SpokePayout.sol` (per exploration). These are cited as "confusing / prone to bug" by the user and are to be treated as reference sketches, not starting points. `SpokeDepositGateway.sol` is missing entirely from that branch. The cross-chain wiring lives on a separate commit (`95dc1c7`) that has not been brought into staging. Off-chain service updates (`backend-v2`, `frontend-revamp`, `settlement-engine`, `matching-engine`, `indexer-v2`) are NOT present on the feat branch — those must be built as part of Phase 1D.
+**Reference, not gospel:** the branch `feat/centuari-full-implementation` in `smart-contract-revamp/` already contains first-pass versions of `BalanceLedger.sol`, `HubIntentSettler.sol`, `SettlementLedger.sol`, `WithdrawalRegistry.sol`, `SpokeVaultStable.sol`, `SpokePayout.sol` (per exploration). These are cited as "confusing / prone to bug" by the user and are to be treated as reference sketches, not starting points. `SpokeDepositGateway.sol` is missing entirely from that branch. The cross-chain wiring lives on a separate commit (`95dc1c7`) that has not been brought into staging. Off-chain service updates (`backend-v2`, `frontend-revamp`, `settlement-engine`, `matching-engine`, `indexer-v3`) are NOT present on the feat branch — those must be built as part of Phase 1D.
 
 ---
 
@@ -24,14 +24,14 @@ Before implementing, the following issues in the architecture must be resolved o
 
 User requirement: placing, cancelling, and replacing orders must be single-button — no signing, no gas, no waiting on a wallet popup. Same feel as Hyperliquid / dYdX v4 / Lighter.
 
-This is already achievable with the existing Centuari stack — the current staging build routes orders through the backend (Privy JWT auth) to the matching engine over NATS, with zero per-order on-chain signatures. What Phase 1 changes is WHERE the matching engine gets its balance view (indexer-v2 instead of backend state) and WHERE settlement debits come from (BalanceLedger instead of Treasury). **The order-placement UX does not change: user Privy-auths once per session, every subsequent order is one click.**
+This is already achievable with the existing Centuari stack — the current staging build routes orders through the backend (Privy JWT auth) to the matching engine over NATS, with zero per-order on-chain signatures. What Phase 1 changes is WHERE the matching engine gets its balance view (indexer-v3 instead of backend state) and WHERE settlement debits come from (BalanceLedger instead of Treasury). **The order-placement UX does not change: user Privy-auths once per session, every subsequent order is one click.**
 
 **Phase 1 order flow (all off-chain, zero user signatures after Privy session auth):**
 
 1. User opens the app → Privy session established → backend issues session JWT.
 2. User clicks "Lend 100 USDC at 8% / 30d" → frontend POSTs `{market, side, price, amount}` to backend with JWT → zero wallet prompts.
 3. Backend validates JWT, forwards order to matching engine via NATS.
-4. Matching engine reads `BalanceLedger.available(user, asset)` from indexer-v2 (sub-ms lookup on same docker network), subtracts its own per-user Redis reservation counter, accepts the order if `available - reservation >= orderAmount`, and increments the reservation.
+4. Matching engine reads `BalanceLedger.available(user, asset)` from indexer-v3 (sub-ms lookup on same docker network), subtracts its own per-user Redis reservation counter, accepts the order if `available - reservation >= orderAmount`, and increments the reservation.
 5. Cancel / replace are NATS messages — also zero signatures, zero tx, zero gas.
 6. On a match, the settlement engine batches matches and submits the batch on-chain with the PROTOCOL's settlement key (unchanged from today). The on-chain debit against `BalanceLedger.available` is authorized by the protocol's settlement role, not by user signatures. Users never see a wallet popup for order flow.
 
@@ -51,7 +51,7 @@ The Phase 1A spec says "Update Centuari.sol — Replace Treasury calls with Bala
 
 Per exploration, the matching engine has no on-chain balance checks today; it trusts the backend. For Phase 1, it needs to read `BalanceLedger.available(user, asset)` before accepting an order (Full Architecture §2.3 Step 2). This is a new RPC integration on the hot path — latency matters.
 
-**Resolution:** the engine reads from **indexer-v2** (Module 8), not directly from chain RPC. The custom indexer maintains an always-current snapshot of `UserBalance` entities via event subscription; the engine queries the indexer's REST/internal API for `available`. Indexer is colocated with the engine (same Docker network) so latency is sub-ms. If the indexer is down, the engine falls back to a direct RPC read cached per block. Reservation tracking (Redis) subtracts from the snapshot. Full consistency is still enforced at settlement, not at order placement.
+**Resolution:** the engine reads from **indexer-v3** (Module 8), not directly from chain RPC. The custom indexer maintains an always-current snapshot of `UserBalance` entities via event subscription; the engine queries the indexer's REST/internal API for `available`. Indexer is colocated with the engine (same Docker network) so latency is sub-ms. If the indexer is down, the engine falls back to a direct RPC read cached per block. Reservation tracking (Redis) subtracts from the snapshot. Full consistency is still enforced at settlement, not at order placement.
 
 ### C4. Solver capital commitment — deferred to a future phase
 
@@ -83,11 +83,11 @@ User requirement (extended from C1): cross-chain deposits must also be low-signa
 - `SpokeDepositGateway` is built from scratch (still absent from the feat branch). It handles escrow + LZ message dispatch + refund. No solver interaction.
 - `HubIntentSettler` gains a new `confirmDeposit(depositId, user, asset, amount, sourceChainId)` function callable only by the LZ endpoint (replaces the solver-gated `fillFor` path for Phase 1). The existing `fillFor` function remains in the contract for future solver integration but is not used in Phase 1.
 - Frontend deposit hook does NOT call `signTypedData`. It calls `useWriteContract` against `SpokeDepositGateway.permitAndDeposit` (or plain `deposit`).
-- Backend does NOT construct or forward signed intents. It surfaces the pending deposit state to the frontend by polling indexer-v2, but the user's wallet drives the deposit directly.
+- Backend does NOT construct or forward signed intents. It surfaces the pending deposit state to the frontend by polling indexer-v3, but the user's wallet drives the deposit directly.
 
-### C6. indexer-v2 must be built from scratch in Phase 1 (custom, not Ponder)
+### C6. indexer-v3 must be built from scratch in Phase 1 (custom, not Ponder)
 
-The docker-compose file references `indexer-v2/` but the directory does not exist in the repo. Phase 1D assumes it can "update event schemas" but there is no indexer to update.
+The docker-compose file references `indexer-v3/` but the directory does not exist in the repo. Phase 1D assumes it can "update event schemas" but there is no indexer to update.
 
 **Prior consideration — Ponder rejected:** Ponder forces a framework-shaped schema and handler model that did not fit the Centuari architecture on the previous attempt. Ponder's strict event-driven handler pattern and internal schema abstraction got in the way of tracking multi-chain state rollups (e.g., a single user's balance reflects events from both the hub and the spoke `SpokeDepositGateway`). Dropped.
 
@@ -113,7 +113,7 @@ When a user deposits USDC while on Arbitrum, they are already on the hub chain. 
 
 The frontend's target-chain selector includes "Arbitrum (direct)" as an option distinct from the four spokes.
 
-### C10. Eager DB sync after on-chain calls; indexer-v2 is the safety net, not the fast path
+### C10. Eager DB sync after on-chain calls; indexer-v3 is the safety net, not the fast path
 
 Indexer-v2 tails chain events and is eventually consistent with chain state, but its latency is non-zero (a few hundred ms at best, multiple seconds under load) and it is a separate process that can lag, crash, or be restarted. If every UI read depended on the indexer having already tailed the tx that just landed, the UX would feel slow and inconsistent, and reconciliation bugs would look like "my balance disappeared".
 
@@ -141,11 +141,11 @@ For every tx that mutates DB-visible state (deposit, settlement, withdrawal auth
 
 **What lives on the shared library vs. per-service:**
 
-The verify-then-apply pattern is a small shared helper in `indexer-v2/src/shared/apply-on-chain-effect.ts` (exported for re-use) that takes `(txHash, expectedEventSelector, expectedArgs, mutationFn)` and handles receipt fetch, log parsing, idempotency stamping, and transactional commit. Both the indexer processors and the eager-path services (backend-v2, settlement-engine, sweeper-bot) import it so there is exactly one place where the idempotency invariant is enforced.
+The verify-then-apply pattern is a small shared helper in `indexer-v3/src/shared/apply-on-chain-effect.ts` (exported for re-use) that takes `(txHash, expectedEventSelector, expectedArgs, mutationFn)` and handles receipt fetch, log parsing, idempotency stamping, and transactional commit. Both the indexer processors and the eager-path services (backend-v2, settlement-engine, sweeper-bot) import it so there is exactly one place where the idempotency invariant is enforced.
 
 **Note on the collateral flag (now on-chain):**
 
-The `usedAsCollateral` flag is on-chain in Phase 1 and is written by one of three paths: (a) auto-flag inside `Settlement.settle()` at borrow match settlement, (b) auto-unflag inside `Centuari.repay()` when debt hits zero, (c) mid-life unflag through `CollateralManager.unflagFor()` gated by the 24h flag-lock + `RiskModule.canUnflag`. All three emit `BalanceLedger.CollateralFlagSet(user, asset, used, flaggedAt)` which indexer-v2 tails into the `user_balance.used_as_collateral` column with the same C10 idempotency stamps as every other event. Whichever service submitted the underlying tx (settlement-engine for settle, backend-v2 for repay and unflag) eagerly applies the mutation via `applyOnChainEffect` so the UI reflects the flag change within a few hundred ms rather than waiting on the indexer tail.
+The `usedAsCollateral` flag is on-chain in Phase 1 and is written by one of three paths: (a) auto-flag inside `Settlement.settle()` at borrow match settlement, (b) auto-unflag inside `Centuari.repay()` when debt hits zero, (c) mid-life unflag through `CollateralManager.unflagFor()` gated by the 24h flag-lock + `RiskModule.canUnflag`. All three emit `BalanceLedger.CollateralFlagSet(user, asset, used, flaggedAt)` which indexer-v3 tails into the `user_balance.used_as_collateral` column with the same C10 idempotency stamps as every other event. Whichever service submitted the underlying tx (settlement-engine for settle, backend-v2 for repay and unflag) eagerly applies the mutation via `applyOnChainEffect` so the UI reflects the flag change within a few hundred ms rather than waiting on the indexer tail.
 
 ### C11. Spoke-native custody and per-chain liquidity tracking
 
@@ -184,7 +184,7 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 | M5 — Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody | ⚪ NOT STARTED | **UNBLOCKED** — next priority. Depends on M4 (done). |
 | ~~M6 — Solver Service~~ | ⏭️ **DEFERRED** | Deferred to a future phase. Solver fast-fill requires significant capital (20% of peak 24h deposit volume per spoke). Phase 1 uses LZ-confirmed credits instead (~30s-2min latency). See "Future: Solver Fast-Fill Layer" section. |
 | M7 — Sweeper Bot (simplified) | ⚪ NOT STARTED | blocked on M5. **Simplified scope:** bridges escrowed tokens spoke → hub for custody + replenishes spoke withdrawal buffers. No solver reimbursement flow. |
-| M8 — indexer-v2 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M5. Depends on M3 (done). |
+| M8 — indexer-v3 from scratch | ⚪ NOT STARTED | **UNBLOCKED** — can start in parallel with M5. Depends on M3 (done). |
 | M9 — backend-v2 + settlement-engine + matching-engine updates | ⚪ NOT STARTED | blocked on M8 |
 | M10 — frontend-revamp cross-chain UI + collateral toggle | ⚪ NOT STARTED | blocked on M4/M5 + M9 |
 
@@ -197,7 +197,7 @@ M1 (BalanceLedger core)
          ├─ M4 (WithdrawalRegistry + Hub cross-chain contracts)
          │   └─ M5 (SpokeDepositGateway + Spoke contracts + LayerZero wiring)
          │       └─ M7 (Sweeper Bot — simplified, no solver reimbursement)
-         ├─ M8 (indexer-v2 from scratch)
+         ├─ M8 (indexer-v3 from scratch)
          │   └─ M9 (backend-v2 + settlement-engine + matching-engine updates)
          │       └─ M10 (frontend-revamp cross-chain UI)
          [M6 (Solver Service) — DEFERRED to future phase]
@@ -730,9 +730,9 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 
 ---
 
-### Module 8: indexer-v2 from scratch (custom, no framework) ⚪ NOT STARTED
+### Module 8: indexer-v3 from scratch (custom, no framework) ⚪ NOT STARTED
 
-**Scope:** brand-new custom Node.js/TypeScript indexer. **Ponder explicitly rejected** — the previous attempt hit dead ends because Ponder's enforced schema model and handler abstraction did not fit multi-chain state rollups (e.g., reflecting a single user's balance from events on hub + all four spokes in one `UserBalance` row). We build our own with the same stack conventions as `backend-v2`: TypeScript, pnpm, Viem, raw `pg`, Biome. Docker-compose already expects `indexer-v2/` at port 42069; directory does not exist yet.
+**Scope:** brand-new custom Node.js/TypeScript indexer. **Ponder explicitly rejected** — the previous attempt hit dead ends because Ponder's enforced schema model and handler abstraction did not fit multi-chain state rollups (e.g., reflecting a single user's balance from events on hub + all four spokes in one `UserBalance` row). We build our own with the same stack conventions as `backend-v2`: TypeScript, pnpm, Viem, raw `pg`, Biome. Docker-compose already expects `indexer-v3/` at port 42069; directory does not exist yet.
 
 **Addresses concerns:** C6 (custom indexer, not Ponder), C10 (indexer is the safety-net writer; eager-path services also write through the shared idempotency helper).
 
@@ -746,37 +746,37 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 
 **Files to create:**
 
-- `indexer-v2/` — new top-level directory
-- `indexer-v2/package.json` — `viem`, `pg`, `fastify`, `zod`, `pino`, `dotenv`; dev: `tsx`, `@biomejs/biome`, `typescript`
-- `indexer-v2/tsconfig.json` — ES2022, strict, nodenext
-- `indexer-v2/biome.json` — copy from backend-v2
-- `indexer-v2/.env.example`
-- `indexer-v2/Dockerfile` — multi-stage, Node 22-alpine
-- `indexer-v2/migrations/001_init.sql` — raw Postgres schema (see entities below)
-- `indexer-v2/migrations/runner.ts` — simple sequential `.sql` migration runner (pattern used by matching-engine already)
-- `indexer-v2/src/index.ts` — entry point: loads config, runs migrations, starts all ChainWatchers, starts Fastify
-- `indexer-v2/src/config.ts` — Zod-validated env schema: `DATABASE_URL`, per-chain RPC URLs, contract addresses per chain, start block per chain
-- `indexer-v2/src/db/client.ts` — shared `pg.Pool`
-- `indexer-v2/src/db/queries.ts` — typed query helpers for each entity
-- `indexer-v2/src/chain/chain-watcher.ts` — generic ChainWatcher class, takes a chain config + list of (contract, processor) pairs
-- `indexer-v2/src/chain/reorg-detector.ts` — block-hash comparison logic
-- `indexer-v2/src/shared/apply-on-chain-effect.ts` — **shared idempotency helper (C10).** Exported for re-use by backend-v2, settlement-engine, and sweeper-bot. Takes `(txHash, expectedEventSelector, expectedArgsPredicate, mutationFn)`. Fetches the receipt via Viem, verifies status and event, and applies the mutation inside a transaction that also stamps `applied_by_tx_hash`, `applied_by_log_index`, `applied_by_block_hash`, `applied_by_block_number` on the affected row. Skips the write if a row is already stamped with the same tx hash — idempotent across the eager path and the indexer tail.
-- `indexer-v2/src/processors/balance-ledger.processor.ts` — handles `Credited` / `Debited` → updates `user_balance.available`, and `CollateralFlagSet(user, asset, used, flaggedAt)` → updates `user_balance.used_as_collateral` + `user_balance.flagged_at` with the C10 idempotency stamps. The indexer is the authoritative read path for both the balance and the flag.
-- `indexer-v2/src/processors/centuari.processor.ts` — handles Order / Match / Repay / Bond mint events. When `Centuari.repay()` triggers the auto-unflag loop, the resulting `CollateralFlagSet(..., used=false)` events come through `balance-ledger.processor.ts` above — this processor does not need to touch the flag column directly.
-- `indexer-v2/src/processors/hub-depositor.processor.ts` — handles `Deposit` / `Payout` events on Arbitrum
-- `indexer-v2/src/processors/hub-intent-settler.processor.ts` — handles `DepositConfirmed` events (LZ-confirmed cross-chain deposit credits). The solver-related events (`SolverFillRegistered`) are dormant in Phase 1 — processor should still decode them gracefully for forward compatibility but no solver fills will occur.
-- `indexer-v2/src/processors/withdrawal-registry.processor.ts` — handles state transitions on `WithdrawalRequest`
-- `indexer-v2/src/processors/settlement-ledger.processor.ts` — **dormant in Phase 1** (no solver reimbursement flow). Keep the processor stub for forward compatibility but it will not receive events.
-- `indexer-v2/src/processors/spoke-deposit-gateway.processor.ts` — handles `DepositInitiated` events on spoke chains, seeds `cross_chain_deposit` rows
-- `indexer-v2/src/processors/spoke-vault.processor.ts` — handles spoke custody events
-- `indexer-v2/src/api/server.ts` — Fastify bootstrap
-- `indexer-v2/src/api/routes/balance.ts` — `GET /balance/:user` + `GET /balance/:user/:asset`
-- `indexer-v2/src/api/routes/collateral.ts` — **read-only** `GET /collateral/:user/:asset` returning `{ used: boolean, flaggedAt: number | null, unlocksAt: number | null }`. Flag writes happen on-chain via `CollateralFlagSet` events and flow through `balance-ledger.processor.ts` — there is **no internal write endpoint**. The old `PUT /internal/collateral/:user/:asset` from the earlier draft is removed along with the backend module that called it (see Module 9).
-- `indexer-v2/src/api/routes/withdrawals.ts` — `GET /withdrawals/:user`
-- `indexer-v2/src/api/routes/deposits.ts` — `GET /deposits/:user` + `GET /deposits/:depositId` (cross-chain deposit tracking)
-- `indexer-v2/src/api/routes/portfolio.ts` — `GET /portfolio/:user` (aggregates balance + open withdrawals + in-flight cross-chain deposits in one call for frontend)
-- `indexer-v2/src/api/routes/health.ts` — `GET /health` reports per-chain cursor lag
-- `indexer-v2/src/abi/` — generated TypeScript ABI constants imported from `smart-contract-revamp/abi/` via a small `copy-abi.ts` script run on build
+- `indexer-v3/` — new top-level directory
+- `indexer-v3/package.json` — `viem`, `pg`, `fastify`, `zod`, `pino`, `dotenv`; dev: `tsx`, `@biomejs/biome`, `typescript`
+- `indexer-v3/tsconfig.json` — ES2022, strict, nodenext
+- `indexer-v3/biome.json` — copy from backend-v2
+- `indexer-v3/.env.example`
+- `indexer-v3/Dockerfile` — multi-stage, Node 22-alpine
+- `indexer-v3/migrations/001_init.sql` — raw Postgres schema (see entities below)
+- `indexer-v3/migrations/runner.ts` — simple sequential `.sql` migration runner (pattern used by matching-engine already)
+- `indexer-v3/src/index.ts` — entry point: loads config, runs migrations, starts all ChainWatchers, starts Fastify
+- `indexer-v3/src/config.ts` — Zod-validated env schema: `DATABASE_URL`, per-chain RPC URLs, contract addresses per chain, start block per chain
+- `indexer-v3/src/db/client.ts` — shared `pg.Pool`
+- `indexer-v3/src/db/queries.ts` — typed query helpers for each entity
+- `indexer-v3/src/chain/chain-watcher.ts` — generic ChainWatcher class, takes a chain config + list of (contract, processor) pairs
+- `indexer-v3/src/chain/reorg-detector.ts` — block-hash comparison logic
+- `indexer-v3/src/shared/apply-on-chain-effect.ts` — **shared idempotency helper (C10).** Exported for re-use by backend-v2, settlement-engine, and sweeper-bot. Takes `(txHash, expectedEventSelector, expectedArgsPredicate, mutationFn)`. Fetches the receipt via Viem, verifies status and event, and applies the mutation inside a transaction that also stamps `applied_by_tx_hash`, `applied_by_log_index`, `applied_by_block_hash`, `applied_by_block_number` on the affected row. Skips the write if a row is already stamped with the same tx hash — idempotent across the eager path and the indexer tail.
+- `indexer-v3/src/processors/balance-ledger.processor.ts` — handles `Credited` / `Debited` → updates `user_balance.available`, and `CollateralFlagSet(user, asset, used, flaggedAt)` → updates `user_balance.used_as_collateral` + `user_balance.flagged_at` with the C10 idempotency stamps. The indexer is the authoritative read path for both the balance and the flag.
+- `indexer-v3/src/processors/centuari.processor.ts` — handles Order / Match / Repay / Bond mint events. When `Centuari.repay()` triggers the auto-unflag loop, the resulting `CollateralFlagSet(..., used=false)` events come through `balance-ledger.processor.ts` above — this processor does not need to touch the flag column directly.
+- `indexer-v3/src/processors/hub-depositor.processor.ts` — handles `Deposit` / `Payout` events on Arbitrum
+- `indexer-v3/src/processors/hub-intent-settler.processor.ts` — handles `DepositConfirmed` events (LZ-confirmed cross-chain deposit credits). The solver-related events (`SolverFillRegistered`) are dormant in Phase 1 — processor should still decode them gracefully for forward compatibility but no solver fills will occur.
+- `indexer-v3/src/processors/withdrawal-registry.processor.ts` — handles state transitions on `WithdrawalRequest`
+- `indexer-v3/src/processors/settlement-ledger.processor.ts` — **dormant in Phase 1** (no solver reimbursement flow). Keep the processor stub for forward compatibility but it will not receive events.
+- `indexer-v3/src/processors/spoke-deposit-gateway.processor.ts` — handles `DepositInitiated` events on spoke chains, seeds `cross_chain_deposit` rows
+- `indexer-v3/src/processors/spoke-vault.processor.ts` — handles spoke custody events
+- `indexer-v3/src/api/server.ts` — Fastify bootstrap
+- `indexer-v3/src/api/routes/balance.ts` — `GET /balance/:user` + `GET /balance/:user/:asset`
+- `indexer-v3/src/api/routes/collateral.ts` — **read-only** `GET /collateral/:user/:asset` returning `{ used: boolean, flaggedAt: number | null, unlocksAt: number | null }`. Flag writes happen on-chain via `CollateralFlagSet` events and flow through `balance-ledger.processor.ts` — there is **no internal write endpoint**. The old `PUT /internal/collateral/:user/:asset` from the earlier draft is removed along with the backend module that called it (see Module 9).
+- `indexer-v3/src/api/routes/withdrawals.ts` — `GET /withdrawals/:user`
+- `indexer-v3/src/api/routes/deposits.ts` — `GET /deposits/:user` + `GET /deposits/:depositId` (cross-chain deposit tracking)
+- `indexer-v3/src/api/routes/portfolio.ts` — `GET /portfolio/:user` (aggregates balance + open withdrawals + in-flight cross-chain deposits in one call for frontend)
+- `indexer-v3/src/api/routes/health.ts` — `GET /health` reports per-chain cursor lag
+- `indexer-v3/src/abi/` — generated TypeScript ABI constants imported from `smart-contract-revamp/abi/` via a small `copy-abi.ts` script run on build
 
 **Postgres schema (migrations/001_init.sql — sketch):**
 
@@ -811,7 +811,7 @@ CREATE TABLE user_balance (
 -- (auto-flag at match), Centuari.repay (auto-unflag at repay-to-zero), and
 -- CollateralManager.unflagFor (mid-life unflag) fire this event. The backend's
 -- `applyOnChainEffect` helper stamps `applied_by_*` eagerly on the unflagFor path;
--- indexer-v2 stamps them on the auto paths.
+-- indexer-v3 stamps them on the auto paths.
 
 CREATE TABLE deposit_event (
   id TEXT PRIMARY KEY, -- chain_id:tx_hash:log_index
@@ -901,7 +901,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 ### Module 9: backend-v2 + settlement-engine + matching-engine updates ⚪ NOT STARTED
 
-**Scope:** update existing services to read from indexer-v2 + interact with new contracts.
+**Scope:** update existing services to read from indexer-v3 + interact with new contracts.
 
 **Addresses concerns:** C3 (matching engine reads BalanceLedger for validation), C10 (every service that submits an on-chain tx eagerly applies the DB mutation through the shared helper from Module 8; indexer tails the same events as the safety net).
 
@@ -909,25 +909,25 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 - `backend-v2/src/deposit/` — no signing, no intent forwarding. The frontend drives the deposit tx directly against `HubDepositor` (Arbitrum) or `SpokeDepositGateway` (spokes), then POSTs the resulting `txHash + sourceChainId` back to `POST /deposit/verify`. The backend fetches the receipt via Viem, calls the shared `applyOnChainEffect` helper to verify the expected event (`HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated`), and eagerly applies the resulting DB mutation (`user_balance.available += amount` for hub-direct, or `deposit_event` row + `cross_chain_deposit` seed for spoke). Returns the updated state to the frontend so the UI reflects it without waiting on the indexer. Indexer tails the same events as the safety net per C10. `GET /deposit/targets` returns the supported source-chain metadata. `GET /deposit/:depositId` reads the canonical row for progress polling. The existing `POST /deposit` Treasury-writing endpoint is removed. For cross-chain deposits, the hub-side BalanceLedger credit happens automatically when the LZ message arrives — no solver or backend intervention needed for the credit itself.
 - `backend-v2/src/withdraw/` — replace `Treasury.withdraw` call path. New flow: backend calls `Centuari.requestWithdrawal(user, asset, amount, targetChain)` which hits `WithdrawalRegistry`, then eagerly applies the PENDING-state row via `applyOnChainEffect`. Subsequent state transitions (PROCESSING on LZ send, COMPLETED on LZ ack, FAILED on timeout) are applied the same way when the backend/settlement-engine submits each follow-up tx. Indexer tails as safety net per C10.
-- `backend-v2/src/portfolio/` — replace Treasury balance queries with indexer-v2 REST calls. Surface the 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus the per-asset `usedAsCollateral` flag in the portfolio response shape.
+- `backend-v2/src/portfolio/` — replace Treasury balance queries with indexer-v3 REST calls. Surface the 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus the per-asset `usedAsCollateral` flag in the portfolio response shape.
 - `backend-v2/src/collateral/` — **new module, on-chain-backed.** Single endpoint `POST /collateral/unflag { asset }` gated on Privy JWT. There is **no flag endpoint** — flagging happens implicitly at borrow-match settlement time (see matching-engine/settlement-engine in Module 9 and Settlement.sol auto-flag loop in Module 2). The unflag path:
-  1. Reads the user's current flag state + `flagged_at` from indexer-v2 and rejects with HTTP 400 `NotFlagged` if the asset is not flagged.
+  1. Reads the user's current flag state + `flagged_at` from indexer-v3 and rejects with HTTP 400 `NotFlagged` if the asset is not flagged.
   2. Rejects with HTTP 409 `FlagLockActive { unlocksAt }` if `now < flagged_at + 24h`.
   3. Submits `CollateralManager.unflagFor(user, asset)` via the protocol settlement key using the shared Viem signer.
   4. On success, eagerly applies the DB mutation through `applyOnChainEffect` (C10): writes `used_as_collateral = false`, `flagged_at = NULL`, stamps `applied_by_*` with the tx/log data. Returns the updated row.
   5. On `CollateralManager` reverts (`FlagLockActive`, `WouldMakeUnhealthy`, `NotFlagged`), maps the custom error to an HTTP 4xx with the decoded reason and does not mutate the DB.
 - **Backend rate limit:** 5 `POST /collateral/unflag` calls per user per 24h via Redis counter. Belt-and-suspenders against settlement-key nonce burn across many assets; the on-chain 24h lock already caps throughput per asset.
-- **Borrow-order DTO** (`backend-v2/src/orders/`): the borrow POST body gains `collateralAssets: string[]`. Backend validates the array is non-empty and that every listed asset has a positive `available` balance in indexer-v2 before publishing to NATS. The matching engine forwards it unchanged; the settlement engine encodes it per borrower in the `Settlement.settle()` call so the on-chain auto-flag loop can run. See Module 9 matching-engine and Module 2 Settlement changes.
-- `backend-v2/src/chain-indexer/` — deprecate; point consumers at indexer-v2 instead.
+- **Borrow-order DTO** (`backend-v2/src/orders/`): the borrow POST body gains `collateralAssets: string[]`. Backend validates the array is non-empty and that every listed asset has a positive `available` balance in indexer-v3 before publishing to NATS. The matching engine forwards it unchanged; the settlement engine encodes it per borrower in the `Settlement.settle()` call so the on-chain auto-flag loop can run. See Module 9 matching-engine and Module 2 Settlement changes.
+- `backend-v2/src/chain-indexer/` — deprecate; point consumers at indexer-v3 instead.
 - `backend-v2/src/core/viem/` — add new contract ABIs.
 - `backend-v2/src/config/token-chain-matrix.ts` — imports from `token-chain-matrix.json`. Used by deposit validation (reject deposits for tokens not available on the source chain), withdrawal validation (reject withdrawals to chains where the token is not available or has insufficient liquidity), and portfolio display.
-- **Withdrawal validation for SPOKE_NATIVE tokens:** backend additionally checks `ChainLiquidity[token][targetChain] >= amount` via indexer-v2 before submitting the on-chain tx. Rejects with HTTP 400 `InsufficientChainLiquidity { chain, available, requested }` if the target chain does not have enough physical tokens.
+- **Withdrawal validation for SPOKE_NATIVE tokens:** backend additionally checks `ChainLiquidity[token][targetChain] >= amount` via indexer-v3 before submitting the on-chain tx. Rejects with HTTP 400 `InsufficientChainLiquidity { chain, available, requested }` if the target chain does not have enough physical tokens.
 - **Deposit handling for SPOKE_NATIVE tokens:** when verifying a spoke deposit for a SPOKE_NATIVE token via `POST /deposit/verify`, the backend eagerly updates `ChainLiquidity` alongside the `BalanceLedger` credit through `applyOnChainEffect`.
 
 **settlement-engine changes:**
 
-- `settlement-engine/src/settlement/smartContract.ts` — no Treasury references today per exploration, so minimal change. But: the Settlement.sol contract itself is not changed in Phase 1 (that's Phase 3A's CentuariEndpoint). So settlement-engine's interaction with Settlement.sol is unchanged. Only the post-settlement event indexing moves to indexer-v2.
-- Event consumers pointed at indexer-v2 instead of direct chain polling.
+- `settlement-engine/src/settlement/smartContract.ts` — no Treasury references today per exploration, so minimal change. But: the Settlement.sol contract itself is not changed in Phase 1 (that's Phase 3A's CentuariEndpoint). So settlement-engine's interaction with Settlement.sol is unchanged. Only the post-settlement event indexing moves to indexer-v3.
+- Event consumers pointed at indexer-v3 instead of direct chain polling.
 - **Auto-flag at match settlement.** `settlement-engine/src/settlement/smartContract.ts` passes `collateralAssets[]` per borrower into the updated `Settlement.settle()` ABI so the on-chain auto-flag loop (Module 2) marks each asset atomically with debt creation. No separate collateral worker, no standalone flag endpoint on the settlement key — the flag write is free-riding on a settlement tx that would happen regardless.
 
 **matching-engine changes:**
@@ -939,12 +939,12 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 **Testing requirements:**
 
-- Backend: integration tests that hit a local indexer-v2 + deployed testnet contracts.
+- Backend: integration tests that hit a local indexer-v3 + deployed testnet contracts.
 - Matching engine: unit tests with mocked BalanceLedgerClient covering "available < order amount" rejection.
 
 **Verification:**
 
-- Full end-to-end: `POST /deposit` with `sourceChain: arbitrum-sepolia` → Centuari.deposit → BalanceLedger.credit → indexer-v2 picks up event → `GET /portfolio/:user` returns new balance.
+- Full end-to-end: `POST /deposit` with `sourceChain: arbitrum-sepolia` → Centuari.deposit → BalanceLedger.credit → indexer-v3 picks up event → `GET /portfolio/:user` returns new balance.
 - Place a lend order exceeding available balance → matching engine rejects.
 
 ---
@@ -958,16 +958,16 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 - `frontend-revamp/src/app/(app)/portfolio/` — 3-bucket balance display. For Phase 1, only `available` is non-zero (the other two are forward-compat). Each row also shows: a **Collateral** badge when `used_as_collateral = true`, a countdown label ("Unlocks in 18h 42m") driven by `flagged_at + 24h`, and a **Remove as collateral** button that is disabled until the countdown hits zero.
 - `frontend-revamp/src/components/centuari-borrow/` — borrow order form gains a **collateral asset multi-select** (checkbox list of the user's deposited assets, default all selected). On submit, shows a confirmation modal: *"These assets will be locked as collateral for at least 24 hours after the match settles. You will not be able to unflag them before then, even after partial repayment. Full repayment will release them immediately. Continue?"* — user must tick an ack box before the submit button enables. The selected assets are posted as `collateralAssets: string[]` on the borrow order body.
 - `frontend-revamp/src/components/centuari-deposit/` — source-chain selector is **token-aware**, driven by the token×chain matrix. For each token, only shows chains where `CustodyType != —` (i.e., the token is available on that chain). Users see "Arbitrum (direct)" for hub-native, spoke chains for cross-chain. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s. All cross-chain deposits (both BRIDGED and SPOKE_NATIVE) use the LZ-confirmed credit flow — balance appears in **~30s-2min** after LayerZero message confirmation. For SPOKE_NATIVE deposits, a note explains "Token will remain on {chain} for custody."
-- `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector is **token-aware and liquidity-aware**. For BRIDGED tokens: shows all chains the bridge supports (hub has full liquidity). Arbitrum (direct) releases via `HubDepositor.payout()` — instant. Cross-chain BRIDGED withdrawals use CCTP or Stargate (~2-5 min). For SPOKE_NATIVE tokens: shows each chain with its available liquidity amount, greys out chains with 0 liquidity. Reads `ChainLiquidity` from indexer-v2 via `GET /liquidity/:token`.
+- `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector is **token-aware and liquidity-aware**. For BRIDGED tokens: shows all chains the bridge supports (hub has full liquidity). Arbitrum (direct) releases via `HubDepositor.payout()` — instant. Cross-chain BRIDGED withdrawals use CCTP or Stargate (~2-5 min). For SPOKE_NATIVE tokens: shows each chain with its available liquidity amount, greys out chains with 0 liquidity. Reads `ChainLiquidity` from indexer-v3 via `GET /liquidity/:token`.
 - `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls `GET /deposits/:depositId` for cross-chain progress (`INITIATED → CREDITED → BRIDGED`).
-- `frontend-revamp/src/hooks/use-withdraw.ts` — withdrawal state tracking via indexer-v2 polling.
+- `frontend-revamp/src/hooks/use-withdraw.ts` — withdrawal state tracking via indexer-v3 polling.
 - `frontend-revamp/src/hooks/use-unflag-collateral.ts` — **new hook.** No wallet popup. Calls `POST /collateral/unflag { asset }` with the Privy JWT. Optimistic update on click; rolls back on error. Distinct error paths:
   - `FlagLockActive` (HTTP 409) → toast "Locked until {unlocksAt}", disables button until the countdown elapses.
   - `WouldMakeUnhealthy` (HTTP 400, Phase 1 stub) → toast "Repay in full to release this collateral".
   - `WouldMakeUnhealthy` (HTTP 400, Phase 2 real) → toast "Would drop health factor below 1".
   The hook is purely a backend call; the Phase 2 swap is invisible at the UI layer.
-- `frontend-revamp/src/lib/portfolio-data.ts` — indexer-v2 API, returns the 3 sub-states + `usedAsCollateral` + `flaggedAt` per asset.
-- `frontend-revamp/src/lib/chain-config.ts` — spoke chain configs + token×chain matrix. Exports `getDepositChains(token): ChainConfig[]` and `getWithdrawChains(token): ChainConfig[]` for the selectors. For SPOKE_NATIVE tokens, `getWithdrawChains` requires a live liquidity lookup from indexer-v2.
+- `frontend-revamp/src/lib/portfolio-data.ts` — indexer-v3 API, returns the 3 sub-states + `usedAsCollateral` + `flaggedAt` per asset.
+- `frontend-revamp/src/lib/chain-config.ts` — spoke chain configs + token×chain matrix. Exports `getDepositChains(token): ChainConfig[]` and `getWithdrawChains(token): ChainConfig[]` for the selectors. For SPOKE_NATIVE tokens, `getWithdrawChains` requires a live liquidity lookup from indexer-v3.
 - `frontend-revamp/e2e/cross-chain-deposit.spec.ts` — Playwright end-to-end.
 - `frontend-revamp/e2e/collateral-flow.spec.ts` — Playwright e2e: (a) place a borrow with `collateralAssets = [USDC]` → collateral badge appears on the portfolio row after settlement; (b) unflag button is disabled with a countdown until `flagged_at + 24h`; (c) direct API call to `POST /collateral/unflag` before 24h returns HTTP 409 `FlagLockActive`; (d) after 24h, unflag while still in debt returns HTTP 400 `WouldMakeUnhealthy` (Phase 1 stub); (e) full repay auto-clears the flag without waiting 24h.
 
@@ -1100,7 +1100,7 @@ enum CustodyType {
 All modules that need custody/routing info read from a single source of truth: `smart-contract-revamp/config/token-chain-matrix.json`. Consumers:
 - **M5** — `SpokeVaultStable.sweepToHub()` routes CCTP vs Stargate; spoke contracts accept SPOKE_NATIVE deposits
 - **M7** — `sweeper-bot/src/bridge-client.ts` wraps CCTP + Stargate calls per token per chain
-- **M8** — `indexer-v2` processors tag events with custody type; track `ChainLiquidity` for SPOKE_NATIVE tokens
+- **M8** — `indexer-v3` processors tag events with custody type; track `ChainLiquidity` for SPOKE_NATIVE tokens
 - **M9** — backend validates withdrawal target chain against token×chain matrix; rejects impossible routes
 - **M10** — frontend deposit/withdraw chain selectors filtered by matrix; SPOKE_NATIVE withdrawals show per-chain liquidity
 
