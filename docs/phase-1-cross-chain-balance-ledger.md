@@ -1,5 +1,7 @@
 # Centuari Phase 1 — Cross-Chain + BalanceLedger Implementation Plan
 
+> **2026-04-17 update — collateral flag model corrected.** This doc was originally written around an auto-flag-at-settlement / auto-unflag-at-repay model. That behavior has been **reverted**: `Centuari.settleMatch` now flags only the assets the borrower explicitly requested via `MatchData.collateralAssets[]`, and `Centuari.repay` never touches flags. Unflagging always flows through `CollateralManager.unflagFor` (24h lock + `RiskModule.canUnflag`). Read any reference in this file to "auto-flag" or "auto-unflag" through that lens — the authoritative current-state summary lives in [`collateral-loophole-fix-plan.md`](./collateral-loophole-fix-plan.md) under the P1b-explicit section.
+
 ## Context
 
 Centuari is migrating from a single-chain, deposit-at-order-time lending protocol (current staging) to a cross-chain, deposit-first, gasless-orders protocol. This plan covers **Phase 1 only** from the Centuari Full Architecture v6 document and `Centuari_Implementation_Plan.pdf`.

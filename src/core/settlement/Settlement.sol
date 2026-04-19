@@ -146,7 +146,8 @@ contract Settlement is
             matchData.lenderSettlementFee,
             matchData.borrowerSettlementFee,
             matchData.makerFeeAmount,
-            matchData.takerFeeAmount
+            matchData.takerFeeAmount,
+            matchData.collateralAssets
         );
 
         // Emit individual match event

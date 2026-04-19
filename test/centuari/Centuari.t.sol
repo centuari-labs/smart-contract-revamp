@@ -270,7 +270,8 @@ contract CentuariTest is Test {
             lenderSettlementFee,
             borrowerSettlementFee,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
     }
 
@@ -395,7 +396,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         assertEq(centuari.getMarketTotalCbt(expectedMarketId), expectedCbt);
@@ -447,7 +449,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         // Second match in same market
@@ -464,7 +467,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -495,7 +499,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
     }
 
@@ -517,7 +522,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
     }
 
@@ -536,7 +542,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
     }
 
@@ -555,7 +562,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
     }
 
@@ -574,7 +582,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
     }
 
@@ -601,7 +610,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -637,7 +647,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         // Second lender deposits 500 ether
@@ -654,7 +665,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -694,7 +706,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -726,7 +739,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -762,7 +776,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -799,7 +814,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
@@ -838,7 +854,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         // Second lender deposits 500 ether in the same market
@@ -855,7 +872,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         address bondTokenAddr = bondFactory.getBondToken(loanToken, maturity);
@@ -1006,7 +1024,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1057,7 +1076,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(user);
@@ -1090,7 +1110,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1138,7 +1159,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1191,7 +1213,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(operator);
@@ -1237,7 +1260,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         // Now pause and expect repay to revert
@@ -1271,7 +1295,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1331,7 +1356,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.warp(maturity);
@@ -1365,7 +1391,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(lender);
@@ -1397,7 +1424,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1433,7 +1461,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(lender);
@@ -1460,7 +1489,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(owner);
@@ -1492,7 +1522,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -1584,9 +1615,12 @@ contract CentuariTest is Test {
         assertEq(centuari.getBorrowPosition(marketId, user), 0);
     }
 
-    // ============ Collateral Flag Tests (new) ============
+    // ============ Collateral Flag Tests ============
+    // Flags are never set or cleared implicitly by settlement/repay. They are only
+    // mutated in response to explicit user requests: flag-at-settlement via
+    // MatchData.collateralAssets, and standalone flag/unflag via CollateralManager.
 
-    function test_settleMatch_autoFlagsBorrowerCollateral() public {
+    function test_settleMatch_doesNotFlagWhenCollateralAssetsEmpty() public {
         address lender = makeAddr("lender");
         address borrower = makeAddr("borrower");
         uint256 maturity = block.timestamp + 365 days;
@@ -1607,18 +1641,48 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
-        // Verify borrower's collateral is flagged
-        assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
+        assertFalse(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
+        address[] memory flagged = balanceLedgerContract.flaggedAssetsOf(borrower);
+        assertEq(flagged.length, 0);
+        assertEq(balanceLedgerContract.flaggedAt(borrower, loanToken), 0);
+    }
 
-        // Verify flaggedAssetsOf includes loanToken
+    function test_settleMatch_flagsRequestedCollateralAssets() public {
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 principal = 1000 ether;
+
+        _fundUser(lender, loanToken, principal);
+
+        address[] memory assets = new address[](1);
+        assets[0] = loanToken;
+
+        vm.prank(settlement);
+        centuari.settleMatch(
+            _getMarketId(loanToken, maturity),
+            lender,
+            borrower,
+            loanToken,
+            principal,
+            500,
+            maturity,
+            true,
+            0,
+            0,
+            0,
+            0,
+            assets
+        );
+
+        assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
         address[] memory flagged = balanceLedgerContract.flaggedAssetsOf(borrower);
         assertEq(flagged.length, 1);
         assertEq(flagged[0], loanToken);
-
-        // Verify flaggedAt is set
         assertTrue(balanceLedgerContract.flaggedAt(borrower, loanToken) > 0);
     }
 
@@ -1630,7 +1694,10 @@ contract CentuariTest is Test {
 
         _fundUser(lender1, loanToken, 1000 ether);
 
-        // First settle
+        address[] memory assets = new address[](1);
+        assets[0] = loanToken;
+
+        // First settle with flag request
         vm.prank(settlement);
         centuari.settleMatch(
             _getMarketId(loanToken, maturity),
@@ -1644,18 +1711,18 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            assets
         );
 
         uint64 firstFlaggedAt = balanceLedgerContract.flaggedAt(borrower, loanToken);
         assertTrue(firstFlaggedAt > 0);
 
-        // Warp forward 1 hour
         vm.warp(block.timestamp + 1 hours);
 
         _fundUser(lender2, loanToken, 500 ether);
 
-        // Second settle on same borrower + loanToken
+        // Second settle re-requesting same flag: idempotent, no timestamp refresh
         vm.prank(settlement);
         centuari.settleMatch(
             _getMarketId(loanToken, maturity),
@@ -1669,15 +1736,15 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            assets
         );
 
-        // flaggedAt should NOT be refreshed
         uint64 secondFlaggedAt = balanceLedgerContract.flaggedAt(borrower, loanToken);
         assertEq(secondFlaggedAt, firstFlaggedAt);
     }
 
-    function test_repay_autoUnflagsOnFullDebtClear() public {
+    function test_repay_neverUnflagsEvenOnFullDebtClear() public {
         vm.prank(owner);
         centuari.setOperator(operator);
 
@@ -1688,6 +1755,9 @@ contract CentuariTest is Test {
         uint256 rate = 500;
 
         _fundUser(lender, loanToken, principal);
+
+        address[] memory assets = new address[](1);
+        assets[0] = loanToken;
 
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1702,32 +1772,33 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            assets
         );
 
-        // Verify flagged
         assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
+        uint64 flagTs = balanceLedgerContract.flaggedAt(borrower, loanToken);
         assertEq(centuari.activeDebtCount(borrower), 1);
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
         uint256 debt = centuari.getBorrowPosition(marketId, borrower);
-
-        // Fund borrower with enough for full repayment (already has principal from settle)
         uint256 extra = debt - principal;
         if (extra > 0) {
             _fundUser(borrower, loanToken, extra);
         }
 
-        // Repay full debt
         vm.prank(operator);
         centuari.repay(marketId, borrower, loanToken, debt);
 
-        // Verify unflagged
-        assertFalse(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
+        // Debt is cleared but flag must persist — unflag is user-initiated via
+        // CollateralManager.unflagFor (24h lock + RiskModule gate).
         assertEq(centuari.activeDebtCount(borrower), 0);
+        assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
+        assertEq(balanceLedgerContract.flaggedAt(borrower, loanToken), flagTs);
 
         address[] memory flagged = balanceLedgerContract.flaggedAssetsOf(borrower);
-        assertEq(flagged.length, 0);
+        assertEq(flagged.length, 1);
+        assertEq(flagged[0], loanToken);
     }
 
     function test_repay_doesNotUnflagWithRemainingDebt() public {
@@ -1743,7 +1814,12 @@ contract CentuariTest is Test {
         uint256 rate = 500;
         address loanToken2 = makeAddr("loanToken2");
 
-        // Settle in market 1
+        address[] memory assets1 = new address[](1);
+        assets1[0] = loanToken;
+        address[] memory assets2 = new address[](1);
+        assets2[0] = loanToken2;
+
+        // Settle in market 1 with flag request
         _fundUser(lender1, loanToken, principal);
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1758,10 +1834,11 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            assets1
         );
 
-        // Settle in market 2 (different loan token)
+        // Settle in market 2 (different loan token) with flag request
         _fundUser(lender2, loanToken2, principal);
         vm.prank(settlement);
         centuari.settleMatch(
@@ -1776,14 +1853,14 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            assets2
         );
 
         assertEq(centuari.activeDebtCount(borrower), 2);
         assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
         assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken2));
 
-        // Repay market 1 fully
         bytes32 marketId1 = _getMarketId(loanToken, maturity1);
         uint256 debt1 = centuari.getBorrowPosition(marketId1, borrower);
         uint256 extra1 = debt1 - principal;
@@ -1794,63 +1871,10 @@ contract CentuariTest is Test {
         vm.prank(operator);
         centuari.repay(marketId1, borrower, loanToken, debt1);
 
-        // activeDebtCount is 1, flags should still be present
+        // activeDebtCount decremented but flags unaffected regardless
         assertEq(centuari.activeDebtCount(borrower), 1);
         assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
         assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken2));
-    }
-
-    function test_repay_unflagBypassesFlagLock() public {
-        vm.prank(owner);
-        centuari.setOperator(operator);
-
-        address lender = makeAddr("lender");
-        address borrower = makeAddr("borrower");
-        uint256 maturity = block.timestamp + 365 days;
-        uint256 principal = 1000 ether;
-        uint256 rate = 500;
-
-        _fundUser(lender, loanToken, principal);
-
-        vm.prank(settlement);
-        centuari.settleMatch(
-            _getMarketId(loanToken, maturity),
-            lender,
-            borrower,
-            loanToken,
-            principal,
-            rate,
-            maturity,
-            true,
-            0,
-            0,
-            0,
-            0
-        );
-
-        assertTrue(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
-        uint64 flagTs = balanceLedgerContract.flaggedAt(borrower, loanToken);
-        assertTrue(flagTs > 0);
-
-        // Warp only 1 hour (< 24h flag lock)
-        vm.warp(block.timestamp + 1 hours);
-
-        bytes32 marketId = _getMarketId(loanToken, maturity);
-        uint256 debt = centuari.getBorrowPosition(marketId, borrower);
-
-        // Fund borrower for full repayment
-        uint256 extra = debt - principal;
-        if (extra > 0) {
-            _fundUser(borrower, loanToken, extra);
-        }
-
-        // Repay fully -- should unflag despite being within 24h lock window
-        vm.prank(operator);
-        centuari.repay(marketId, borrower, loanToken, debt);
-
-        // Flags cleared
-        assertFalse(balanceLedgerContract.usedAsCollateral(borrower, loanToken));
-        assertEq(centuari.activeDebtCount(borrower), 0);
     }
 
     function test_activeDebtCount_tracksAcrossMarkets() public {
@@ -1882,7 +1906,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
         assertEq(centuari.activeDebtCount(borrower), 1);
 
@@ -1901,7 +1926,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
         assertEq(centuari.activeDebtCount(borrower), 2);
 
@@ -1967,7 +1993,8 @@ contract CentuariTest is Test {
             lenderSettlementFee,
             borrowerSettlementFee,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Fee collector credited with total protocol fees
@@ -2008,7 +2035,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2063,7 +2091,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2136,7 +2165,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(settlement);
@@ -2152,7 +2182,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2186,7 +2217,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         vm.prank(settlement);
@@ -2202,7 +2234,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId1 = _getMarketId(loanToken, maturity1);
@@ -2234,7 +2267,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2283,7 +2317,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2354,7 +2389,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2400,7 +2436,8 @@ contract CentuariTest is Test {
             0,
             0,
             0,
-            0
+            0,
+            new address[](0)
         );
 
         uint256 matchedAmount2 = 500 ether;
@@ -2432,7 +2469,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         bytes32 marketId = _getMarketId(loanToken, maturity);
@@ -2460,7 +2498,8 @@ contract CentuariTest is Test {
             0,
             0,
             0, // makerFeeAmount = 0
-            0 // takerFeeAmount = 0
+            0, // takerFeeAmount = 0
+            new address[](0)
         );
 
         // No fees -> fee collector should have 0
@@ -2498,7 +2537,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Fee collector gets makerFeeAmount
@@ -2539,7 +2579,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Fee collector gets takerFeeAmount
@@ -2586,7 +2627,8 @@ contract CentuariTest is Test {
             lenderSettlementFee,
             borrowerSettlementFee,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Fee collector gets total of all fees
@@ -2630,7 +2672,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Verify lender was debited
@@ -2668,7 +2711,8 @@ contract CentuariTest is Test {
             0,
             0,
             highMakerFee,
-            highTakerFee
+            highTakerFee,
+            new address[](0)
         );
 
         // CBT is based on full matchedAmount regardless of fees
@@ -2728,7 +2772,8 @@ contract CentuariTest is Test {
             0,
             0,
             makerFeeAmount,
-            takerFeeAmount
+            takerFeeAmount,
+            new address[](0)
         );
 
         // Fee collector gets total protocol fees

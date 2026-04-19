@@ -37,7 +37,8 @@ contract MockCentuari is ICentuari {
         uint256, // lenderSettlementFee - unused in mock
         uint256, // borrowerSettlementFee - unused in mock
         uint256, // makerFeeAmount - unused in mock
-        uint256 // takerFeeAmount - unused in mock
+        uint256, // takerFeeAmount - unused in mock
+        address[] calldata // collateralAssets - unused in mock
     ) external override {
         if (shouldRevert) {
             revert("MockCentuari: forced revert");
@@ -241,7 +242,8 @@ contract SettlementTest is Test {
             lenderSettlementFee: 0,
             borrowerSettlementFee: 0,
             makerFeeAmount: 0,
-            takerFeeAmount: 0
+            takerFeeAmount: 0,
+            collateralAssets: new address[](0)
         });
     }
 
@@ -601,7 +603,8 @@ contract SettlementTest is Test {
             lenderSettlementFee: 0,
             borrowerSettlementFee: 0,
             makerFeeAmount: 0,
-            takerFeeAmount: 0
+            takerFeeAmount: 0,
+            collateralAssets: new address[](0)
         });
 
         vm.prank(operator);

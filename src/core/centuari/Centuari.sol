@@ -104,7 +104,8 @@ contract Centuari is
         uint256 lenderSettlementFee,
         uint256 borrowerSettlementFee,
         uint256 makerFeeAmount,
-        uint256 takerFeeAmount
+        uint256 takerFeeAmount,
+        address[] calldata collateralAssets
     ) external onlySettlement whenNotPaused nonReentrant {
         // Validate inputs
         if (matchedAmount == 0) revert InvalidAmount();
@@ -153,7 +154,7 @@ contract Centuari is
             maturity
         );
 
-        // Track active debt count for auto-unflag
+        // Track active debt count (used for debt-state views/health checks)
         if (isNewDebtMarket) {
             _activeDebtCount[borrower]++;
         }
@@ -175,8 +176,12 @@ contract Centuari is
             IBalanceLedger(_balanceLedger).credit(_feeCollector, loanToken, totalProtocolFees);
         }
 
-        // Auto-flag borrower's collateral
-        IBalanceLedger(_balanceLedger).markCollateral(borrower, loanToken);
+        // Fulfill borrower's explicit flag-as-collateral requests (empty array = no-op).
+        // markCollateral is idempotent in BalanceLedger: re-submitting an already-flagged
+        // asset does NOT refresh _flaggedAt (load-bearing for the 24h flag-lock).
+        for (uint256 i = 0; i < collateralAssets.length; ++i) {
+            IBalanceLedger(_balanceLedger).markCollateral(borrower, collateralAssets[i]);
+        }
 
         // Mint CBT to Centuari (bond custodian)
         if (bondToken != address(0) && cbtAmount > 0) {
@@ -273,13 +278,8 @@ contract Centuari is
         // Debit borrower's available balance (no credit — repaid tokens are protocol-unallocated)
         IBalanceLedger(_balanceLedger).debit(borrower, loanToken, repayAmount);
 
-        // Auto-unflag all collateral when user is fully debt-free across ALL markets
-        if (_activeDebtCount[borrower] == 0) {
-            address[] memory flagged = IBalanceLedger(_balanceLedger).flaggedAssetsOf(borrower);
-            for (uint256 i = 0; i < flagged.length; ++i) {
-                IBalanceLedger(_balanceLedger).unmarkCollateral(borrower, flagged[i]);
-            }
-        }
+        // Note: repay never touches collateral flags. Users unflag explicitly via
+        // CollateralManager.unflagFor, which enforces the 24h flag-lock and RiskModule gate.
 
         emit Repaid(marketId, borrower, repayAmount);
     }

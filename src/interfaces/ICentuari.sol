@@ -133,7 +133,10 @@ interface ICentuari {
     ///      1. Record lend position and mint bond tokens to Centuari (bond custodian)
     ///      2. Record borrow position (debt) for borrower, track active debt count
     ///      3. Call BalanceLedger to debit lender, credit borrower, collect protocol fees
-    ///      4. Auto-flag borrower's collateral via BalanceLedger.markCollateral
+    ///      4. Flag only the assets the borrower explicitly requested in `collateralAssets`
+    ///         (empty array = no flagging). Flag/unflag is never an implicit side-effect of
+    ///         settlement; it must come from an explicit user instruction propagated by the
+    ///         off-chain matching/settlement engine.
     /// @param lender The lender address
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
@@ -145,6 +148,8 @@ interface ICentuari {
     /// @param borrowerSettlementFee Settlement fee charged to the borrower (pre-split off-chain)
     /// @param makerFeeAmount Trade fee charged to the maker (for Centuari internal accounting)
     /// @param takerFeeAmount Trade fee charged to the taker (for Centuari internal accounting)
+    /// @param collateralAssets Borrower's explicit flag-as-collateral requests to fulfill at this
+    ///        settlement. Idempotent via BalanceLedger; empty array means no flag mutations.
     function settleMatch(
         bytes32 marketId,
         address lender,
@@ -157,7 +162,8 @@ interface ICentuari {
         uint256 lenderSettlementFee,
         uint256 borrowerSettlementFee,
         uint256 makerFeeAmount,
-        uint256 takerFeeAmount
+        uint256 takerFeeAmount,
+        address[] calldata collateralAssets
     ) external;
 
     /// @notice Repay debt for a borrower in a given market. Only callable by operator (backend).

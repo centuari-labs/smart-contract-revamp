@@ -8,15 +8,15 @@ Execution is split per service boundary so each change set can be reviewed, test
 |---|---|---|---|---|
 | **P0** | **Docs** | ✅ DONE | Rewrote `phase-1-cross-chain-balance-ledger.md` Module 1/1b/2/4/8/9/10 + C1/C10. M1 status rolled back 🟢→🟡. New Module 1b section for `IRiskModule` + `RiskModuleStub` + `CollateralManager`. Postgres schema gained `flagged_at BIGINT`. Module 9 backend collateral module rewritten to `POST /collateral/unflag`. Module 10 frontend rewritten for borrow multi-select + countdown-gated unflag. | — |
 | **P1a** | **Smart Contracts** | ✅ DONE (2026-04-09) | Extended `BalanceLedgerStorage` + `BalanceLedger` + `IBalanceLedger`; created `IRiskModule` + `RiskModuleStub` + `ICollateralManager` + `CollateralManagerStorage` + `CollateralManager`; 36 new Foundry tests (240/240 total passing); storage snapshot frozen at 49 slots; `DeployCollateralStack.s.sol` added. See "P1a Completion Record" below. | P0 |
-| **P1b-core** | **Smart Contracts — core loophole fix** | ✅ DONE (landed inside M2 2026-04-10 + M4 2026-04-12) | Auto-flag inside `Centuari.settleMatch` (`Centuari.sol:179`), per-user debt tracker `_activeDebtCount` (`CentuariStorage.sol:56`), auto-unflag loop in `Centuari.repay` when debt hits zero (`Centuari.sol:277-281`), `WithdrawalRegistry.canWithdraw` HF gate as first action of `requestWithdrawal` (`WithdrawalRegistry.sol:110-112`). Tests in `Centuari.t.sol` + `WithdrawalRegistry.t.sol`. | P1a ✅ + M2 ✅ + M4 ✅ |
-| **P1b-ext** | **Smart Contracts — multi-asset collateral plumbing** | 🔒 BLOCKED (gated on P2 start) | Extend `ISettlement.MatchData` with `collateralAssets[]` (currently only `loanToken`). Replace single `markCollateral(borrower, loanToken)` call in `Centuari.settleMatch` with a loop over the borrower's declared collateral basket. Required before P2/P3/P4/P6 become meaningful — the frontend multi-select and backend DTO validation need a real on-chain target. | P1b-core ✅ + P2 start |
-| **P2** | **Matching Engine** | 🔒 BLOCKED | Add `collateralAssets: string[]` to borrow order schema; forward unchanged in match payload. | P1b-ext ABI + M9 start |
-| **P3** | **Settlement Engine** | 🔒 BLOCKED | Encode `collateralAssets` per borrower into the `Settlement.settleMatches` ABI. | P1b-ext ABI + P2 + M9 start |
-| **P4** | **Backend** | 🔒 BLOCKED | Delete old `/internal/collateral` relay; add `POST /collateral/unflag` (Privy JWT, 5/user/24h Redis rate limit); add `collateralAssets` validation to borrow-order DTO; wire `CollateralManager.unflagFor` via protocol settlement key + `applyOnChainEffect`. | P1a + indexer-v2 existing (M8 start) |
+| **P1b-core** | **Smart Contracts — core loophole fix** | ✅ DONE (WithdrawalRegistry HF gate, M4 2026-04-12). Auto-flag/auto-unflag **reverted 2026-04-17** — see P1b-explicit below. | Per-user debt tracker `_activeDebtCount` (`CentuariStorage.sol:56`), `WithdrawalRegistry.canWithdraw` HF gate as first action of `requestWithdrawal` (`WithdrawalRegistry.sol:110-112`). Tests in `WithdrawalRegistry.t.sol`. | P1a ✅ + M4 ✅ |
+| **P1b-explicit** | **Smart Contracts — explicit-flag plumbing** | ✅ DONE (2026-04-17) | Removed implicit auto-flag at settlement and auto-unflag on repay. Added `address[] collateralAssets` to `ISettlement.MatchData`; `Settlement._processMatch` forwards it; `Centuari.settleMatch` iterates and calls `markCollateral` only for the assets the borrower explicitly requested. `Centuari.repay` no longer touches flags. Supersedes the previous P1b-ext multi-asset plumbing scope. | P1b-core ✅ |
+| **P2** | **Matching Engine** | 🔒 BLOCKED | Add `collateralAssets: string[]` to borrow-order output so the settlement engine can pull the user's pending unfulfilled flag requests from the queue and attach them to each match. | P1b-explicit ABI + M9 start |
+| **P3** | **Settlement Engine** | 🔒 BLOCKED | Encode the borrower's pending flag requests into `MatchData.collateralAssets` per borrower in the `Settlement.settleMatches` ABI; clear the queue on settlement success. | P1b-explicit ABI + P2 + M9 start |
+| **P4** | **Backend** | 🔒 BLOCKED | Delete old `/internal/collateral` relay. Add two app-user endpoints backed by Privy JWT + 5/user/24h Redis rate limit: `POST /collateral/flag { asset }` enqueues an unfulfilled flag request for the user (persisted so the settlement engine can attach it to the next match, **or** directly via `CollateralManager.flagFor` for users with no pending borrow), and `POST /collateral/unflag { asset }` drives `CollateralManager.unflagFor` via the protocol settlement key + `applyOnChainEffect` (C10). | P1a + indexer-v2 existing (M8 start) |
 | **P5** | **Indexer** | 🔒 BLOCKED | Add `CollateralFlagSet` processor writing `user_balance.used_as_collateral` + `flagged_at` with C10 idempotency stamps. | P1a events + M8 start |
 | **P6** | **Frontend** | 🔒 BLOCKED | Borrow form collateral multi-select + 24h-lock confirmation modal; portfolio row countdown + disabled unflag button; error surfacing for `FlagLockActive` / `WouldMakeUnhealthy`. | P4 API + M10 start |
 
-**Current module state per doc (as of 2026-04-14):** M1 🟢 DONE, M1b 🟢 DONE (both landed 2026-04-09). M2–M3 🟢 DONE (landed as part of M1-M3). M4 🟢 DONE (landed 2026-04-12; 339 tests passing). **P1b-core is DONE** — the auto-flag / auto-unflag / WithdrawalRegistry HF gate behavior landed inside M2 and M4 rather than as a separate phase; only the multi-asset `collateralAssets[]` plumbing (now called P1b-ext) remains outstanding, gated on P2 start. M5–M10 not started; M5 is now **unblocked** and is the next priority. This plan file is the durable reference; phases land over time.
+**Current module state per doc (as of 2026-04-17):** M1 🟢 DONE, M1b 🟢 DONE (both landed 2026-04-09). M2–M3 🟢 DONE. M4 🟢 DONE (landed 2026-04-12). **P1b-core HF gate is DONE**; the auto-flag at settlement and auto-unflag on repay that originally landed in M2 have been **reverted 2026-04-17** under P1b-explicit, because collateral selection is a user decision and must not be an implicit protocol side-effect. **P1b-explicit is DONE** — `ISettlement.MatchData` now carries `address[] collateralAssets` and `Centuari.settleMatch` flags only what the borrower explicitly requested; `Centuari.repay` never touches flags. M5–M10 not started; M5 is now **unblocked** and is the next priority. This plan file is the durable reference; phases land over time.
 
 ## Resuming in a new session
 
@@ -24,28 +24,37 @@ If you are picking this up in a fresh Claude session, the loophole fix is **most
 
 - **P0 docs**: ✅ shipped.
 - **P1a smart-contract primitives**: ✅ shipped — `BalanceLedger` now carries the on-chain flag, `CollateralManager` + `RiskModuleStub` exist, all tests green. M1 will redeploy as part of the next testnet cut that picks up the new layout.
-- **P1b-core smart-contract wiring**: ✅ shipped — landed inside M2 (2026-04-10) + M4 (2026-04-12), not as a separate phase. Auto-flag in `Centuari.settleMatch` (`Centuari.sol:179`), auto-unflag loop in `Centuari.repay` driven by `_activeDebtCount` (`Centuari.sol:277-281`), `WithdrawalRegistry.canWithdraw` HF gate as the first action of `requestWithdrawal` (`WithdrawalRegistry.sol:110-112`). Tests in `Centuari.t.sol` and `WithdrawalRegistry.t.sol`.
+- **P1b-core smart-contract wiring**: partial — only the `WithdrawalRegistry.canWithdraw` HF gate (`WithdrawalRegistry.sol:110-112`, M4 2026-04-12) and `_activeDebtCount` debt tracker (`CentuariStorage.sol:56`) remain. The auto-flag at `Centuari.settleMatch` and auto-unflag loop in `Centuari.repay` that originally landed in M2 were **reverted 2026-04-17** as part of P1b-explicit.
+- **P1b-explicit smart-contract wiring**: ✅ shipped (2026-04-17). Design correction: protocol must never mutate a user's collateral flag implicitly. `ISettlement.MatchData` gained `address[] collateralAssets`; `Settlement._processMatch` forwards it; `Centuari.settleMatch` iterates and calls `markCollateral` only for the assets the borrower explicitly requested. `Centuari.repay` no longer calls `unmarkCollateral`. Standalone flag/unflag still flow through `CollateralManager.flagFor` / `CollateralManager.unflagFor` (unchanged).
 - **Every remaining phase is blocked on module starts**, not on prior code work:
-  - **P1b-ext** → wait for P2 matching-engine work to kick off. When it does, P1b-ext extends `ISettlement.MatchData` with `collateralAssets[]` (currently only `loanToken`) and replaces the single `markCollateral(borrower, loanToken)` call at `Centuari.sol:179` with a loop over the borrower's declared collateral basket. This is required before the matching engine / backend / frontend multi-select become meaningful.
-  - **P2** → blocked behind P1b-ext ABI + M9 start (matching engine work).
-  - **P3** → blocked behind P1b-ext ABI + P2 + M9 start (settlement engine encoding).
-  - **P4 backend** → only gated on P1a (✅ DONE) + M8 start (indexer-v2). Becomes actionable the moment M8 kicks off. Scope: delete old `/internal/collateral` relay, add `POST /collateral/unflag` with Privy JWT + 5/user/24h Redis rate limit, add `collateralAssets` validation to borrow-order DTO, wire `CollateralManager.unflagFor` via protocol settlement key + `applyOnChainEffect`.
+  - **P2** → blocked behind M9 start (matching engine work). Scope: add `collateralAssets: string[]` to borrow-order output so the settlement engine can attach pending user flag requests to each match.
+  - **P3** → blocked behind P2 + M9 start. Scope: settlement engine encodes the borrower's pending unfulfilled flag requests into `MatchData.collateralAssets` per borrower; clears the queue on settlement success.
+  - **P4 backend** → only gated on P1a (✅ DONE) + M8 start (indexer-v2). Becomes actionable the moment M8 kicks off. Scope: delete old `/internal/collateral` relay; add `POST /collateral/flag { asset }` (enqueues the flag request or falls back to `CollateralManager.flagFor` when the user has no pending borrow); add `POST /collateral/unflag { asset }` (drives `CollateralManager.unflagFor`); both with Privy JWT + 5/user/24h Redis rate limit + C10 `applyOnChainEffect`.
   - **P5 indexer** → only gated on P1a (✅ DONE) + M8 start. Scope: `CollateralFlagSet` processor writing `user_balance.used_as_collateral` + `flagged_at` with C10 idempotency stamps.
   - **P6 frontend** → blocked behind P4 + M10 start.
 
-**Next actionable phases once modules unblock:** P4 and P5 (both only need M8 to begin), plus P1b-ext whenever the P2 matching-engine work kicks off. Everything else follows the dependency chain.
+**Next actionable phases once modules unblock:** P4 and P5 (both only need M8 to begin). Everything else follows the dependency chain.
 
 **Critical context a new session needs to know:**
 - P1a deviated from the original plan in three places. Update any future plan against reality, not the plan as originally written:
   1. `CollateralManager` uses `OwnableUpgradeable + onlyOperator` (matching `Settlement.sol` repo convention), **not** `AccessControlUpgradeable + OPERATOR_ROLE`. There is no `grantRole` step anywhere — governance sets the operator via `CollateralManager.setOperator(addr)`.
   2. `CollateralManager` added `MAX_FLAG_LOCK = 30 days` ceiling + `FlagLockTooLong` error (defensive, not in original spec).
   3. `CollateralFlagSet` event has **5 indexed/unindexed params** `(writer, user, asset, used, flaggedAt)`, not 4. P5 indexer + P4 backend decoders must match this shape.
-- `RiskModuleStub.canUnflag` is **unconditionally false** — it ignores debt entirely because `Centuari.sol` has no per-user debt aggregator. The only Phase 1 path to clear a flag is `Centuari.repay` auto-unflag (landed in M2). App-user mid-life unflagging stays blocked until Phase 2 swaps in the oracle-backed real `RiskModule`.
-- `markCollateral` is idempotent and **does NOT refresh `_flaggedAt` on repeat** — verified by `test_RepeatedMark_DoesNotExtendLock`. This is load-bearing for the 24h flag-lock and must be preserved through any future edits.
-- The storage layout is frozen at `test/snapshots/BalanceLedger.storage.json`. Any future P1b-ext / post-P1 edits to `BalanceLedgerStorage` must only append + shrink `__gap`.
-- **`ISettlement.MatchData` currently has no `collateralAssets[]` array**; `Centuari.settleMatch` auto-flags `loanToken` as the (single) collateral at `Centuari.sol:179`. P1b-ext must land the array + the loop before the matching engine / backend / frontend multi-select work is meaningful. Any audit that reads the docs as "P1b lands as one chunk after M2/M4" is stale — P1b has been split into P1b-core (done) and P1b-ext (pending, gated on P2 start).
+- `RiskModuleStub.canUnflag` is **unconditionally false** — it ignores debt entirely because `Centuari.sol` has no per-user debt aggregator. Until Phase 2 swaps in the oracle-backed real `RiskModule`, **no Phase 1 path unflags a collateralized asset while the user still has any debt**. Full repayment no longer clears flags automatically; the user must explicitly invoke the `CollateralManager.unflagFor` path (which Phase 1 stub rejects), and Phase 2 will change that to a proper HF check. This is intentional: collateral lifecycle mirrors user intent, not protocol side-effects.
+- `markCollateral` is idempotent and **does NOT refresh `_flaggedAt` on repeat** — verified by `test_RepeatedMark_DoesNotExtendLock` and `test_settleMatch_repeatFlagDoesNotRefreshTimestamp`. This is load-bearing for the 24h flag-lock and must be preserved through any future edits.
+- The storage layout is frozen at `test/snapshots/BalanceLedger.storage.json`. Any future post-P1 edits to `BalanceLedgerStorage` must only append + shrink `__gap`.
+- **`ISettlement.MatchData` carries `address[] collateralAssets`** (2026-04-17). The protocol never flags or unflags implicitly: `Centuari.settleMatch` iterates `collateralAssets` and calls `markCollateral` per entry (empty array = no-op), and `Centuari.repay` no longer touches flags at all. Off-chain (matching engine, settlement engine, backend) is responsible for queueing the user's pending flag requests and attaching them to each settlement; that plumbing is tracked under P2/P3/P4 and is out of scope for the smart-contract layer.
 
-**Why P1 splits into P1a, P1b-core, and P1b-ext:** exploration of `/smart-contract-revamp/src/` confirmed that (a) `Settlement.sol` did not currently call `BalanceLedger` at all — wiring was M2 work; (b) `Centuari.sol` did not depend on `BalanceLedger` and had no `totalDebt(user)` aggregator, only per-market `_borrowDebt[marketId][borrower]` — wiring was M2 work; (c) `WithdrawalRegistry.sol` did not exist — creation was M4 work. Touching any of those in P1a would bleed scope across modules that hadn't started. P1a landed the **self-contained** collateral primitives (storage, mutators, event, CollateralManager, RiskModuleStub) with isolated Foundry tests. **P1b-core** — the auto-flag at settlement, per-user debt tracker + auto-unflag on repay, and WithdrawalRegistry HF gate — then landed organically inside M2 and M4 rather than as a separate phase, because the wiring was a natural side effect of those modules' scope. What remains is **P1b-ext**: the multi-asset `collateralAssets[]` plumbing, which was intentionally deferred because the rest of the stack (matching engine / backend / frontend) can't produce or consume a collateral basket yet. P1b-ext now rides alongside P2 when that phase kicks off.
+**Why P1 splits into P1a, P1b-core, and P1b-explicit:** exploration of `/smart-contract-revamp/src/` confirmed that (a) `Settlement.sol` did not currently call `BalanceLedger` at all — wiring was M2 work; (b) `Centuari.sol` did not depend on `BalanceLedger` and had no `totalDebt(user)` aggregator, only per-market `_borrowDebt[marketId][borrower]` — wiring was M2 work; (c) `WithdrawalRegistry.sol` did not exist — creation was M4 work. P1a landed the **self-contained** collateral primitives (storage, mutators, event, CollateralManager, RiskModuleStub) with isolated Foundry tests. **P1b-core** kept the per-user debt tracker `_activeDebtCount` and the `WithdrawalRegistry.canWithdraw` HF gate as the first action of `requestWithdrawal`. **P1b-explicit (2026-04-17) replaced the auto-flag/auto-unflag behavior that originally landed in M2**: the protocol no longer mutates a user's collateral selection as a side-effect of borrowing or repaying. `MatchData.collateralAssets` carries explicit flag requests from the off-chain layer; `CollateralManager` remains the only unflag path. This collapses the previously planned P1b-ext (multi-asset plumbing) into the same change and leaves the remaining work on the off-chain services (P2/P3/P4/P6).
+
+### Design rationale — why auto-flag and auto-unflag were wrong
+
+The original M2 design tied collateral to the loan token of the current borrow: settling a match implicitly flagged the borrowed token as collateral, and repaying to zero implicitly unflagged every asset. Two problems:
+
+1. **Collateral is a user decision, not a settlement side-effect.** A user might deposit BTC, USDC, and ETH, and only want BTC flagged as collateral while borrowing USDC. Auto-flagging the loan token (USDC) incorrectly treats the borrowed asset itself as collateral and never consults the user's intent. Worse, it cannot represent the common case where collateral and loan token differ.
+2. **Auto-unflag on repay bypasses the 24h flag-lock and the RiskModule gate.** Every other unflag path flows through `CollateralManager.unflagFor`, which enforces `FlagLockActive` and `RiskModule.canUnflag`. The repay short-circuit called `BalanceLedger.unmarkCollateral` directly, violating the "single on-chain policy seam" invariant and creating a sequence (flag → partial repay → full repay → immediate unflag) that could sidestep gates other callers must respect.
+
+The fix: flag mutations are always explicit. At settlement time, the borrower's pending flag requests ride on `MatchData.collateralAssets` and are fulfilled by `Centuari.settleMatch` via the idempotent `markCollateral` primitive. Mid-life flag/unflag go through `CollateralManager`. Repay is purely a debt-settlement operation and does not touch `BalanceLedger`'s collateral state.
 
 ---
 
@@ -74,7 +83,7 @@ If you are picking this up in a fresh Claude session, the loophole fix is **most
 - `forge test` — **240 passed, 0 failed, 0 skipped** across 8 suites. Breakdown of collateral-related tests: BalanceLedger suite 41 (29 pre-existing + 12 new), RiskModuleStub suite 7, CollateralManager suite 17.
 - `forge inspect BalanceLedger storageLayout --force` — confirms slots 0–6 named + `__gap[42]` at slot 7, total 49 slots, matches M1 budget.
 
-**Deviations from original plan (worth auditing before P1b-ext starts):**
+**Deviations from original plan (worth auditing):**
 - CollateralManager uses `OwnableUpgradeable + onlyOperator`, not `AccessControlUpgradeable + OPERATOR_ROLE`. Rationale: matches `Settlement.sol` repo convention discovered during exploration. No `grantRole` plumbing anywhere.
 - Added `MAX_FLAG_LOCK = 30 days` ceiling + `FlagLockTooLong` error not in original spec. Prevents a fat-fingered governance tx from effectively disabling unflagging.
 - `CollateralFlagSet` event has 5 params `(writer, user, asset, used, flaggedAt)` — plan originally specified 4. P5 indexer decoder must match the 5-param shape. `flaggedAt` is `0` on unmark (sentinel).
@@ -83,9 +92,9 @@ If you are picking this up in a fresh Claude session, the loophole fix is **most
 - `RiskModuleStub.canUnflag` is unconditionally `false` (not `totalDebt == 0`) because `Centuari.sol` has no per-user debt aggregator and adding one was out of scope.
 
 **Out of scope for P1a (subsequent landing status):**
-- Modifying `Settlement.MatchData` or `Settlement._processMatch` — **still pending as P1b-ext** (the current implementation uses a single `loanToken` instead of `MatchData.collateralAssets[]`).
-- Adding a per-user open-market set or `hasOutstandingDebt` view to `Centuari.sol` — ✅ **landed in M2** as `_activeDebtCount` (`CentuariStorage.sol:56`) with the external view at `Centuari.sol:474`.
-- Modifying `Centuari.repay` to call `BalanceLedger.unmarkCollateral` — ✅ **landed in M2** at `Centuari.sol:277-281`.
+- Modifying `Settlement.MatchData` or `Settlement._processMatch` — ✅ **landed 2026-04-17 as P1b-explicit**. `MatchData` now carries `address[] collateralAssets`; `_processMatch` forwards it.
+- Adding a per-user open-market set or `hasOutstandingDebt` view to `Centuari.sol` — ✅ **landed in M2** as `_activeDebtCount` (`CentuariStorage.sol:56`) with the external view.
+- Modifying `Centuari.repay` to call `BalanceLedger.unmarkCollateral` — ✅ **briefly landed in M2**, then **reverted 2026-04-17**. The correct design is that repay never touches flags; unflag goes through `CollateralManager.unflagFor`.
 - Creating `WithdrawalRegistry.sol` — ✅ **landed in M4** with the `IRiskModule.canWithdraw` HF gate as the first action of `requestWithdrawal` (`WithdrawalRegistry.sol:110-112`).
 
 ---
@@ -126,18 +135,20 @@ Move `usedAsCollateral` on-chain into `BalanceLedger`. Expose writer-gated `mark
 | Trigger | Flag transition | HF check | Who pays gas | Signed by |
 |---|---|---|---|---|
 | User deposits USDC | stays `false` | n/a | user | user (deposit) |
-| Borrow match settles, borrower declared USDC as collateral | `false → true`, **atomic inside `Settlement.settle()`** | none (flagging can only improve HF) | protocol | protocol settlement key |
-| Subsequent borrow matches reusing the same collateral | no-op (idempotent) | none | protocol | protocol |
-| Full repay (`totalDebt == 0` after repay) | `true → false`, **atomic inside `Centuari.repay()`** for every asset in `flaggedAssetsOf(user)` | none (no debt ⇒ trivially HF-safe) | protocol | protocol |
-| App user taps "remove USDC as collateral" while still in debt | `true → false` via `CollateralManager.unflagFor(user, asset)` | **`RiskModule.canUnflag(user, asset)` must return true** | protocol | protocol settlement key |
-| Phase 6 `CentuariRouter` integrator flips flag for its caller | any | **same `RiskModule.canUnflag` gate** | integrator | integrator (their own model) |
+| User requests "flag USDC" with no pending borrow | `false → true` via `CollateralManager.flagFor(user, USDC)` | none (flagging can only improve HF) | protocol | protocol settlement key |
+| User requests "flag USDC" with a pending borrow | queued off-chain; attached to next `MatchData.collateralAssets`; fulfilled by `Centuari.settleMatch` via `markCollateral` | none | protocol | protocol settlement key |
+| Subsequent borrow matches carrying the same flag request | no-op (idempotent; `_flaggedAt` preserved) | none | protocol | protocol |
+| Borrow match settles with empty `collateralAssets` | **no flag mutation** | n/a | protocol | protocol |
+| Full repay (`_activeDebtCount → 0` after repay) | **no flag mutation**; user must go through `CollateralManager.unflagFor` | n/a | protocol | protocol |
+| App user taps "remove USDC as collateral" | `true → false` via `CollateralManager.unflagFor(user, asset)` | **`RiskModule.canUnflag(user, asset)` must return true; 24h flag-lock enforced** | protocol | protocol settlement key |
+| Phase 6 `CentuariRouter` integrator flips flag for its caller | any | **same `RiskModule.canUnflag` gate, same 24h flag-lock** | integrator | integrator (their own model) |
 | Spammy repeated toggles | bounded | 24h flag-lock + backend rate limit | — | — |
 
-### The three on-chain writers into `BalanceLedger`
+### The on-chain writers into `BalanceLedger`
 
-1. **`Centuari.sol`** (auto-flag at match settlement) — **P1b-core ✅ DONE (M2, 2026-04-10).** Currently flags the `loanToken` itself as the collateral asset at `Centuari.sol:179` via a single `markCollateral(borrower, loanToken)` call. **P1b-ext (pending)** extends `ISettlement.MatchData` with `collateralAssets[]` per borrower and replaces that single call with a loop. Idempotent warm SSTOREs after first use. No HF check needed.
-2. **`Centuari.sol`** (auto-unflag on repay-to-zero) — **P1b-core ✅ DONE (M2, 2026-04-10).** After `repay()`, if `_activeDebtCount[borrower] == 0`, loops over `flaggedAssetsOf(borrower)` and calls `unmarkCollateral` for each (`Centuari.sol:277-281`). No HF check needed.
-3. **`CollateralManager.sol`** (unflag-while-in-debt path) — **P1a ✅ DONE**. Operator-gated wrapper enforcing the 24h flag-lock and `riskModule.canUnflag` gate.
+1. **`Centuari.sol`** (explicit-flag fulfillment at match settlement) — **P1b-explicit ✅ DONE (2026-04-17).** Iterates `MatchData.collateralAssets` and calls `IBalanceLedger.markCollateral(borrower, asset)` for each. Empty array means no flag mutation. Idempotent warm SSTOREs after first use; `_flaggedAt` is never refreshed on repeat. No HF check needed (flagging can only improve HF).
+2. **`CollateralManager.sol`** (standalone flag path) — **P1a ✅ DONE**. `flagFor(user, asset)` calls `markCollateral` unconditionally. Operator-gated; used when the user wants to flag without an accompanying borrow (or to re-flag after a prior unflag).
+3. **`CollateralManager.sol`** (unflag path — the only one) — **P1a ✅ DONE**. `unflagFor(user, asset)` enforces: flag exists → `block.timestamp >= flaggedAt + 24h` → `riskModule.canUnflag(user, asset)` → `unmarkCollateral`. This is the single policy seam for clearing a flag; `Centuari.repay` no longer bypasses it.
 
 ### The `RiskModule` seam — one interface, two implementations
 
@@ -148,7 +159,7 @@ interface IRiskModule {
 }
 ```
 
-- **Phase 1 stub (`RiskModuleStub.sol`)** — **P1a ✅ DONE**. `canUnflag` returns `false` unconditionally (Centuari-independent, fail-closed). `canWithdraw` returns `!balanceLedger.usedAsCollateral(user, asset)`. The only Phase 1 path to clear a flag is the auto-unflag loop inside `Centuari.repay` (✅ landed in M2).
+- **Phase 1 stub (`RiskModuleStub.sol`)** — **P1a ✅ DONE**. `canUnflag` returns `false` unconditionally (Centuari-independent, fail-closed). `canWithdraw` returns `!balanceLedger.usedAsCollateral(user, asset)`. Under Phase 1 there is no on-chain unflag path for a flagged asset — the user must wait for Phase 2's real `RiskModule` to enable HF-based unflagging. (Before 2026-04-17 the `Centuari.repay` auto-unflag loop bypassed this, but that loop was removed as part of P1b-explicit because it violated the single-policy-seam invariant.)
 - **Phase 2 real (`RiskModule.sol`):** reads on-chain debt + on-chain flagged assets via `balanceLedger.flaggedAssetsOf(user)` + on-chain balances + oracle prices, computes post-action HF, returns true iff HF ≥ 1e18 (+ safety margin). **Zero code changes in any caller** — `CollateralManager`, `WithdrawalRegistry`, and `CentuariRouter` all keep calling `riskModule.canUnflag` / `riskModule.canWithdraw` through the same interface. Phase 2 lands the new implementation, governance flips the pointer in `CollateralManager.riskModule` via the 48h timelock, and the "unflag while in debt iff HF stays safe" capability lights up automatically.
 
 **Why put the HF gate in `CollateralManager` and `WithdrawalRegistry`, not in `BalanceLedger` itself:** `BalanceLedger` is the storage substrate and must stay upgrade-stable and writer-agnostic. Putting policy (HF gates, cooldowns, role checks) inside `BalanceLedger` would couple the storage layout to the Phase 2 RiskModule ABI and force a `BalanceLedger` upgrade every time policy changes. Keeping `BalanceLedger` as a dumb accounting contract (`markCollateral`/`unmarkCollateral` are writer-gated but unconditional) and concentrating policy in the caller contracts (`CollateralManager`, `WithdrawalRegistry`) means each policy layer can evolve on its own upgrade path, and Phase 6 integrators can either reuse `CollateralManager` or bring their own policy on top of the same storage.
@@ -160,7 +171,7 @@ Because this path exists for app-user UX, it is protocol-signed — so it needs 
 1. **24-hour flag-lock on-chain.** `BalanceLedger.markCollateral(user, asset)` stamps `flaggedAt[user][asset] = block.timestamp` every time the flag transitions `false → true`. `CollateralManager.unflagFor(user, asset)` requires `block.timestamp >= flaggedAt[user][asset] + 24 hours` and reverts with `FlagLockActive(unlocksAt)` otherwise. Applies uniformly to every unflag path — app-user backend, Phase 6 integrator, future manual admin.
    - **Idempotent mark does NOT refresh the stamp** — repeated borrows reusing the same collateral never extend the lockup. Verified by `test_RepeatedMark_DoesNotExtendLock`.
    - **Frontend popup at flag time (borrow form):** when the user places a borrow with `collateralAssets = [USDC]`, the frontend shows a confirmation modal explaining the 24h lock.
-   - **Auto-unflag on repay-to-zero is exempt from the flag-lock.** `Centuari.repay()` calls `BalanceLedger.unmarkCollateral` directly (bypassing `CollateralManager`), so full repayment always clears flags regardless of how recently they were set.
+   - **No repay short-circuit.** As of 2026-04-17, `Centuari.repay()` does not touch flags. Full repayment leaves flags in place; the user must go through `CollateralManager.unflagFor` once the 24h lock expires and the RiskModule approves.
 2. **Backend rate limit** in `backend-v2`: hard cap of 5 `POST /collateral/unflag` calls per user per 24h via Redis counter.
 3. **No per-toggle fee in Phase 1.** The 24h lock makes spam economics degenerate.
 
@@ -180,45 +191,46 @@ Paths are relative to the smart-contract repo root (`smart-contract-revamp/`) or
 
 See "P1a Completion Record" above.
 
-### P1b-core — smart contracts (✅ DONE — landed in M2 + M4)
+### P1b-core — smart contracts (✅ HF gate only; auto-flag/auto-unflag reverted 2026-04-17)
 
-Landed organically inside M2 (2026-04-10) and M4 (2026-04-12), not as a separate phase. File-level evidence:
+Landed inside M2 (2026-04-10) and M4 (2026-04-12). File-level evidence for what remains:
 
-- `src/core/centuari/Centuari.sol:179` — auto-flag call `IBalanceLedger(_balanceLedger).markCollateral(borrower, loanToken)` inside `settleMatch()`.
-- `src/core/centuari/Centuari.sol:158` / `:270` — `_activeDebtCount[borrower]` increment on new borrow / decrement when a market's debt hits 0.
-- `src/core/centuari/Centuari.sol:277-281` — auto-unflag loop over `flaggedAssetsOf(borrower)` when `_activeDebtCount[borrower] == 0` inside `repay()`.
-- `src/core/centuari/Centuari.sol:474` — external debt-count view (serves as the `hasOutstandingDebt(user)` equivalent from the original spec).
-- `src/core/centuari/CentuariStorage.sol:56` — `mapping(address => uint256) internal _activeDebtCount;` added; `__gap` shrunk to `uint256[40]` at line 69.
+- `src/core/centuari/Centuari.sol` — `settleMatch` takes `address[] calldata collateralAssets` and iterates `markCollateral` per entry; `repay` no longer calls `unmarkCollateral`. (Auto-flag and auto-unflag removed 2026-04-17; see P1b-explicit below.)
+- `src/core/centuari/Centuari.sol` — `_activeDebtCount[borrower]` increment on new borrow / decrement when a market's debt hits 0. Retained for debt-state views/health checks even though it no longer drives an unflag loop.
+- `src/core/centuari/CentuariStorage.sol:56` — `mapping(address => uint256) internal _activeDebtCount;` added; `__gap` shrunk to `uint256[40]`.
 - `src/core/cross-chain/WithdrawalRegistry.sol:110-112` — `IRiskModule.canWithdraw` gate as the first action of `requestWithdrawal`, reverts `WithdrawalBlockedByHF()`.
-- `test/centuari/Centuari.t.sol` — `test_repay_unflagsWhenDebtZero`, `test_repay_doesNotUnflagWithRemainingDebt`, `test_activeDebtCount_tracksAcrossMarkets` cover the auto-unflag behavior.
 - `test/cross-chain/WithdrawalRegistry.t.sol` — `test_RequestWithdrawal_BlockedByCollateralFlag` covers the HF gate rejection.
 
-No dedicated `test/settlement/Settlement.t.sol` "match-with-collateral flips flag" test exists because the actual flag write happens in `Centuari.settleMatch`, not in `Settlement._processMatch`; `Centuari.t.sol` is where it is exercised.
+### P1b-explicit — smart contracts (✅ DONE 2026-04-17)
 
-### P1b-ext — smart contracts (🔒 BLOCKED on P2 start)
+Supersedes the previously planned P1b-ext scope. The shipped changes:
 
-Remaining multi-asset collateral plumbing. Deferred until the matching engine / backend / frontend are ready to declare a collateral basket per borrow order.
+- `src/interfaces/ISettlement.sol` — `MatchData` gained `address[] collateralAssets`.
+- `src/interfaces/ICentuari.sol` — `settleMatch` signature gained `address[] calldata collateralAssets` as the final parameter.
+- `src/core/settlement/Settlement.sol` — `_processMatch` forwards `matchData.collateralAssets` to `Centuari.settleMatch`.
+- `src/core/centuari/Centuari.sol` — removed the unconditional `markCollateral(borrower, loanToken)`; now loops over `collateralAssets` and calls `markCollateral(borrower, collateralAssets[i])` per entry. Idempotent via `BalanceLedger`; re-submitting an already-flagged asset does not refresh `_flaggedAt`.
+- `src/core/centuari/Centuari.sol` — removed the auto-unflag block inside `repay` (previously at lines 277-281). Repay is now purely debt settlement.
+- `test/centuari/Centuari.t.sol` — rewrote `test_settleMatch_autoFlagsBorrowerCollateral` → `test_settleMatch_flagsRequestedCollateralAssets` + `test_settleMatch_doesNotFlagWhenCollateralAssetsEmpty`; rewrote `test_repay_autoUnflagsOnFullDebtClear` and `test_repay_unflagBypassesFlagLock` → `test_repay_neverUnflagsEvenOnFullDebtClear`; updated `test_repay_doesNotUnflagWithRemainingDebt` to pass flag requests explicitly.
+- `test/settlement/Settlement.t.sol` — `MockCentuari.settleMatch` gained the `address[] calldata collateralAssets` param; `_createMatchData` emits `collateralAssets: new address[](0)`.
 
-- `src/interfaces/ISettlement.sol` — add `collateralAssets[]` (address array) to the `MatchData` struct. Currently only `loanToken` is present.
-- `src/core/settlement/Settlement.sol` — propagate `collateralAssets` per borrower into the call that reaches `Centuari.settleMatch` (either as a new arg or a new variant).
-- `src/core/centuari/Centuari.sol` — replace the single `markCollateral(borrower, loanToken)` at line 179 with a loop over the passed `collateralAssets[]`. Idempotent warm SSTOREs after first use.
-- `test/settlement/Settlement.t.sol` — test multi-asset match-with-collateral flips every declared asset atomically; test empty-array is rejected as invalid; test mixed-borrower batches keep each borrower's flags isolated.
+**Verification (run 2026-04-17):** `forge build` clean; `forge test` 438/438 passing across 17 suites.
 
-### P2 — matching engine (blocked on P1b-ext ABI + M9 start)
+### P2 — matching engine (blocked on M9 start)
 
-- `matching-engine/src/types/order.ts` — add `collateralAssets: string[]` to the borrow order schema.
-- `matching-engine/src/services/*` — forward `collateralAssets` unchanged into the match payload.
+- `matching-engine/src/types/order.ts` — add `collateralAssets: string[]` to the borrow order schema (the borrower's explicit flag requests at order-placement time; may be empty).
+- `matching-engine/src/services/*` — forward `collateralAssets` unchanged into the match payload so the settlement engine can consume it.
 
-### P3 — settlement engine (blocked on P1b-ext ABI + P2 + M9 start)
+### P3 — settlement engine (blocked on P2 + M9 start)
 
-- `settlement-engine/src/settlement/smartContract.ts` — include `collateralAssets` per borrower in the `settleMatches()` call encoding.
+- `settlement-engine/src/settlement/smartContract.ts` — encode the borrower's pending unfulfilled flag requests into `MatchData.collateralAssets` per borrower in the `Settlement.settleMatches` ABI; clear the backend queue on settlement success.
 
 ### P4 — backend (blocked on M8 start; P1a done)
 
-- `backend-v2/src/collateral/collateral.controller.ts` — **rewrite**. Delete the existing PUT `/internal/collateral` → indexer-v2 endpoint. New surface:
-  - `POST /collateral/unflag { asset }` — authenticated by Privy JWT (app user). Rate-limited to 5/user/24h via Redis counter. Calls `CollateralManager.unflagFor(user, asset)` via the protocol settlement key. Returns the tx hash and eagerly applies the DB mutation through the Module 8 `applyOnChainEffect` helper (C10 pattern).
-  - No `POST /collateral/flag` for app users — flagging happens at borrow time via the match pipeline.
-- `backend-v2/src/orders/` — add `collateralAssets` validation to borrow-order DTO (non-empty, must be assets the user holds).
+- `backend-v2/src/collateral/collateral.controller.ts` — **rewrite**. Delete the existing PUT `/internal/collateral` → indexer-v2 endpoint. New surface (all Privy JWT + 5/user/24h Redis rate limit):
+  - `POST /collateral/flag { asset }` — when the user has no pending borrow, call `CollateralManager.flagFor(user, asset)` directly via the protocol settlement key. When the user has a pending borrow, enqueue the flag request to a persistent `pending_collateral_flags` table so the settlement engine (P3) can attach it to the next match via `MatchData.collateralAssets`.
+  - `POST /collateral/unflag { asset }` — call `CollateralManager.unflagFor(user, asset)` via the protocol settlement key. Surface `FlagLockActive` / `WouldMakeUnhealthy` to the client with machine-readable error codes.
+  - Both eagerly apply the DB mutation through the Module 8 `applyOnChainEffect` helper (C10 pattern).
+- `backend-v2/src/orders/` — no longer validates `collateralAssets` as required. If present, it is a convenience: the borrower may pass the list at borrow-order time and the backend enqueues it for fulfilment at settlement.
 
 ### P5 — indexer (blocked on M8 start; P1a done)
 
@@ -242,29 +254,30 @@ Remaining multi-asset collateral plumbing. Deferred until the matching engine / 
 - `forge inspect BalanceLedger storageLayout --force` — 49 slots, matches M1 budget.
 - Storage snapshot committed at `test/snapshots/BalanceLedger.storage.json`.
 
-### P1b-core (✅ executed) + P1b-ext / end-to-end (pending)
+### P1b-core + P1b-explicit (✅ executed) + end-to-end (pending)
 
 1. **Unit tests (smart contracts):**
    - `forge test --match-contract BalanceLedger -vv` — existing + new mark/unmark tests all green. (✅ P1a)
-   - `forge test --match-contract Centuari -vv` — repay-to-zero clears flags via `_activeDebtCount`. (✅ P1b-core, M2)
+   - `forge test --match-contract Centuari -vv` — explicit-flag at settle (empty-array and populated), idempotent `_flaggedAt` preservation, repay never unflags, `_activeDebtCount` bookkeeping. (✅ P1b-explicit, 2026-04-17)
    - `forge test --match-contract WithdrawalRegistry -vv` — flagged-with-debt reverts, flagged-no-debt passes. (✅ P1b-core, M4)
-   - `forge test --match-contract Settlement -vv` — multi-asset match-with-collateral test. (⏳ P1b-ext, pending)
+   - `forge test --match-contract Settlement -vv` — `MatchData.collateralAssets` round-trips through `_processMatch` into `Centuari.settleMatch`. (✅ P1b-explicit, 2026-04-17)
 
-2. **Invariant fuzz test:** in a `cross-contract` test harness, fuzz sequences of (deposit, borrow with random collateralAssets, partial repay, full repay, attempt withdraw). Assert:
-   - `usedAsCollateral(user, asset) == true` implies `user` has had at least one borrow match reference `asset` and has not fully repaid since.
+2. **Invariant fuzz test (future):** in a `cross-contract` test harness, fuzz sequences of (deposit, borrow with random `collateralAssets`, partial repay, full repay, attempt unflag, attempt withdraw). Assert:
+   - `usedAsCollateral(user, asset) == true` implies the user explicitly requested flagging via either `CollateralManager.flagFor` or a past `MatchData.collateralAssets`, and `CollateralManager.unflagFor` has not since successfully cleared it.
    - `WithdrawalRegistry.requestWithdrawal` for a flagged asset with `totalDebt > 0` always reverts.
+   - Repay does not change `usedAsCollateral` for any asset.
    - No sequence of calls lets a user withdraw a flagged asset while holding any debt.
 
-3. **End-to-end on Arbitrum Sepolia** (after M2/M3/M4 redeploy):
+3. **End-to-end on Arbitrum Sepolia** (after M2/M3/M4 redeploy with the new `MatchData` ABI):
    - Deposit USDC via `HubDepositor`.
-   - Place a borrow order with `collateralAssets = [USDC]` through the frontend.
-   - Watch a match settle; confirm `CollateralFlagSet(writer, user, USDC, true, flaggedAt)` on-chain and in indexer.
-   - **Flag-lock test (immediate):** less than 24h after settle, call `POST /collateral/unflag { asset: USDC }` — assert `CollateralManager.unflagFor` reverts with `FlagLockActive`, backend surfaces "locked until {timestamp}".
+   - Call `POST /collateral/flag { asset: USDC }` through the backend (no pending borrow). Confirm `CollateralFlagSet(writer=CollateralManager, user, USDC, true, flaggedAt)` on-chain and in indexer.
+   - Place a borrow order; confirm the match settles with the pre-existing flag untouched (empty `collateralAssets`) and no duplicate `CollateralFlagSet` event.
+   - Alternative path: place a borrow with pending flag request for BTC (`collateralAssets=[BTC]`); confirm `CollateralFlagSet(writer=Centuari, user, BTC, true, flaggedAt)` fires at settlement.
+   - **Flag-lock test (immediate):** less than 24h after flagging, call `POST /collateral/unflag { asset: USDC }` — assert `CollateralManager.unflagFor` reverts with `FlagLockActive`, backend surfaces "locked until {timestamp}".
    - **Direct withdrawal bypass test:** attempt `WithdrawalRegistry.requestWithdrawal(user, USDC, amount, arbChainId)` from a script bypassing the backend — assert it reverts with `WithdrawalBlockedByHF`.
-   - **Flag-lock test (after 24h):** warp until `flaggedAt + 24h`, retry unflag — assert it reverts with `WouldMakeUnhealthy` (Phase 1 stub fail-closed).
-   - **Repay short-circuit test:** while the 24h lock is still active, call `Centuari.repay` for the full debt — confirm `CollateralFlagSet(writer, user, USDC, false, 0)` fires atomically via the auto-unflag loop **without waiting for the 24h**.
-   - **Post-repay withdrawal:** retry the withdrawal; confirm it proceeds through PENDING → PROCESSING → COMPLETED.
+   - **Full repay does NOT clear flag:** repay debt in full via `Centuari.repay` — confirm `activeDebtCount` drops to 0 and **no `CollateralFlagSet(..., false, ...)` event is emitted**. The flag must persist.
+   - **Flag-lock test (after 24h, Phase 1 stub):** warp until `flaggedAt + 24h`, retry unflag — assert it reverts with `WouldMakeUnhealthy` (Phase 1 stub fail-closed).
    - **Backend rate-limit test:** call `POST /collateral/unflag` 10 times in 60 seconds — assert the 6th request is rejected with HTTP 429 and the protocol settlement key never submitted a tx for it.
-   - **Phase 2 rehearsal:** deploy a mock `RiskModule` returning `canUnflag = true` unconditionally; `governance.setRiskModule(mock)` via 48h timelock; confirm that AFTER the 24h flag-lock expires, the unflag-while-in-debt path succeeds end-to-end — validating zero-code-change Phase 2 swap.
+   - **Phase 2 rehearsal:** deploy a mock `RiskModule` returning `canUnflag = true` for debt-free users; `governance.setRiskModule(mock)` via 48h timelock; confirm that AFTER the 24h flag-lock expires and after full repay, `CollateralManager.unflagFor` succeeds — validating zero-code-change Phase 2 swap.
 
-4. **Regression:** run `backend-v2` test suite + `indexer-v2` migration tests to confirm the deleted collateral module does not break the module graph or leave dangling routes.
+4. **Regression:** run `backend-v2` test suite + `indexer-v2` migration tests to confirm the new collateral flag/unflag endpoints and the pending-flag queue do not break the module graph or leave dangling routes.
