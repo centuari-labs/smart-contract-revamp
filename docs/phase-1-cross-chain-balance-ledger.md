@@ -1277,3 +1277,35 @@ All contracts have passing tests (339 total as of M4 landing).
 
 **Solver EOA.** `SettlementLedger.match()` releases reimbursement directly to the solver's wallet, not to a BalanceLedger entry. Keeps BalanceLedger clean of operational accounts.
 
+---
+
+## Legacy Deprecation Checklist (future TODO, per service & per phase)
+
+**Rule:** every service that writes `user_balance`, collateral flags, settlement rows, deposit rows, or withdrawal rows must route through `applyOnChainEffect` with `applied_by_tx_hash / applied_by_log_index / applied_by_block_hash` stamps. Any legacy code path that writes the same row without a stamp becomes a race condition against the indexer tail and **must be deleted in the same phase that introduces its replacement** — no parallel "old + new" periods.
+
+### Phase A — settlement-engine
+- Migrate `BatchProcessor` Phase-1/Phase-2 raw-SQL persistence onto `applyOnChainEffect`; remove the unstamped writes in the same commit.
+- Remove any direct `user_balance` UPDATE that does not carry a tx-hash stamp.
+
+### Phase B — matching-engine
+- Remove in-memory balance assumptions that shadow Treasury-era state.
+- Remove any Treasury-based balance queries downstream of the engine (helpers reading a `treasury_balance` column or RPC-calling the deleted Treasury contract).
+
+### Phase C — backend-v2
+- Delete legacy `/internal/collateral` relay (loophole-fix plan P4).
+- Remove Treasury-based balance helpers / DTOs left over from the M2 contract migration — scrub the service layer even if contracts no longer reference Treasury.
+- Remove any deposit endpoint that mutates `user_balance` without `applyOnChainEffect`.
+- Remove pre-`applyOnChainEffect` code paths in `CollateralService` (keep only the stamped path).
+
+### Phase D — sweeper-bot
+- New service — no in-code legacy. **Audit & remove any ad-hoc bridge scripts / cron jobs** performing the same spoke→hub bridging manually.
+
+### Phase E — frontend-revamp
+- Remove any single-bucket "balance" UI that collapses `available` / `inOrders` / `inYieldRouter` into one number.
+- Remove any collateral-toggle UX that implies instant unflag (must show 24h countdown).
+- Repoint hooks at indexer-v3 REST when their backing backend endpoints get deleted in Phase C.
+
+### Phase F — indexer-v3
+- Confirm no service still imports from `indexer-v2/` (Ponder-based, superseded).
+- Delete `indexer-v2/` directory once confirmed.
+
