@@ -57,10 +57,11 @@ That's two sources of truth for the same on-chain state. `applyOnChainEffect` on
 ### A1. Capture full receipt metadata in settlement-engine
 [smartContract.ts:694-702](settlement-engine/src/settlement/smartContract.ts) — extend `SettlementResult` to include `blockHash: Hex` and preserve `logIndex: number` on every parsed event. Thread through `parseReceiptLogs` so each `ParsedBondToken / ParsedLendPosition / ParsedBorrowPosition` carries its own log index.
 
-### A2. Add workspace dep
-- Add `"@centuari/indexer-v3": "workspace:*"` to [settlement-engine/package.json](settlement-engine/package.json) dependencies.
-- Run `pnpm install` at repo root to link the workspace.
-- Import `applyOnChainEffect`, `IdempotencyStamp`, types from `@centuari/indexer-v3/shared/apply-on-chain-effect`.
+### A2. Add the shared helper dep
+- Depend on `@centuari-labs/on-chain-effects` (published to GitHub Packages; source lives locally at `on-chain-effects/`). Minimum version **`0.2.0`** — that release adds two optional fields to `applyOnChainEffect`:
+  - `receipt?: TransactionReceipt` — skip the helper's internal `waitForTransactionReceipt` when the caller already has the receipt in hand. Settlement-engine's `settleBatch` always returns a mined receipt, so this avoids a redundant RPC call per emitted event.
+  - `logIndex?: number` — select a specific log by index (falls back to match-first-by-topic when absent). **Required for settlement-engine** because one `settleMatches(batch)` tx can emit multiple `LendPositionCreated` / `BorrowPositionCreated` logs sharing the same `(marketId, lender|borrower)` key (e.g. one lender partial-filled by two borrowers in the same batch). Without `logIndex`, the helper would apply only the first matching log and silently drop the rest.
+- Import `applyOnChainEffect`, `IdempotencyStamp`, `ApplyOnChainEffectResult` from `@centuari-labs/on-chain-effects`.
 
 ### A3. Schema audit + (if needed) migration 005
 Verify each indexer-v3 table has the columns settlement-engine will stamp:
@@ -76,35 +77,50 @@ Verify each indexer-v3 table has the columns settlement-engine will stamp:
 **Decision:** no new migration needed. Use existing tables as-is. Settlement-engine eager-writes all except `bond_token` (leave to tail).
 
 ### A4. Rewrite settlement-engine persistence
-Replace [persistence.ts](settlement-engine/src/settlement/database/persistence.ts) with a new module `apply-settlement.ts`:
+Replace [persistence.ts](settlement-engine/src/settlement/database/persistence.ts) with a new module `apply-settlement.ts`. Loop over the **parsed events** returned by `settleBatch()`, not the input matches, so every emitted log gets a dedicated helper call scoped to its own `logIndex`:
 
 ```ts
-// Pseudocode per match in the batch
-for (const match of batch.matches) {
-  // One call per event emitted for this match
+// apply-settlement.ts — one applyOnChainEffect call per parsed event.
+// Loop over parsed events (not the input matches) and pass logIndex through
+// so a single tx can emit multiple logs for the same (marketId, lender|
+// borrower) key and each one gets applied — the ON CONFLICT upsert then
+// accumulates principal / cbt_balance correctly.
+for (const event of result.lendPositionEvents) {
   await applyOnChainEffect<LendPositionCreatedArgs>({
     client, pool,
+    receipt,                      // pre-fetched from settleBatch — no refetch
     txHash: receipt.transactionHash,
     expectedEventTopic: LEND_POSITION_CREATED_TOPIC0,
-    abi: CENTUARI_ABI,
+    logIndex: event.logIndex,     // select the exact log, not first-match
+    abi: [LEND_POSITION_CREATED_EVENT],
     expectedArgsPredicate: (a) =>
-      a.marketId === match.marketId && a.lender === match.lender,
+      a.marketId.toLowerCase() === event.marketId.toLowerCase() &&
+      a.lender.toLowerCase()   === event.lender.toLowerCase(),
     alreadyAppliedCheck: (tx, stamp) =>
-      lendPositionRepo.isAlreadyStamped(tx, a.marketId, a.lender, stamp),
-    mutation: (tx, a, stamp) =>
-      lendPositionRepo.upsertRollup(tx, a, stamp),
+      alreadyStamped(tx, 'lend_position',
+        'market_id = $1 AND lender = $2',
+        [hexToBytea(event.marketId), hexToBytea(event.lender)], stamp),
+    mutation: (tx, _a, stamp) => tx.query(`INSERT INTO lend_position ...
+      ON CONFLICT (market_id, lender) DO UPDATE SET
+        cbt_balance = lend_position.cbt_balance + EXCLUDED.cbt_balance,
+        principal   = lend_position.principal   + EXCLUDED.principal,
+        rate        = EXCLUDED.rate,
+        applied_by_* = EXCLUDED.applied_by_*, ...`, [...]),
   });
-  // …same pattern for BorrowPositionCreated, Credited (lender debit), Debited (borrower credit)
 }
+// …same pattern for BorrowPositionCreated.
 ```
 
-Keep Redis stream ack / nonce management / failure backoff flow in `batchProcessor.ts` unchanged. Only the DB layer is replaced.
+Keep Redis stream ack / nonce management / failure backoff flow in `batchProcessor.ts` unchanged. Only the DB layer is replaced. `processBatch.ts` threads the cached `PublicClient` + `receipt` into `applySettlementResult(pool, client, result)`.
 
 Key differences from current persistence:
 - No `settlement_batches` row — the tx hash **is** the batch identity.
 - No `settlement_items` join table — matches are identified by `(marketId, lender|borrower, txHash, logIndex)` tuple.
 - No separate Phase-1 / Phase-2 split — one atomic `applyOnChainEffect` call per event. If it fails, retry is safe because of stamp idempotency.
+- `rate` is **latest-wins** (`EXCLUDED.rate`) per event, mirroring the indexer tail ([centuari.processor.ts](indexer-v3/src/processors/centuari.processor.ts)). No weighted-average rollup — both writers must stay byte-for-byte identical for C10 idempotency.
 - Failure-path order restoration in [recovery.ts](settlement-engine/src/settlement/database/recovery.ts) (portfolio unlock + order state update) remains — **that's matching-engine state, not settlement state**; it targets `orders` + `portfolio.locked_amount` which are Phase B concerns.
+
+**Why `logIndex` + `receipt` are both needed (implementation note):** the 0.1.0 helper re-fetched the receipt and picked the first log whose topic0 matched and whose predicate passed. For settlement-engine that would be wrong twice over — (a) the receipt is already in hand, and (b) a batch settlement legitimately emits multiple logs satisfying the same predicate. Version 0.2.0 adds these fields so settlement-engine can opt into explicit log selection.
 
 ### A5. Migrate breaking backend-v2 reads
 Identify endpoints serving settled state:

@@ -1284,8 +1284,10 @@ All contracts have passing tests (339 total as of M4 landing).
 **Rule:** every service that writes `user_balance`, collateral flags, settlement rows, deposit rows, or withdrawal rows must route through `applyOnChainEffect` with `applied_by_tx_hash / applied_by_log_index / applied_by_block_hash` stamps. Any legacy code path that writes the same row without a stamp becomes a race condition against the indexer tail and **must be deleted in the same phase that introduces its replacement** — no parallel "old + new" periods.
 
 ### Phase A — settlement-engine
-- Migrate `BatchProcessor` Phase-1/Phase-2 raw-SQL persistence onto `applyOnChainEffect`; remove the unstamped writes in the same commit.
-- Remove any direct `user_balance` UPDATE that does not carry a tx-hash stamp.
+- [x] Migrate `BatchProcessor` Phase-1/Phase-2 raw-SQL persistence onto `applyOnChainEffect`; the inline stamp/upsert in `settlement-engine/src/settlement/database/apply-settlement.ts` now delegates to the shared primitive from `@centuari-labs/on-chain-effects@^0.2.0` (`receipt` + `logIndex` overloads added in that release for multi-event-per-key batches). Legacy `persistence.ts` already deleted in the earlier commit.
+- [x] Remove any direct `user_balance` UPDATE that does not carry a tx-hash stamp. Settlement-engine does not touch `user_balance` in Phase A — those deltas still flow through the indexer tail from `BalanceLedger.Credited / Debited`.
+- [ ] (A5) Migrate breaking backend-v2 reads to indexer-v3 REST — still pending.
+- [ ] (A6) Drop legacy backend-v2 UUID tables + TypeORM entities — still pending.
 
 ### Phase B — matching-engine
 - Remove in-memory balance assumptions that shadow Treasury-era state.
