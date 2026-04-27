@@ -1,5 +1,18 @@
 # Phase A — Settlement-Engine Eager Writes (indexer-v3 schema)
 
+## Status (as of 2026-04-27)
+
+| Step | Status | Evidence |
+|---|---|---|
+| A1 — Capture full receipt metadata in settlement-engine | 🟢 DONE | `SettlementResult.blockHash` + per-event `logIndex` on `ParsedLendPosition` / `ParsedBorrowPosition` in `settlement-engine/src/settlement/smartContract.ts`. |
+| A2 — Add the shared helper dep (`@centuari-labs/on-chain-effects ^0.2.0`) | 🟢 DONE | Vendored at repo root `on-chain-effects/` v0.2.0; both `settlement-engine/package.json` and `backend-v2/package.json` depend on `file:../on-chain-effects`. |
+| A3 — Schema audit + (if needed) migration 005 | 🟢 DONE | No new migration needed; existing `lend_position` / `borrow_position` / `user_balance` / `market` columns sufficient. `bond_token` left to indexer tail. |
+| A4 — Rewrite settlement-engine persistence | 🟢 DONE | `settlement-engine/src/settlement/database/apply-settlement.ts` replaces deleted `persistence.ts`; one `applyOnChainEffect` call per parsed event with explicit `logIndex`. `recovery.ts` retired (only `order-failure.ts` retained for matching-engine concerns). |
+| A5 — Migrate backend-v2 onto the shared on-chain-state schema | 🟢 DONE | Portfolio reads run through `backend-v2/src/core/on-chain-state/` against shared `lend_position` / `borrow_position` / `user_balance` / `market` tables. Eager writes live in `apply-repay.ts` + `apply-withdraw-lend.ts` + `apply-internals.ts`, mirroring indexer-v3 SQL byte-for-byte. |
+| A6 — Delete legacy backend-v2 UUID tables + entities + DROP TABLE migration | ⚪ NOT STARTED | Legacy entities still present: `LegacyPortfolio`, backend-v2-owned `LendPosition` / `BorrowPosition` / `Market`. No DROP TABLE migration exists in `backend-v2/src/core/database/migrations/`. The Legacy Deprecation Checklist in `phase-1-cross-chain-balance-ledger.md` (Phase A) tracks this as the only outstanding item for Phase A. |
+
+The detailed plan below is preserved as the durable reference for the in-progress / outstanding work and for audit of what landed.
+
 ## Context
 
 Settlement-engine today writes to **backend-v2's UUID-keyed schema** (`settlement_batches`, `settlement_items`, `lend_positions`, `borrow_positions`, `portfolio`, `matches`) using `settlement_batch_id + UNIQUE` constraints for idempotency. Indexer-v3 writes to a **parallel BYTEA-keyed schema** (`user_balance`, `market`, `lend_position`, `borrow_position`, `bond_token`) using `applied_by_tx_hash + applied_by_log_index` stamps.

@@ -227,7 +227,7 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 - 🟡 **IN PROGRESS** — actively being implemented
 - ⚪ **NOT STARTED** — dependencies not yet met or not yet scheduled
 
-**Current Phase 1 status (as of 2026-04-21):**
+**Current Phase 1 status (as of 2026-04-27):**
 
 | Module | Status | Notes |
 |---|---|---|
@@ -236,12 +236,12 @@ Phase 1 is broken into **10 modules**. Each module is independently reviewable, 
 | M2 — Centuari.sol migration off Treasury | 🟢 **DONE** | Landed 2026-04-10. All balance ops migrated from Treasury to BalanceLedger (`debit`/`credit`). `_balanceLedger` slot added to `CentuariStorage.sol`. Zero Treasury references remain. ⚠️ **Auto-flag at `settleMatch()` (`Centuari.sol:179`) and auto-unflag loop in `repay()` (`Centuari.sol:277-281`) that originally landed here were reverted 2026-04-17 under P1b-explicit** — `Centuari.settleMatch` now iterates `MatchData.collateralAssets[]` and flags only what the borrower explicitly requested; `Centuari.repay` no longer touches flags. Tests rewritten accordingly (see `collateral-loophole-fix-plan.md` P1b-explicit section). **Fulfills `collateral-loophole-fix-plan.md` P1b-core for `Settlement`/`Centuari` storage wiring; collateral selection now flows through P1b-explicit.** |
 | M3 — Deployment scripts + testnet cutover + HubDepositor | 🟢 **DONE** | Landed 2026-04-10. HubDepositor.sol (IHubDepositor + HubDepositorStorage + HubDepositor) with deposit/payout via BalanceLedger credit/debit. DeployBalanceLedger.s.sol, DeployHubDepositor.s.sol, ConfigureBalanceLedger.s.sol (two-phase writer registration). run-all.sh rewritten to 14 steps — Treasury fully removed, BalanceLedger + HubDepositor + CollateralStack integrated. export-abi.sh updated (added BalanceLedger, HubDepositor, CollateralManager; removed Treasury). 270 tests passing. Local Anvil smoke test verified: deposit via HubDepositor correctly credits BalanceLedger.available. |
 | M4 — WithdrawalRegistry + HubIntentSettler + SettlementLedger | 🟢 **DONE** | Landed 2026-04-12. WithdrawalRegistry (state machine + HF gate via `IRiskModule.canWithdraw` as the first action of `requestWithdrawal`, `WithdrawalRegistry.sol:110-112`) is **active in Phase 1**. HubIntentSettler and SettlementLedger are built and tested but **dormant** — their solver-facing functions (`fillFor`, `register`, `releaseToSolver`) are not used in Phase 1. `HubIntentSettler` will gain a new `confirmDeposit` function in M5 to handle LZ-confirmed cross-chain credits (the Phase 1 deposit path). 339 tests passing. **Fulfills `collateral-loophole-fix-plan.md` P1b-core `WithdrawalRegistry.canWithdraw` gate requirement.** |
-| M5 — Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody | 🟢 **DONE** | Landed via PRs 1–5. `SpokeVaultStable` + `SpokeDepositGateway` + `SpokePayout` on the four spokes; `HubIntentSettler.confirmDeposit` + `WithdrawalRegistry` `chain_liquidity` gate on the hub. LayerZero V2 for messages; CCTP v2 + Stargate V2 for BRIDGED token movement; SPOKE_NATIVE custody stays on the origin spoke. 438 tests passing (339 hub baseline + 99 M5 additions across 6 new test files). Implementation deviations recorded in the Module 5 section (timeout-based refund, `_chainLiquidity` on `WithdrawalRegistryStorage`, owner-only `setTrustedRemote`, non-upgradeable LZ OApp pattern, FIFO pending-payout queue). |
+| M5 — Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody | 🟢 **DONE** | Landed via PRs 1–5. `SpokeVaultStable` + `SpokeDepositGateway` + `SpokePayout` on the four spokes; LZ-confirmed deposit credit implemented as `HubIntentSettler.lzReceive` (LZ V2 OApp pattern; covered by `test/cross-chain/HubIntentSettler.confirmDeposit.t.sol`) + `WithdrawalRegistry` `chain_liquidity` gate on the hub. LayerZero V2 for messages; CCTP v2 + Stargate V2 for BRIDGED token movement; SPOKE_NATIVE custody stays on the origin spoke. 438 tests passing (339 hub baseline + 99 M5 additions across 6 new test files). Implementation deviations recorded in the Module 5 section (timeout-based refund, `_chainLiquidity` on `WithdrawalRegistryStorage`, owner-only `setTrustedRemote`, non-upgradeable LZ OApp pattern, FIFO pending-payout queue). |
 | ~~M6 — Solver Service~~ | ⏭️ **DEFERRED** | Deferred to a future phase. Solver fast-fill requires significant capital (20% of peak 24h deposit volume per spoke). Phase 1 uses LZ-confirmed credits instead (~30s-2min latency). See "Future: Solver Fast-Fill Layer" section. |
 | M7 — Sweeper Bot (simplified) | ⚪ NOT STARTED | **UNBLOCKED** — M5 done. Can run in parallel with M8. **Simplified scope:** bridges escrowed tokens spoke → hub for custody + replenishes spoke withdrawal buffers. No solver reimbursement flow. |
 | M8 — indexer-v3 from scratch | 🟡 **IN PROGRESS** (hub-only burn-in complete 2026-04-21) | Scaffolding + 10 processors + 4 migrations + `apply-on-chain-effect` helper + Fastify API in place. **Hub-only Anvil burn-in (2026-04-21)** exercised: `HubDepositor.deposit` → `BalanceLedger.Credited` → `/balance` + `/portfolio` (stamped); `CollateralManager.flagFor` → `CollateralFlagSet` → `/collateral` (with `unlocksAt`); `WithdrawalRegistry.requestWithdrawal` on flagged asset reverts `WithdrawalBlockedByHF`; indexer stop-during-events + restart catches up with no duplicates; deep reorg (>finalityDepth) halts safely with the documented "manual intervention required" error. **Two bugs found + fixed during burn-in:** (a) [indexer-v3/src/api/routes/deposits.ts](indexer-v3/src/api/routes/deposits.ts) had duplicate `/deposits/:user` + `/deposits/:depositId` routes that collided in Fastify — merged into one handler that dispatches by param shape; (b) [indexer-v3/src/processors/balance-ledger.processor.ts](indexer-v3/src/processors/balance-ledger.processor.ts) had stale `Credited` + `Debited` ABIs missing the `writer` indexed param and `newAvailable` data param, so `topic0` didn't match and events were dropped — ABI + topic hashes updated to the canonical 5-param shape. **Still untested live:** spoke processors (SpokeDepositGateway / SpokeVaultStable need LZ endpoint or multi-chain Anvil), `HubIntentSettler.confirmDeposit` (needs LZ), Centuari positions processor (needs a settled match). Do not flip 🟢 DONE until those are covered — likely combined with M7 sweeper or M9 settlement-engine burn-in. |
-| M9 — backend-v2 + settlement-engine + matching-engine updates | ⚪ NOT STARTED | blocked on M8 |
-| M10 — frontend-revamp cross-chain UI + collateral toggle | ⚪ NOT STARTED | blocked on M4/M5 + M9 |
+| M9 — backend-v2 + settlement-engine + matching-engine updates | 🟡 **IN PROGRESS** | **Backend-v2 streams done:** `src/collateral/` module exposes `POST /collateral/{flag,unflag}` driving `CollateralManager.{flagFor,unflagFor}` with `applyOnChainEffect` C10 stamps (fulfils `collateral-loophole-fix-plan.md` P4 except the pending-flag-queue branch); `POST /deposit/confirm` exists; portfolio reads migrated to the shared on-chain-state schema; `src/core/on-chain-state/{apply-repay,apply-withdraw-lend,apply-internals}.ts` land the eager-write helpers (Phase A5). **Not started:** matching-engine `collateralAssets` field on the borrow-order schema (`collateral-loophole-fix-plan.md` P2); settlement-engine encoding of `MatchData.collateralAssets` per borrower in `transformMatchToContractFormat` (`collateral-loophole-fix-plan.md` P3); matching-engine `BalanceLedgerClient`. |
+| M10 — frontend-revamp cross-chain UI + collateral toggle | 🟡 **IN PROGRESS** | **Done:** borrow-form collateral asset multi-select in `centuari-borrow-dialog.tsx` (`collateralTokenList` + `selectedCollaterals`). **Not started:** portfolio "Remove as collateral" button + 24h countdown, `use-unflag-collateral.ts` hook, cross-chain deposit source-chain selector against `SpokeDepositGateway`, withdrawal target-chain liquidity-aware selector. |
 
 Dependency chain (no module starts until its deps are merged + verified):
 
@@ -641,7 +641,7 @@ See **"Future: Solver Fast-Fill Layer"** section for when and how to activate.
 
 ## Phase 1C — Spoke Chain Contracts
 
-### Module 5: Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody ⭐ DONE
+### Module 5: Spoke contracts + LayerZero + CCTP + Stargate + spoke-native custody 🟢 DONE
 
 **Scope:** the three spoke-side contracts that live on the **four spoke chains only: Base, Ethereum, BNB, Polygon**. No spoke deployment on Arbitrum (hub uses `HubDepositor` from M3 per C9). Also adds LayerZero V2, Circle CCTP, and Stargate V2 dependencies to the Foundry project. Spoke contracts handle **two custody modes** per the token×chain matrix: BRIDGED tokens (escrowed temporarily, bridged to hub) and SPOKE_NATIVE tokens (held permanently, hub tracks accounting only). Additionally, hub contracts gain `ChainLiquidity` tracking for SPOKE_NATIVE tokens and a new receiver for spoke-native deposit confirmations.
 
@@ -975,7 +975,20 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 ---
 
-### Module 9: backend-v2 + settlement-engine + matching-engine updates ⚪ NOT STARTED
+### Module 9: backend-v2 + settlement-engine + matching-engine updates 🟡 IN PROGRESS
+
+**Sub-stream status (as of 2026-04-27):**
+
+| Sub-stream | Status | Evidence |
+|---|---|---|
+| backend-v2 `src/collateral/` (`POST /collateral/{flag,unflag}` + `applyOnChainEffect`) | 🟢 DONE | Fulfils `collateral-loophole-fix-plan.md` P4 except the pending-flag-queue branch (deferred until P2/P3 land). |
+| backend-v2 `POST /deposit/confirm` | 🟢 DONE | Endpoint live in `backend-v2/src/deposit/`. |
+| backend-v2 portfolio reads on shared on-chain-state schema | 🟢 DONE | Phase A5 — entities map to shared `lend_position` / `borrow_position` / `user_balance` / `market`. |
+| backend-v2 eager `apply-repay.ts` + `apply-withdraw-lend.ts` writers | 🟢 DONE | `backend-v2/src/core/on-chain-state/` (Phase A5). |
+| settlement-engine `apply-settlement.ts` onto `applyOnChainEffect` | 🟢 DONE | Phase A1–A4. Replaces deleted `persistence.ts`. |
+| settlement-engine encoding `MatchData.collateralAssets` per borrower | ⚪ NOT STARTED | `collateral-loophole-fix-plan.md` P3; depends on P2 + the persistent `pending_collateral_flags` queue in backend. |
+| matching-engine borrow-order `collateralAssets: string[]` schema | ⚪ NOT STARTED | `collateral-loophole-fix-plan.md` P2. |
+| matching-engine `BalanceLedgerClient` (read `available` from indexer-v3) | ⚪ NOT STARTED | C3. |
 
 **Scope:** update existing services to read from indexer-v3 + interact with new contracts.
 
@@ -1025,7 +1038,16 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 ---
 
-### Module 10: frontend-revamp cross-chain deposit/withdraw UI + collateral flow ⚪ NOT STARTED
+### Module 10: frontend-revamp cross-chain deposit/withdraw UI + collateral flow 🟡 IN PROGRESS
+
+**Sub-stream status (as of 2026-04-27):**
+
+- 🟢 DONE — borrow-form collateral asset multi-select (`centuari-borrow-dialog.tsx` ships `collateralTokenList` + `selectedCollaterals`).
+- ⚪ NOT STARTED — portfolio "Remove as collateral" button + 24h countdown row.
+- ⚪ NOT STARTED — `use-unflag-collateral.ts` hook (`POST /collateral/unflag` + optimistic update + error mapping).
+- ⚪ NOT STARTED — cross-chain deposit source-chain selector against `SpokeDepositGateway` + token×chain matrix filtering.
+- ⚪ NOT STARTED — withdrawal target-chain liquidity-aware selector for SPOKE_NATIVE tokens.
+- ⚪ NOT STARTED — Playwright e2e specs (`cross-chain-deposit.spec.ts`, `collateral-flow.spec.ts`).
 
 **Scope:** new deposit/withdraw screens supporting the cross-chain flow + balance display showing the 3 sub-states + a collateral multi-select on the borrow form + a read-only collateral badge + countdown-gated unflag button on the portfolio.
 
