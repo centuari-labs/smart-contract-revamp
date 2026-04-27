@@ -122,13 +122,62 @@ Key differences from current persistence:
 
 **Why `logIndex` + `receipt` are both needed (implementation note):** the 0.1.0 helper re-fetched the receipt and picked the first log whose topic0 matched and whose predicate passed. For settlement-engine that would be wrong twice over — (a) the receipt is already in hand, and (b) a batch settlement legitimately emits multiple logs satisfying the same predicate. Version 0.2.0 adds these fields so settlement-engine can opt into explicit log selection.
 
-### A5. Migrate breaking backend-v2 reads
-Identify endpoints serving settled state:
-- `GET /portfolio/:user` — currently reads backend `portfolio` table → switch to `GET http://indexer-v3:42069/portfolio/:user`.
-- `GET /lend-positions/:user` / `GET /borrow-positions/:user` — swap to indexer-v3's equivalents.
-- Any chart/history endpoint that joins against `settlement_batches` for timestamps — use on-chain block timestamp from indexer-v3 rows instead.
+### A5. Migrate backend-v2 onto the shared on-chain-state schema
 
-Use a thin `IndexerV3Client` service in `backend-v2/src/core/indexer-v3/` (new). Inject via Nest DI. Cache with NestJS cache manager (TTL 1s) to avoid hammering the indexer.
+**Note (2026-04-23 update):** the earlier sketch of this step suggested a
+Fastify-REST client (`http://indexer-v3:42069`) with NestJS cache manager.
+That was the wrong abstraction — every Centuari service shares one
+Postgres, so backend-v2 queries the canonical tables (`user_balance`,
+`lend_position`, `borrow_position`, `market`) directly over its existing
+`DatabaseService` pool. Indexer-v3 owns the migrations but the data is a
+shared resource; backend-v2 is one of several writers.
+
+Scope expanded beyond the original "reads only" to include eager writes
+for endpoints that initiate on-chain txs, because A6 drops the legacy
+duplicate tables in the same PR — without the write-side migration,
+`POST /portfolio/repay` + `POST /portfolio/withdraw-lend-position` would
+silently lose their persistence layer.
+
+**Reads** (portfolio endpoints, backed by the new `OnChainStateRepository`
+at `backend-v2/src/core/on-chain-state/`):
+- `GET /portfolio/my-portfolio` — balances + lend totals + borrow totals,
+  weighted APR from `lend_position.rate × cbt_balance`.
+  `allTimeReturn = 0` in A5 (current-state schema does not retain
+  `original_shares`; Phase B can reconstruct from match history).
+- `GET /portfolio/my-assets` — `user_balance` rows enriched with local
+  token metadata + risk params. `lockedInOrders = 0` until Phase B adds
+  the matching-engine reservation readout.
+- `GET /portfolio/my-health-factor` + `getHealthFactorForAccount` —
+  collateral from `user_balance` rows where `used_as_collateral = true`;
+  debt aggregated from `borrow_position` per `market.loan_token`.
+- `GET /portfolio/my-position` — lend + borrow aggregated per market,
+  `marketId` translated bytes32 ↔ UUID via `bytes32ToUuid` to preserve the
+  current frontend contract (Phase E will flip to bytes32).
+- `GET /portfolio/user-details` — composition of the above.
+
+**Writes** (eager `applyOnChainEffect`, helpers under
+`backend-v2/src/core/on-chain-state/apply-*.ts`):
+- `POST /portfolio/repay` — `Centuari.repay` → loops `Repaid` + `Debited`
+  logs, one `applyOnChainEffect` per parsed event with its own
+  `logIndex`. SQL mutations mirror
+  [indexer-v3/src/processors/centuari.processor.ts:handleRepaid](../../indexer-v3/src/processors/centuari.processor.ts)
+  and
+  [balance-ledger.processor.ts:handleBalanceDelta](../../indexer-v3/src/processors/balance-ledger.processor.ts)
+  byte-for-byte. Drops the on-chain pre-check + `syncAllPositionsToZero`
+  fallback — both obsoleted by stamp idempotency.
+- `POST /portfolio/withdraw-lend-position` — same pattern for
+  `LendPositionWithdrawn` + `Credited`.
+
+Dependency: bump `@centuari-labs/on-chain-effects` from `^0.1.0` to
+`^0.2.0` (adds `receipt` + `logIndex` params — needed to select a specific
+log in a multi-event receipt, since a single repay tx can emit both
+`Repaid` and `Debited`). Coordinates with A2.
+
+Out of scope for A5 (other phases): `POST /deposit/confirm` +
+`ChainIndexerService` (Phase C, depends on the HubDepositor/HubIntentSettler
+migration); `POST /withdraw` (Phase C, legacy `Treasury.withdraw` gets
+replaced by `WithdrawalRegistry.requestWithdraw`); order/match reads
+(chart, history, open orders) — Phase B.
 
 ### A6. Delete legacy code in same commit
 **Settlement-engine:**

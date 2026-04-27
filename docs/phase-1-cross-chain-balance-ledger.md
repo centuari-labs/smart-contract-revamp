@@ -1286,7 +1286,7 @@ All contracts have passing tests (339 total as of M4 landing).
 ### Phase A — settlement-engine
 - [x] Migrate `BatchProcessor` Phase-1/Phase-2 raw-SQL persistence onto `applyOnChainEffect`; the inline stamp/upsert in `settlement-engine/src/settlement/database/apply-settlement.ts` now delegates to the shared primitive from `@centuari-labs/on-chain-effects@^0.2.0` (`receipt` + `logIndex` overloads added in that release for multi-event-per-key batches). Legacy `persistence.ts` already deleted in the earlier commit.
 - [x] Remove any direct `user_balance` UPDATE that does not carry a tx-hash stamp. Settlement-engine does not touch `user_balance` in Phase A — those deltas still flow through the indexer tail from `BalanceLedger.Credited / Debited`.
-- [ ] (A5) Migrate breaking backend-v2 reads to indexer-v3 REST — still pending.
+- [x] (A5) Migrate backend-v2 portfolio reads and `/portfolio/repay` + `/portfolio/withdraw-lend-position` writes onto the shared on-chain-state schema. Direct SQL via `DatabaseService` (not HTTP — all services share the same Postgres) through the new `OnChainStateRepository`; eager writes via `apply-repay.ts` / `apply-withdraw-lend.ts` helpers that mirror indexer-v3's `centuari.processor.ts` + `balance-ledger.processor.ts` SQL byte-for-byte.
 - [ ] (A6) Drop legacy backend-v2 UUID tables + TypeORM entities — still pending.
 
 ### Phase B — matching-engine
