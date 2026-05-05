@@ -328,7 +328,7 @@ FAUCET_ADDRESS="$(echo "$deploy_faucet_output" | parse_faucet || true)"
 
 echo "=== 3/7 DeployTreasury ==="
 if [[ -z "${TREASURY_ADDRESS:-}" ]]; then
-  out=$(run_script script/DeployTreasury.s.sol:DeployTreasury 2>&1)
+  out=$(run_script script/DeployTreasury.s.sol:DeployTreasury --sig "run()" 2>&1)
   echo "$out"
   TREASURY=$(echo "$out" | parse_treasury)
   if [[ -n "$TREASURY" ]]; then
