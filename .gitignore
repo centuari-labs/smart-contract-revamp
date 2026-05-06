@@ -25,3 +25,5 @@ deployments/
 config/*
 !config/token-chain-matrix.json
 !config/layerzero-dvn.json
+
+output/
