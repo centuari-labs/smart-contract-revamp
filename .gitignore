@@ -12,7 +12,7 @@ out/
 docs/
 
 # Dotenv file
-.env
+.env*
 
 .vscode
 
@@ -22,3 +22,5 @@ abi/
 deployments/
 
 config/
+
+output/
