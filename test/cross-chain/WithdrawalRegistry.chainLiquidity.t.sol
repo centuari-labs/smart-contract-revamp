@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
@@ -40,28 +36,16 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
 
         // Deploy BalanceLedger
         BalanceLedger ledgerImpl = new BalanceLedger();
-        bytes memory ledgerInit = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, true)
-        );
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubDepositor
         HubDepositor depositorImpl = new HubDepositor();
-        bytes memory depositorInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, address(ledger))
-        );
-        TransparentUpgradeableProxy depositorProxy = new TransparentUpgradeableProxy(
-            address(depositorImpl),
-            address(this),
-            depositorInit
-        );
+        bytes memory depositorInit = abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)));
+        TransparentUpgradeableProxy depositorProxy =
+            new TransparentUpgradeableProxy(address(depositorImpl), address(this), depositorInit);
         depositor = HubDepositor(address(depositorProxy));
 
         riskModule = new RiskModuleStub(address(ledger));
@@ -70,19 +54,9 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         WithdrawalRegistry regImpl = new WithdrawalRegistry();
         bytes memory regInit = abi.encodeCall(
             WithdrawalRegistry.initialize,
-            (
-                owner,
-                operatorAddr,
-                address(ledger),
-                address(riskModule),
-                address(depositor)
-            )
+            (owner, operatorAddr, address(ledger), address(riskModule), address(depositor))
         );
-        TransparentUpgradeableProxy regProxy = new TransparentUpgradeableProxy(
-            address(regImpl),
-            address(this),
-            regInit
-        );
+        TransparentUpgradeableProxy regProxy = new TransparentUpgradeableProxy(address(regImpl), address(this), regInit);
         registry = WithdrawalRegistry(address(regProxy));
 
         // Wire
@@ -112,18 +86,10 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
     function test_IncrementChainLiquidity_HappyPath() public {
         vm.prank(settlerAddr);
         vm.expectEmit(true, true, false, true);
-        emit IWithdrawalRegistry.ChainLiquidityIncremented(
-            address(xsgd),
-            BASE_CHAIN_ID,
-            50e6,
-            50e6
-        );
+        emit IWithdrawalRegistry.ChainLiquidityIncremented(address(xsgd), BASE_CHAIN_ID, 50e6, 50e6);
         registry.incrementChainLiquidity(address(xsgd), BASE_CHAIN_ID, 50e6);
 
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            50e6
-        );
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 50e6);
     }
 
     function test_IncrementChainLiquidity_Accumulates() public {
@@ -132,10 +98,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         registry.incrementChainLiquidity(address(xsgd), BASE_CHAIN_ID, 20e6);
         vm.stopPrank();
 
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            50e6
-        );
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 50e6);
     }
 
     function test_IncrementChainLiquidity_RevertUnauthorized() public {
@@ -159,20 +122,13 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
 
         // Withdraw within liquidity.
         vm.prank(user);
-        bytes32 reqId = registry.requestWithdrawal(
-            address(xsgd),
-            50e6,
-            BASE_CHAIN_ID
-        );
+        bytes32 reqId = registry.requestWithdrawal(address(xsgd), 50e6, BASE_CHAIN_ID);
 
         assertTrue(reqId != bytes32(0));
         // Liquidity fully decremented.
         assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 0);
         // Ledger debited.
-        assertEq(
-            ledger.available(user, address(xsgd)),
-            DEPOSIT_AMOUNT - 50e6
-        );
+        assertEq(ledger.available(user, address(xsgd)), DEPOSIT_AMOUNT - 50e6);
     }
 
     function test_RequestWithdrawal_SpokeNative_PartialDecrement() public {
@@ -192,11 +148,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IWithdrawalRegistry.InsufficientChainLiquidity.selector,
-                address(xsgd),
-                BASE_CHAIN_ID,
-                10e6,
-                50e6
+                IWithdrawalRegistry.InsufficientChainLiquidity.selector, address(xsgd), BASE_CHAIN_ID, 10e6, 50e6
             )
         );
         registry.requestWithdrawal(address(xsgd), 50e6, BASE_CHAIN_ID);
@@ -207,11 +159,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         vm.prank(user);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IWithdrawalRegistry.InsufficientChainLiquidity.selector,
-                address(xsgd),
-                BASE_CHAIN_ID,
-                0,
-                10e6
+                IWithdrawalRegistry.InsufficientChainLiquidity.selector, address(xsgd), BASE_CHAIN_ID, 0, 10e6
             )
         );
         registry.requestWithdrawal(address(xsgd), 10e6, BASE_CHAIN_ID);
@@ -225,11 +173,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         assertEq(registry.chainLiquidity(address(usdc), BASE_CHAIN_ID), 0);
 
         vm.prank(user);
-        bytes32 reqId = registry.requestWithdrawal(
-            address(usdc),
-            10e6,
-            BASE_CHAIN_ID
-        );
+        bytes32 reqId = registry.requestWithdrawal(address(usdc), 10e6, BASE_CHAIN_ID);
         assertTrue(reqId != bytes32(0));
     }
 
@@ -237,11 +181,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         // Hub-native withdrawal (targetChainId == block.chainid) — no route
         // is flagged spoke-native for the hub chain, so capacity gate is a no-op.
         vm.prank(user);
-        bytes32 reqId = registry.requestWithdrawal(
-            address(usdc),
-            10e6,
-            block.chainid
-        );
+        bytes32 reqId = registry.requestWithdrawal(address(usdc), 10e6, block.chainid);
         assertTrue(reqId != bytes32(0));
     }
 
@@ -271,27 +211,17 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         vm.prank(owner);
         registry.setSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID, false);
 
-        assertFalse(
-            registry.isSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID)
-        );
+        assertFalse(registry.isSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID));
 
         // Now withdrawal succeeds without liquidity (route no longer spoke-native).
         vm.prank(user);
-        bytes32 reqId = registry.requestWithdrawal(
-            address(xsgd),
-            10e6,
-            BASE_CHAIN_ID
-        );
+        bytes32 reqId = registry.requestWithdrawal(address(xsgd), 10e6, BASE_CHAIN_ID);
         assertTrue(reqId != bytes32(0));
     }
 
     function test_Views_ReturnCorrectValues() public view {
         assertEq(registry.hubIntentSettler(), settlerAddr);
-        assertTrue(
-            registry.isSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID)
-        );
-        assertFalse(
-            registry.isSpokeNativeRoute(address(usdc), BASE_CHAIN_ID)
-        );
+        assertTrue(registry.isSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID));
+        assertFalse(registry.isSpokeNativeRoute(address(usdc), BASE_CHAIN_ID));
     }
 }

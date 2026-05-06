@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {IWithdrawalRegistry} from "../../interfaces/cross-chain/IWithdrawalRegistry.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -36,10 +32,10 @@ interface ILzEndpointSend {
         MessagingFee fee;
     }
 
-    function send(
-        MessagingParams calldata params,
-        address refundAddress
-    ) external payable returns (MessagingReceipt memory);
+    function send(MessagingParams calldata params, address refundAddress)
+        external
+        payable
+        returns (MessagingReceipt memory);
 }
 
 /// @title WithdrawalRegistry
@@ -122,11 +118,12 @@ contract WithdrawalRegistry is
     // ============ User Actions ============
 
     /// @inheritdoc IWithdrawalRegistry
-    function requestWithdrawal(
-        address asset,
-        uint256 amount,
-        uint256 targetChainId
-    ) external whenNotPaused nonReentrant returns (bytes32 requestId) {
+    function requestWithdrawal(address asset, uint256 amount, uint256 targetChainId)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (bytes32 requestId)
+    {
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
@@ -148,33 +145,15 @@ contract WithdrawalRegistry is
         if (_isSpokeNativeRoute[asset][targetChainId]) {
             uint256 available = _chainLiquidity[asset][targetChainId];
             if (available < amount) {
-                revert InsufficientChainLiquidity(
-                    asset,
-                    targetChainId,
-                    available,
-                    amount
-                );
+                revert InsufficientChainLiquidity(asset, targetChainId, available, amount);
             }
             _chainLiquidity[asset][targetChainId] = available - amount;
 
-            emit ChainLiquidityDecremented(
-                asset,
-                targetChainId,
-                amount,
-                available - amount
-            );
+            emit ChainLiquidityDecremented(asset, targetChainId, amount, available - amount);
         }
 
         // Generate unique requestId
-        requestId = keccak256(
-            abi.encode(
-                msg.sender,
-                asset,
-                amount,
-                targetChainId,
-                _requestCounter++
-            )
-        );
+        requestId = keccak256(abi.encode(msg.sender, asset, amount, targetChainId, _requestCounter++));
 
         // Store the request
         _requests[requestId] = WithdrawalRequest({
@@ -187,29 +166,18 @@ contract WithdrawalRegistry is
             updatedAt: uint64(block.timestamp)
         });
 
-        emit WithdrawalRequested(
-            requestId,
-            msg.sender,
-            asset,
-            amount,
-            targetChainId
-        );
+        emit WithdrawalRequested(requestId, msg.sender, asset, amount, targetChainId);
     }
 
     // ============ Operator Actions ============
 
     /// @inheritdoc IWithdrawalRegistry
-    function authorize(
-        bytes32 requestId
-    ) external payable onlyOperator whenNotPaused nonReentrant {
+    function authorize(bytes32 requestId) external payable onlyOperator whenNotPaused nonReentrant {
         WithdrawalRequest storage request = _requests[requestId];
         if (request.user == address(0)) revert InvalidRequestId();
 
         if (request.status != WithdrawalStatus.PENDING) {
-            revert InvalidStatusTransition(
-                request.status,
-                WithdrawalStatus.PROCESSING
-            );
+            revert InvalidStatusTransition(request.status, WithdrawalStatus.PROCESSING);
         }
 
         request.updatedAt = uint64(block.timestamp);
@@ -218,11 +186,7 @@ contract WithdrawalRegistry is
             // Hub-native shortcut: release tokens directly and complete
             request.status = WithdrawalStatus.COMPLETED;
 
-            IHubDepositor(_hubDepositor).payoutDirect(
-                request.user,
-                request.asset,
-                request.amount
-            );
+            IHubDepositor(_hubDepositor).payoutDirect(request.user, request.asset, request.amount);
 
             emit WithdrawalAuthorized(requestId);
             emit WithdrawalCompleted(requestId);
@@ -239,50 +203,33 @@ contract WithdrawalRegistry is
                 ? uint8(2) // SPOKE_NATIVE
                 : uint8(1); // BRIDGED
 
-            bytes memory payload = abi.encode(
-                requestId,
-                request.user,
-                request.asset,
-                request.amount,
-                classification
-            );
+            bytes memory payload = abi.encode(requestId, request.user, request.asset, request.amount, classification);
 
-            ILzEndpointSend.MessagingParams memory params = ILzEndpointSend
-                .MessagingParams({
-                    dstEid: spokeEid,
-                    receiver: peer,
-                    message: payload,
-                    options: bytes(""),
-                    payInLzToken: false
-                });
+            ILzEndpointSend.MessagingParams memory params = ILzEndpointSend.MessagingParams({
+                dstEid: spokeEid,
+                receiver: peer,
+                message: payload,
+                options: bytes(""),
+                payInLzToken: false
+            });
 
-            ILzEndpointSend.MessagingReceipt memory receipt = ILzEndpointSend(
-                _payoutEndpoint
-            ).send{value: msg.value}(params, msg.sender);
+            ILzEndpointSend.MessagingReceipt memory receipt =
+                ILzEndpointSend(_payoutEndpoint).send{value: msg.value}(params, msg.sender);
 
             request.status = WithdrawalStatus.PROCESSING;
 
             emit WithdrawalAuthorized(requestId);
-            emit PayoutDispatched(
-                requestId,
-                request.targetChainId,
-                receipt.guid
-            );
+            emit PayoutDispatched(requestId, request.targetChainId, receipt.guid);
         }
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function markCompleted(
-        bytes32 requestId
-    ) external onlyOperator nonReentrant {
+    function markCompleted(bytes32 requestId) external onlyOperator nonReentrant {
         WithdrawalRequest storage request = _requests[requestId];
         if (request.user == address(0)) revert InvalidRequestId();
 
         if (request.status != WithdrawalStatus.PROCESSING) {
-            revert InvalidStatusTransition(
-                request.status,
-                WithdrawalStatus.COMPLETED
-            );
+            revert InvalidStatusTransition(request.status, WithdrawalStatus.COMPLETED);
         }
 
         request.status = WithdrawalStatus.COMPLETED;
@@ -292,32 +239,20 @@ contract WithdrawalRegistry is
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function markFailed(
-        bytes32 requestId
-    ) external onlyOperator nonReentrant {
+    function markFailed(bytes32 requestId) external onlyOperator nonReentrant {
         WithdrawalRequest storage request = _requests[requestId];
         if (request.user == address(0)) revert InvalidRequestId();
 
         // Can fail from PENDING or PROCESSING
-        if (
-            request.status != WithdrawalStatus.PENDING &&
-            request.status != WithdrawalStatus.PROCESSING
-        ) {
-            revert InvalidStatusTransition(
-                request.status,
-                WithdrawalStatus.FAILED
-            );
+        if (request.status != WithdrawalStatus.PENDING && request.status != WithdrawalStatus.PROCESSING) {
+            revert InvalidStatusTransition(request.status, WithdrawalStatus.FAILED);
         }
 
         request.status = WithdrawalStatus.FAILED;
         request.updatedAt = uint64(block.timestamp);
 
         // Refund the user's available balance
-        IBalanceLedger(_balanceLedger).credit(
-            request.user,
-            request.asset,
-            request.amount
-        );
+        IBalanceLedger(_balanceLedger).credit(request.user, request.asset, request.amount);
 
         emit WithdrawalFailed(requestId);
     }
@@ -325,22 +260,13 @@ contract WithdrawalRegistry is
     // ============ M5 — Chain-liquidity management ============
 
     /// @inheritdoc IWithdrawalRegistry
-    function incrementChainLiquidity(
-        address asset,
-        uint256 chainId,
-        uint256 amount
-    ) external {
+    function incrementChainLiquidity(address asset, uint256 chainId, uint256 amount) external {
         if (msg.sender != _hubIntentSettler) revert Unauthorized();
         if (amount == 0) revert ZeroAmount();
 
         _chainLiquidity[asset][chainId] += amount;
 
-        emit ChainLiquidityIncremented(
-            asset,
-            chainId,
-            amount,
-            _chainLiquidity[asset][chainId]
-        );
+        emit ChainLiquidityIncremented(asset, chainId, amount, _chainLiquidity[asset][chainId]);
     }
 
     // ============ Governance ============
@@ -370,11 +296,7 @@ contract WithdrawalRegistry is
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function setSpokeNativeRoute(
-        address asset,
-        uint256 chainId,
-        bool enabled
-    ) external onlyOwner {
+    function setSpokeNativeRoute(address asset, uint256 chainId, bool enabled) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
         _isSpokeNativeRoute[asset][chainId] = enabled;
         emit SpokeNativeRouteSet(asset, chainId, enabled);
@@ -428,9 +350,7 @@ contract WithdrawalRegistry is
     // ============ Views ============
 
     /// @inheritdoc IWithdrawalRegistry
-    function getRequest(
-        bytes32 requestId
-    ) external view returns (WithdrawalRequest memory) {
+    function getRequest(bytes32 requestId) external view returns (WithdrawalRequest memory) {
         return _requests[requestId];
     }
 
@@ -460,18 +380,12 @@ contract WithdrawalRegistry is
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function chainLiquidity(
-        address asset,
-        uint256 chainId
-    ) external view returns (uint256) {
+    function chainLiquidity(address asset, uint256 chainId) external view returns (uint256) {
         return _chainLiquidity[asset][chainId];
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function isSpokeNativeRoute(
-        address asset,
-        uint256 chainId
-    ) external view returns (bool) {
+    function isSpokeNativeRoute(address asset, uint256 chainId) external view returns (bool) {
         return _isSpokeNativeRoute[asset][chainId];
     }
 
@@ -491,9 +405,7 @@ contract WithdrawalRegistry is
     }
 
     /// @inheritdoc IWithdrawalRegistry
-    function spokeEidByChainId(
-        uint256 chainId
-    ) external view returns (uint32) {
+    function spokeEidByChainId(uint256 chainId) external view returns (uint32) {
         return _spokeEidByChainId[chainId];
     }
 }

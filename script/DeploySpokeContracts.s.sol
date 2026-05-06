@@ -27,40 +27,19 @@ contract DeploySpokeContracts is Script {
     /// @param lzEndpoint LayerZero V2 endpoint on this spoke chain
     /// @param hubEid LayerZero endpoint id of the hub (Arbitrum)
     /// @param proxyAdminOwner Owner of each ProxyAdmin (e.g. multisig)
-    function run(
-        address owner,
-        address lzEndpoint,
-        uint32 hubEid,
-        address proxyAdminOwner
-    ) external {
+    function run(address owner, address lzEndpoint, uint32 hubEid, address proxyAdminOwner) external {
         vm.startBroadcast();
 
         // 1. SpokeVaultStable
-        (
-            address vaultProxy,
-            address vaultImpl,
-            address vaultProxyAdmin
-        ) = _deployVault(owner, proxyAdminOwner);
+        (address vaultProxy, address vaultImpl, address vaultProxyAdmin) = _deployVault(owner, proxyAdminOwner);
 
         // 2. SpokePayout
-        (
-            address payoutProxy,
-            address payoutImpl,
-            address payoutProxyAdmin
-        ) = _deployPayout(owner, vaultProxy, lzEndpoint, proxyAdminOwner);
+        (address payoutProxy, address payoutImpl, address payoutProxyAdmin) =
+            _deployPayout(owner, vaultProxy, lzEndpoint, proxyAdminOwner);
 
         // 3. SpokeDepositGateway
-        (
-            address gatewayProxy,
-            address gatewayImpl,
-            address gatewayProxyAdmin
-        ) = _deployGateway(
-                owner,
-                vaultProxy,
-                lzEndpoint,
-                hubEid,
-                proxyAdminOwner
-            );
+        (address gatewayProxy, address gatewayImpl, address gatewayProxyAdmin) =
+            _deployGateway(owner, vaultProxy, lzEndpoint, hubEid, proxyAdminOwner);
 
         vm.stopBroadcast();
 
@@ -80,79 +59,44 @@ contract DeploySpokeContracts is Script {
         console.log("ProxyAdmin Owner:", proxyAdminOwner);
     }
 
-    function _deployVault(
-        address owner,
-        address proxyAdminOwner
-    )
+    function _deployVault(address owner, address proxyAdminOwner)
         internal
         returns (address proxy, address impl, address proxyAdmin)
     {
         SpokeVaultStable implContract = new SpokeVaultStable();
         impl = address(implContract);
 
-        bytes memory initData = abi.encodeCall(
-            SpokeVaultStable.initialize,
-            (owner)
-        );
+        bytes memory initData = abi.encodeCall(SpokeVaultStable.initialize, (owner));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            impl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(impl, proxyAdminOwner, initData);
         proxy = address(transparentProxy);
         proxyAdmin = _getProxyAdmin(proxy);
     }
 
-    function _deployPayout(
-        address owner,
-        address vault,
-        address lzEndpoint,
-        address proxyAdminOwner
-    )
+    function _deployPayout(address owner, address vault, address lzEndpoint, address proxyAdminOwner)
         internal
         returns (address proxy, address impl, address proxyAdmin)
     {
         SpokePayout implContract = new SpokePayout();
         impl = address(implContract);
 
-        bytes memory initData = abi.encodeCall(
-            SpokePayout.initialize,
-            (owner, vault, lzEndpoint)
-        );
+        bytes memory initData = abi.encodeCall(SpokePayout.initialize, (owner, vault, lzEndpoint));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            impl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(impl, proxyAdminOwner, initData);
         proxy = address(transparentProxy);
         proxyAdmin = _getProxyAdmin(proxy);
     }
 
-    function _deployGateway(
-        address owner,
-        address vault,
-        address lzEndpoint,
-        uint32 hubEid,
-        address proxyAdminOwner
-    )
+    function _deployGateway(address owner, address vault, address lzEndpoint, uint32 hubEid, address proxyAdminOwner)
         internal
         returns (address proxy, address impl, address proxyAdmin)
     {
         SpokeDepositGateway implContract = new SpokeDepositGateway();
         impl = address(implContract);
 
-        bytes memory initData = abi.encodeCall(
-            SpokeDepositGateway.initialize,
-            (owner, vault, lzEndpoint, hubEid)
-        );
+        bytes memory initData = abi.encodeCall(SpokeDepositGateway.initialize, (owner, vault, lzEndpoint, hubEid));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            impl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(impl, proxyAdminOwner, initData);
         proxy = address(transparentProxy);
         proxyAdmin = _getProxyAdmin(proxy);
     }

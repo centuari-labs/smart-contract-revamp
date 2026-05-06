@@ -78,16 +78,10 @@ interface IHubIntentSettler {
     event WithdrawalRegistryUpdated(address indexed registry);
 
     /// @notice Emitted when the operator address is updated
-    event OperatorUpdated(
-        address indexed previousOperator,
-        address indexed newOperator
-    );
+    event OperatorUpdated(address indexed previousOperator, address indexed newOperator);
 
     /// @notice Emitted when the SettlementLedger pointer is updated
-    event SettlementLedgerUpdated(
-        address indexed previousSettlementLedger,
-        address indexed newSettlementLedger
-    );
+    event SettlementLedgerUpdated(address indexed previousSettlementLedger, address indexed newSettlementLedger);
 
     /// @notice Emitted when the contract is paused
     event Paused(address account);
@@ -130,13 +124,7 @@ interface IHubIntentSettler {
     /// @param asset The ERC20 token being deposited
     /// @param amount The amount to credit
     /// @param sourceChainId The spoke chain where the deposit originated
-    function fillFor(
-        bytes32 depositId,
-        address user,
-        address asset,
-        uint256 amount,
-        uint256 sourceChainId
-    ) external;
+    function fillFor(bytes32 depositId, address user, address asset, uint256 amount, uint256 sourceChainId) external;
 
     /// @notice Mark a deposit as unfilled after the fill window expires
     /// @dev Callable by the operator/keeper. In M5, this also dispatches a
@@ -150,11 +138,7 @@ interface IHubIntentSettler {
     /// @param solver The solver to reimburse
     /// @param asset The ERC20 token to release
     /// @param amount The amount to release
-    function releaseToSolver(
-        address solver,
-        address asset,
-        uint256 amount
-    ) external;
+    function releaseToSolver(address solver, address asset, uint256 amount) external;
 
     // ============ Governance ============
 
@@ -197,9 +181,7 @@ interface IHubIntentSettler {
     /// @notice Get the status of a deposit
     /// @param depositId The deposit to query
     /// @return The current status (NONE if unprocessed)
-    function depositStatus(
-        bytes32 depositId
-    ) external view returns (DepositStatus);
+    function depositStatus(bytes32 depositId) external view returns (DepositStatus);
 
     /// @notice The BalanceLedger this settler credits
     function balanceLedger() external view returns (address);

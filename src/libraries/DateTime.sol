@@ -16,11 +16,7 @@ library DateTime {
     /// @return year The year (e.g., 2025)
     /// @return month The month (1-12)
     /// @return day The day (1-31)
-    function timestampToDate(uint256 timestamp)
-        internal
-        pure
-        returns (uint256 year, uint256 month, uint256 day)
-    {
+    function timestampToDate(uint256 timestamp) internal pure returns (uint256 year, uint256 month, uint256 day) {
         unchecked {
             int256 L = int256(timestamp / SECONDS_PER_DAY) + 68569 + OFFSET19700101;
             int256 N = (4 * L) / 146097;
@@ -63,15 +59,8 @@ library DateTime {
     /// @return Formatted date string
     function formatDate(uint256 timestamp) internal pure returns (string memory) {
         (uint256 year, uint256 month, uint256 day) = timestampToDate(timestamp);
-        return string(
-            abi.encodePacked(
-                uintToString(day),
-                " ",
-                getMonthAbbreviationUpper(month),
-                " ",
-                uintToString(year)
-            )
-        );
+        return
+            string(abi.encodePacked(uintToString(day), " ", getMonthAbbreviationUpper(month), " ", uintToString(year)));
     }
 
     /// @notice Format date for symbol as "1JAN25"
@@ -81,13 +70,7 @@ library DateTime {
         (uint256 year, uint256 month, uint256 day) = timestampToDate(timestamp);
         // Get last 2 digits of year
         uint256 yearShort = year % 100;
-        return string(
-            abi.encodePacked(
-                uintToString(day),
-                getMonthAbbreviationUpper(month),
-                uintToString(yearShort)
-            )
-        );
+        return string(abi.encodePacked(uintToString(day), getMonthAbbreviationUpper(month), uintToString(yearShort)));
     }
 
     /// @notice Convert uint to string
@@ -112,4 +95,3 @@ library DateTime {
         return string(buffer);
     }
 }
-

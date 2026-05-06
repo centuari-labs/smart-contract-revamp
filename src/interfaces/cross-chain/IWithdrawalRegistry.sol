@@ -45,11 +45,7 @@ interface IWithdrawalRegistry {
     /// @param amount The amount being withdrawn
     /// @param targetChainId The chain where tokens should arrive
     event WithdrawalRequested(
-        bytes32 indexed requestId,
-        address indexed user,
-        address indexed asset,
-        uint256 amount,
-        uint256 targetChainId
+        bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount, uint256 targetChainId
     );
 
     /// @notice Emitted when the operator authorizes a withdrawal for processing
@@ -65,22 +61,13 @@ interface IWithdrawalRegistry {
     event WithdrawalFailed(bytes32 indexed requestId);
 
     /// @notice Emitted when the operator address is updated
-    event OperatorUpdated(
-        address indexed previousOperator,
-        address indexed newOperator
-    );
+    event OperatorUpdated(address indexed previousOperator, address indexed newOperator);
 
     /// @notice Emitted when the RiskModule pointer is updated
-    event RiskModuleUpdated(
-        address indexed previousRiskModule,
-        address indexed newRiskModule
-    );
+    event RiskModuleUpdated(address indexed previousRiskModule, address indexed newRiskModule);
 
     /// @notice Emitted when the HubDepositor pointer is updated
-    event HubDepositorUpdated(
-        address indexed previousHubDepositor,
-        address indexed newHubDepositor
-    );
+    event HubDepositorUpdated(address indexed previousHubDepositor, address indexed newHubDepositor);
 
     /// @notice Emitted when the contract is paused
     event Paused(address account);
@@ -90,38 +77,20 @@ interface IWithdrawalRegistry {
 
     /// @notice Emitted when chain liquidity is incremented by a confirmed
     ///         SPOKE_NATIVE deposit.
-    event ChainLiquidityIncremented(
-        address indexed asset,
-        uint256 indexed chainId,
-        uint256 amount,
-        uint256 newTotal
-    );
+    event ChainLiquidityIncremented(address indexed asset, uint256 indexed chainId, uint256 amount, uint256 newTotal);
 
     /// @notice Emitted when chain liquidity is decremented by a SPOKE_NATIVE
     ///         withdrawal request.
-    event ChainLiquidityDecremented(
-        address indexed asset,
-        uint256 indexed chainId,
-        uint256 amount,
-        uint256 newTotal
-    );
+    event ChainLiquidityDecremented(address indexed asset, uint256 indexed chainId, uint256 amount, uint256 newTotal);
 
     /// @notice Emitted when the HubIntentSettler pointer is updated.
     event HubIntentSettlerUpdated(address indexed settler);
 
     /// @notice Emitted when a spoke-native route flag is set.
-    event SpokeNativeRouteSet(
-        address indexed asset,
-        uint256 indexed chainId,
-        bool enabled
-    );
+    event SpokeNativeRouteSet(address indexed asset, uint256 indexed chainId, bool enabled);
 
     /// @notice Emitted when a payout message is dispatched via LZ to a spoke.
-    event PayoutDispatched(
-        bytes32 indexed requestId,
-        uint256 indexed targetChainId,
-        bytes32 lzGuid
-    );
+    event PayoutDispatched(bytes32 indexed requestId, uint256 indexed targetChainId, bytes32 lzGuid);
 
     /// @notice Emitted when the payout endpoint is updated.
     event PayoutEndpointUpdated(address indexed endpoint);
@@ -149,10 +118,7 @@ interface IWithdrawalRegistry {
     error InvalidRequestId();
 
     /// @notice Thrown when a status transition is not allowed
-    error InvalidStatusTransition(
-        WithdrawalStatus current,
-        WithdrawalStatus target
-    );
+    error InvalidStatusTransition(WithdrawalStatus current, WithdrawalStatus target);
 
     /// @notice Thrown when an unauthorized caller attempts a restricted action
     error Unauthorized();
@@ -170,12 +136,7 @@ interface IWithdrawalRegistry {
     error PayoutPeerNotSet(uint32 eid);
 
     /// @notice Thrown when a SPOKE_NATIVE withdrawal exceeds chain liquidity
-    error InsufficientChainLiquidity(
-        address asset,
-        uint256 chainId,
-        uint256 available,
-        uint256 requested
-    );
+    error InsufficientChainLiquidity(address asset, uint256 chainId, uint256 available, uint256 requested);
 
     // ============ User Actions ============
 
@@ -187,11 +148,9 @@ interface IWithdrawalRegistry {
     /// @param amount The amount to withdraw
     /// @param targetChainId The destination chain (use block.chainid for hub)
     /// @return requestId Unique identifier for tracking this withdrawal
-    function requestWithdrawal(
-        address asset,
-        uint256 amount,
-        uint256 targetChainId
-    ) external returns (bytes32 requestId);
+    function requestWithdrawal(address asset, uint256 amount, uint256 targetChainId)
+        external
+        returns (bytes32 requestId);
 
     // ============ Operator Actions ============
 
@@ -231,22 +190,14 @@ interface IWithdrawalRegistry {
 
     /// @notice Increment chain liquidity for a SPOKE_NATIVE deposit.
     ///         Callable only by the HubIntentSettler.
-    function incrementChainLiquidity(
-        address asset,
-        uint256 chainId,
-        uint256 amount
-    ) external;
+    function incrementChainLiquidity(address asset, uint256 chainId, uint256 amount) external;
 
     /// @notice Set the HubIntentSettler pointer (owner-only).
     function setHubIntentSettler(address settler) external;
 
     /// @notice Mark/unmark an (asset, chainId) pair as a spoke-native route
     ///         for the chain-liquidity capacity gate (owner-only).
-    function setSpokeNativeRoute(
-        address asset,
-        uint256 chainId,
-        bool enabled
-    ) external;
+    function setSpokeNativeRoute(address asset, uint256 chainId, bool enabled) external;
 
     /// @notice Set the LZ endpoint for payout dispatch (owner-only).
     function setPayoutEndpoint(address endpoint) external;
@@ -268,9 +219,7 @@ interface IWithdrawalRegistry {
     /// @notice Get the full details of a withdrawal request
     /// @param requestId The request to query
     /// @return The withdrawal request struct
-    function getRequest(
-        bytes32 requestId
-    ) external view returns (WithdrawalRequest memory);
+    function getRequest(bytes32 requestId) external view returns (WithdrawalRequest memory);
 
     /// @notice The BalanceLedger this registry interacts with
     function balanceLedger() external view returns (address);
@@ -288,16 +237,10 @@ interface IWithdrawalRegistry {
     function paused() external view returns (bool);
 
     /// @notice Physical chain liquidity for a (token, chainId) pair.
-    function chainLiquidity(
-        address asset,
-        uint256 chainId
-    ) external view returns (uint256);
+    function chainLiquidity(address asset, uint256 chainId) external view returns (uint256);
 
     /// @notice Whether (asset, chainId) is flagged as a spoke-native route.
-    function isSpokeNativeRoute(
-        address asset,
-        uint256 chainId
-    ) external view returns (bool);
+    function isSpokeNativeRoute(address asset, uint256 chainId) external view returns (bool);
 
     /// @notice The HubIntentSettler allowed to increment chain liquidity.
     function hubIntentSettler() external view returns (address);

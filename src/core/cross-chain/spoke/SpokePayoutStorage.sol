@@ -31,8 +31,7 @@ abstract contract SpokePayoutStorage {
     // ============ Pending payout queue ============
 
     /// @notice (user, asset) → ordered list of queued BRIDGED payouts.
-    mapping(address => mapping(address => ISpokePayout.PendingPayout[]))
-        internal _pendingPayouts;
+    mapping(address => mapping(address => ISpokePayout.PendingPayout[])) internal _pendingPayouts;
 
     // ============ Storage Gap ============
 

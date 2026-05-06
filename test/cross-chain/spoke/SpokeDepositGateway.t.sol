@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test, Vm} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {SpokeVaultStable} from "../../../src/core/cross-chain/spoke/SpokeVaultStable.sol";
 import {SpokeDepositGateway} from "../../../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
@@ -36,48 +34,24 @@ contract SpokeDepositGatewayTest is Test {
         lz = new MockLZEndpoint(SPOKE_EID);
 
         SpokeVaultStable vaultImpl = new SpokeVaultStable();
-        bytes memory vaultInit = abi.encodeCall(
-            SpokeVaultStable.initialize,
-            (owner)
-        );
-        TransparentUpgradeableProxy vaultProxy = new TransparentUpgradeableProxy(
-            address(vaultImpl),
-            address(this),
-            vaultInit
-        );
+        bytes memory vaultInit = abi.encodeCall(SpokeVaultStable.initialize, (owner));
+        TransparentUpgradeableProxy vaultProxy =
+            new TransparentUpgradeableProxy(address(vaultImpl), address(this), vaultInit);
         vault = SpokeVaultStable(address(vaultProxy));
 
         SpokeDepositGateway gwImpl = new SpokeDepositGateway();
-        bytes memory gwInit = abi.encodeCall(
-            SpokeDepositGateway.initialize,
-            (owner, address(vault), address(lz), HUB_EID)
-        );
-        TransparentUpgradeableProxy gwProxy = new TransparentUpgradeableProxy(
-            address(gwImpl),
-            address(this),
-            gwInit
-        );
+        bytes memory gwInit =
+            abi.encodeCall(SpokeDepositGateway.initialize, (owner, address(vault), address(lz), HUB_EID));
+        TransparentUpgradeableProxy gwProxy = new TransparentUpgradeableProxy(address(gwImpl), address(this), gwInit);
         gateway = SpokeDepositGateway(address(gwProxy));
 
         // Wire roles + classifications + peer.
         vm.startPrank(owner);
         vault.setGateway(address(gateway));
-        vault.setAssetClassification(
-            address(usdc),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
-        vault.setAssetClassification(
-            address(xsgd),
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        );
-        gateway.setAssetClassification(
-            address(usdc),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
-        gateway.setAssetClassification(
-            address(xsgd),
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        );
+        vault.setAssetClassification(address(usdc), ISpokeVaultStable.AssetClassification.BRIDGED);
+        vault.setAssetClassification(address(xsgd), ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
+        gateway.setAssetClassification(address(usdc), ISpokeVaultStable.AssetClassification.BRIDGED);
+        gateway.setAssetClassification(address(xsgd), ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
         gateway.setPeer(HUB_EID, _addr(hubPeer));
         vm.stopPrank();
 
@@ -103,20 +77,14 @@ contract SpokeDepositGatewayTest is Test {
 
     function test_Initialize_RevertZeroVault() public {
         SpokeDepositGateway impl = new SpokeDepositGateway();
-        bytes memory bad = abi.encodeCall(
-            SpokeDepositGateway.initialize,
-            (owner, address(0), address(lz), HUB_EID)
-        );
+        bytes memory bad = abi.encodeCall(SpokeDepositGateway.initialize, (owner, address(0), address(lz), HUB_EID));
         vm.expectRevert(ISpokeDepositGateway.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), bad);
     }
 
     function test_Initialize_RevertZeroEndpoint() public {
         SpokeDepositGateway impl = new SpokeDepositGateway();
-        bytes memory bad = abi.encodeCall(
-            SpokeDepositGateway.initialize,
-            (owner, address(vault), address(0), HUB_EID)
-        );
+        bytes memory bad = abi.encodeCall(SpokeDepositGateway.initialize, (owner, address(vault), address(0), HUB_EID));
         vm.expectRevert(ISpokeDepositGateway.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), bad);
     }
@@ -138,20 +106,13 @@ contract SpokeDepositGatewayTest is Test {
         // User nonce bumped.
         assertEq(gateway.userNonce(user), 1);
         // Deterministic id.
-        assertEq(
-            depositId,
-            keccak256(abi.encode(block.chainid, user, uint256(0)))
-        );
+        assertEq(depositId, keccak256(abi.encode(block.chainid, user, uint256(0))));
         // Pending state persisted.
-        ISpokeDepositGateway.PendingDeposit memory pd = gateway
-            .pendingDeposit(depositId);
+        ISpokeDepositGateway.PendingDeposit memory pd = gateway.pendingDeposit(depositId);
         assertEq(pd.user, user);
         assertEq(pd.asset, address(usdc));
         assertEq(pd.amount, amount);
-        assertEq(
-            uint8(pd.classification),
-            uint8(ISpokeVaultStable.AssetClassification.BRIDGED)
-        );
+        assertEq(uint8(pd.classification), uint8(ISpokeVaultStable.AssetClassification.BRIDGED));
         assertEq(pd.timestamp, uint64(block.timestamp));
         assertFalse(pd.refunded);
         // LZ packet captured.
@@ -167,18 +128,12 @@ contract SpokeDepositGatewayTest is Test {
             uint256 payloadAmount,
             uint8 payloadCls,
             uint256 payloadChainId
-        ) = abi.decode(
-                pkt.message,
-                (bytes32, address, address, uint256, uint8, uint256)
-            );
+        ) = abi.decode(pkt.message, (bytes32, address, address, uint256, uint8, uint256));
         assertEq(payloadDepositId, depositId);
         assertEq(payloadUser, user);
         assertEq(payloadAsset, address(usdc));
         assertEq(payloadAmount, amount);
-        assertEq(
-            payloadCls,
-            uint8(ISpokeVaultStable.AssetClassification.BRIDGED)
-        );
+        assertEq(payloadCls, uint8(ISpokeVaultStable.AssetClassification.BRIDGED));
         assertEq(payloadChainId, block.chainid);
     }
 
@@ -193,9 +148,7 @@ contract SpokeDepositGatewayTest is Test {
         vm.stopPrank();
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool found;
-        bytes32 depositInitiatedSig = keccak256(
-            "DepositInitiated(bytes32,address,address,uint256,uint32,bytes32)"
-        );
+        bytes32 depositInitiatedSig = keccak256("DepositInitiated(bytes32,address,address,uint256,uint32,bytes32)");
         for (uint256 i = 0; i < entries.length; i++) {
             if (entries[i].topics[0] == depositInitiatedSig) {
                 found = true;
@@ -243,22 +196,12 @@ contract SpokeDepositGatewayTest is Test {
         vm.stopPrank();
 
         assertEq(vault.spokeNativeBalance(address(xsgd)), amount);
-        ISpokeDepositGateway.PendingDeposit memory pd = gateway
-            .pendingDeposit(depositId);
-        assertEq(
-            uint8(pd.classification),
-            uint8(ISpokeVaultStable.AssetClassification.SPOKE_NATIVE)
-        );
+        ISpokeDepositGateway.PendingDeposit memory pd = gateway.pendingDeposit(depositId);
+        assertEq(uint8(pd.classification), uint8(ISpokeVaultStable.AssetClassification.SPOKE_NATIVE));
         // Payload classification byte.
         MockLZEndpoint.CapturedPacket memory pkt = lz.packetAt(0);
-        (, , , , uint8 cls, ) = abi.decode(
-            pkt.message,
-            (bytes32, address, address, uint256, uint8, uint256)
-        );
-        assertEq(
-            cls,
-            uint8(ISpokeVaultStable.AssetClassification.SPOKE_NATIVE)
-        );
+        (,,,, uint8 cls,) = abi.decode(pkt.message, (bytes32, address, address, uint256, uint8, uint256));
+        assertEq(cls, uint8(ISpokeVaultStable.AssetClassification.SPOKE_NATIVE));
     }
 
     // ============ deposit reverts ============
@@ -291,12 +234,7 @@ contract SpokeDepositGatewayTest is Test {
         gateway.setPeer(HUB_EID, bytes32(0));
         vm.startPrank(user);
         usdc.approve(address(gateway), 1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeDepositGateway.PeerNotSet.selector,
-                HUB_EID
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeDepositGateway.PeerNotSet.selector, HUB_EID));
         gateway.deposit(address(usdc), 1);
         vm.stopPrank();
     }
@@ -306,13 +244,7 @@ contract SpokeDepositGatewayTest is Test {
         uint256 fee = lz.nativeFee();
         vm.startPrank(user);
         usdc.approve(address(gateway), amount);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeDepositGateway.InsufficientLzFee.selector,
-                0,
-                fee
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeDepositGateway.InsufficientLzFee.selector, 0, fee));
         gateway.deposit(address(usdc), amount);
         vm.stopPrank();
     }
@@ -348,19 +280,12 @@ contract SpokeDepositGatewayTest is Test {
 
         vm.prank(user);
         vm.expectEmit(true, true, true, true);
-        emit ISpokeDepositGateway.DepositRefunded(
-            depositId,
-            user,
-            address(usdc),
-            amount
-        );
+        emit ISpokeDepositGateway.DepositRefunded(depositId, user, address(usdc), amount);
         gateway.refund(depositId);
 
         assertEq(usdc.balanceOf(user), userBalanceBefore + amount);
         assertEq(vault.bridgedBalance(address(usdc)), 0);
-        ISpokeDepositGateway.PendingDeposit memory pd = gateway.pendingDeposit(
-            depositId
-        );
+        ISpokeDepositGateway.PendingDeposit memory pd = gateway.pendingDeposit(depositId);
         assertTrue(pd.refunded);
     }
 
@@ -373,12 +298,7 @@ contract SpokeDepositGatewayTest is Test {
 
         uint64 unlockAt = uint64(block.timestamp) + 30 minutes;
         vm.prank(user);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeDepositGateway.RefundNotYetAllowed.selector,
-                unlockAt
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeDepositGateway.RefundNotYetAllowed.selector, unlockAt));
         gateway.refund(depositId);
     }
 
@@ -391,9 +311,7 @@ contract SpokeDepositGatewayTest is Test {
 
         vm.warp(block.timestamp + 1 hours);
         vm.prank(user);
-        vm.expectRevert(
-            ISpokeDepositGateway.RefundNotPermittedForSpokeNative.selector
-        );
+        vm.expectRevert(ISpokeDepositGateway.RefundNotPermittedForSpokeNative.selector);
         gateway.refund(depositId);
     }
 
@@ -463,4 +381,3 @@ contract SpokeDepositGatewayTest is Test {
         assertEq(fee, lz.nativeFee());
     }
 }
-

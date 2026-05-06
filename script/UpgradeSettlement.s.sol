@@ -15,10 +15,7 @@ contract UpgradeSettlement is Script {
     /// @param proxyAdmin The ProxyAdmin contract address
     /// @param proxy The TransparentUpgradeableProxy address
     /// @return newImplementation The new implementation address
-    function run(
-        address proxyAdmin,
-        address proxy
-    ) external returns (address newImplementation) {
+    function run(address proxyAdmin, address proxy) external returns (address newImplementation) {
         vm.startBroadcast();
 
         newImplementation = upgrade(proxyAdmin, proxy);
@@ -38,11 +35,10 @@ contract UpgradeSettlement is Script {
     /// @param proxy The TransparentUpgradeableProxy address
     /// @param initData The initialization data for the new implementation (if any)
     /// @return newImplementation The new implementation address
-    function runWithInit(
-        address proxyAdmin,
-        address proxy,
-        bytes calldata initData
-    ) external returns (address newImplementation) {
+    function runWithInit(address proxyAdmin, address proxy, bytes calldata initData)
+        external
+        returns (address newImplementation)
+    {
         vm.startBroadcast();
 
         newImplementation = upgradeAndCall(proxyAdmin, proxy, initData);
@@ -61,10 +57,7 @@ contract UpgradeSettlement is Script {
     /// @param proxyAdmin The ProxyAdmin contract address
     /// @param proxy The TransparentUpgradeableProxy address
     /// @return newImplementation The new implementation address
-    function upgrade(
-        address proxyAdmin,
-        address proxy
-    ) public returns (address newImplementation) {
+    function upgrade(address proxyAdmin, address proxy) public returns (address newImplementation) {
         // 1. Deploy new Settlement implementation
         Settlement newSettlementImpl = new Settlement();
         newImplementation = address(newSettlementImpl);
@@ -84,21 +77,16 @@ contract UpgradeSettlement is Script {
     /// @param proxy The TransparentUpgradeableProxy address
     /// @param initData The initialization data for the new implementation
     /// @return newImplementation The new implementation address
-    function upgradeAndCall(
-        address proxyAdmin,
-        address proxy,
-        bytes memory initData
-    ) public returns (address newImplementation) {
+    function upgradeAndCall(address proxyAdmin, address proxy, bytes memory initData)
+        public
+        returns (address newImplementation)
+    {
         // 1. Deploy new Settlement implementation
         Settlement newSettlementImpl = new Settlement();
         newImplementation = address(newSettlementImpl);
 
         // 2. Upgrade proxy to new implementation with initialization
-        ProxyAdmin(proxyAdmin).upgradeAndCall(
-            ITransparentUpgradeableProxy(proxy),
-            newImplementation,
-            initData
-        );
+        ProxyAdmin(proxyAdmin).upgradeAndCall(ITransparentUpgradeableProxy(proxy), newImplementation, initData);
 
         return newImplementation;
     }
@@ -107,16 +95,8 @@ contract UpgradeSettlement is Script {
     /// @param proxyAdmin The ProxyAdmin contract address
     /// @param proxy The TransparentUpgradeableProxy address
     /// @param newImplementation The new implementation address to upgrade to
-    function upgradeToImplementation(
-        address proxyAdmin,
-        address proxy,
-        address newImplementation
-    ) public {
-        ProxyAdmin(proxyAdmin).upgradeAndCall(
-            ITransparentUpgradeableProxy(proxy),
-            newImplementation,
-            ""
-        );
+    function upgradeToImplementation(address proxyAdmin, address proxy, address newImplementation) public {
+        ProxyAdmin(proxyAdmin).upgradeAndCall(ITransparentUpgradeableProxy(proxy), newImplementation, "");
     }
 
     /// @notice Upgrade to a specific implementation address with initialization
@@ -130,10 +110,6 @@ contract UpgradeSettlement is Script {
         address newImplementation,
         bytes memory initData
     ) public {
-        ProxyAdmin(proxyAdmin).upgradeAndCall(
-            ITransparentUpgradeableProxy(proxy),
-            newImplementation,
-            initData
-        );
+        ProxyAdmin(proxyAdmin).upgradeAndCall(ITransparentUpgradeableProxy(proxy), newImplementation, initData);
     }
 }

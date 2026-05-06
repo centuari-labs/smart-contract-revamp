@@ -17,25 +17,13 @@ contract DeployHubDepositor is Script {
     /// @return hubDepositorProxy HubDepositor proxy address
     /// @return hubDepositorImpl HubDepositor implementation address
     /// @return proxyAdmin ProxyAdmin address
-    function run(
-        address owner,
-        address balanceLedger,
-        address proxyAdminOwner
-    )
+    function run(address owner, address balanceLedger, address proxyAdminOwner)
         external
-        returns (
-            address hubDepositorProxy,
-            address hubDepositorImpl,
-            address proxyAdmin
-        )
+        returns (address hubDepositorProxy, address hubDepositorImpl, address proxyAdmin)
     {
         vm.startBroadcast();
 
-        (hubDepositorProxy, hubDepositorImpl, proxyAdmin) = deploy(
-            owner,
-            balanceLedger,
-            proxyAdminOwner
-        );
+        (hubDepositorProxy, hubDepositorImpl, proxyAdmin) = deploy(owner, balanceLedger, proxyAdminOwner);
 
         vm.stopBroadcast();
 
@@ -54,31 +42,17 @@ contract DeployHubDepositor is Script {
     /// @param owner HubDepositor owner
     /// @param balanceLedger BalanceLedger proxy address
     /// @param proxyAdminOwner Owner of the ProxyAdmin
-    function deploy(
-        address owner,
-        address balanceLedger,
-        address proxyAdminOwner
-    )
+    function deploy(address owner, address balanceLedger, address proxyAdminOwner)
         public
-        returns (
-            address hubDepositorProxy,
-            address hubDepositorImpl,
-            address proxyAdmin
-        )
+        returns (address hubDepositorProxy, address hubDepositorImpl, address proxyAdmin)
     {
         HubDepositor impl = new HubDepositor();
         hubDepositorImpl = address(impl);
 
-        bytes memory initData = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, balanceLedger)
-        );
+        bytes memory initData = abi.encodeCall(HubDepositor.initialize, (owner, balanceLedger));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            hubDepositorImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(hubDepositorImpl, proxyAdminOwner, initData);
         hubDepositorProxy = address(transparentProxy);
 
         proxyAdmin = _getProxyAdmin(hubDepositorProxy);

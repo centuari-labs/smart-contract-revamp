@@ -18,8 +18,7 @@ abstract contract SpokeVaultStableStorage {
     mapping(address => uint256) internal _spokeNativeBalance;
 
     /// @notice Routing classification per registered asset.
-    mapping(address => ISpokeVaultStable.AssetClassification)
-        internal _classifications;
+    mapping(address => ISpokeVaultStable.AssetClassification) internal _classifications;
 
     /// @notice Per-asset Stargate router pointer (BRIDGED only).
     mapping(address => address) internal _stargateRouter;

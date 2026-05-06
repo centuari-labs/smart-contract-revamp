@@ -91,11 +91,7 @@ contract MockLZEndpoint {
     );
 
     event PacketDelivered(
-        address indexed receiver,
-        uint32 indexed srcEid,
-        bytes32 indexed sender,
-        uint64 nonce,
-        bytes32 guid
+        address indexed receiver, uint32 indexed srcEid, bytes32 indexed sender, uint64 nonce, bytes32 guid
     );
 
     // ============ Errors ============
@@ -130,25 +126,21 @@ contract MockLZEndpoint {
         return _packets.length;
     }
 
-    function packetAt(
-        uint256 index
-    ) external view returns (CapturedPacket memory) {
+    function packetAt(uint256 index) external view returns (CapturedPacket memory) {
         return _packets[index];
     }
 
     // ============ LZ-like Surface ============
 
-    function quote(
-        MessagingParams calldata,
-        address
-    ) external view returns (MessagingFee memory) {
+    function quote(MessagingParams calldata, address) external view returns (MessagingFee memory) {
         return MessagingFee({nativeFee: nativeFee, lzTokenFee: lzTokenFee});
     }
 
-    function send(
-        MessagingParams calldata params,
-        address
-    ) external payable returns (MessagingReceipt memory receipt) {
+    function send(MessagingParams calldata params, address)
+        external
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
         if (msg.value < nativeFee) {
             revert InsufficientFee(msg.value, nativeFee);
         }
@@ -157,16 +149,8 @@ contract MockLZEndpoint {
             _outboundNonce += 1;
         }
 
-        bytes32 guid = keccak256(
-            abi.encodePacked(
-                _outboundNonce,
-                EID,
-                msg.sender,
-                params.dstEid,
-                params.receiver,
-                params.message
-            )
-        );
+        bytes32 guid =
+            keccak256(abi.encodePacked(_outboundNonce, EID, msg.sender, params.dstEid, params.receiver, params.message));
 
         _packets.push(
             CapturedPacket({
@@ -186,24 +170,10 @@ contract MockLZEndpoint {
             fee: MessagingFee({nativeFee: nativeFee, lzTokenFee: lzTokenFee})
         });
 
-        emit PacketSent(
-            msg.sender,
-            params.dstEid,
-            params.receiver,
-            _outboundNonce,
-            guid,
-            params.message
-        );
+        emit PacketSent(msg.sender, params.dstEid, params.receiver, _outboundNonce, guid, params.message);
 
         if (autoDeliver) {
-            _deliver(
-                params.dstEid,
-                msg.sender,
-                params.receiver,
-                params.message,
-                _outboundNonce,
-                guid
-            );
+            _deliver(params.dstEid, msg.sender, params.receiver, params.message, _outboundNonce, guid);
         }
     }
 
@@ -223,14 +193,9 @@ contract MockLZEndpoint {
 
     // ============ Internal ============
 
-    function _deliver(
-        uint32 dstEid,
-        address sender,
-        bytes32 receiver,
-        bytes memory message,
-        uint64 nonce,
-        bytes32 guid
-    ) internal {
+    function _deliver(uint32 dstEid, address sender, bytes32 receiver, bytes memory message, uint64 nonce, bytes32 guid)
+        internal
+    {
         address destEndpoint = destEndpoints[dstEid];
         if (destEndpoint == address(0)) revert NoDestEndpoint(dstEid);
 
@@ -239,19 +204,16 @@ contract MockLZEndpoint {
         // Call through to `lzReceive(Origin, address, bytes32, bytes, bytes)`
         // — the canonical entry on `OAppReceiver`. The receiving OApp is
         // expected to trust `msg.sender == address(destEndpoint)`.
-        Origin memory origin = Origin({
-            srcEid: EID,
-            sender: _addressToBytes32(sender),
-            nonce: nonce
-        });
+        Origin memory origin = Origin({srcEid: EID, sender: _addressToBytes32(sender), nonce: nonce});
 
+        // LZ V2 standard signature: (Origin, bytes32 guid, bytes message, address executor, bytes extraData).
         (bool ok, bytes memory ret) = destEndpoint.call(
             abi.encodeWithSignature(
-                "lzReceive((uint32,bytes32,uint64),address,bytes32,bytes,bytes)",
+                "lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)",
                 origin,
-                receiverAddr,
                 guid,
                 message,
+                receiverAddr,
                 bytes("")
             )
         );
@@ -270,18 +232,19 @@ contract MockLZEndpoint {
     ///         OApp's trust check (`msg.sender == _lzEndpoint`) passes.
     function lzReceive(
         Origin calldata origin,
-        address receiver,
         bytes32 guid,
         bytes calldata message,
+        address receiver,
         bytes calldata extraData
     ) external {
+        // LZ V2 standard signature: (Origin, bytes32 guid, bytes message, address executor, bytes extraData).
         (bool ok, bytes memory ret) = receiver.call(
             abi.encodeWithSignature(
-                "lzReceive((uint32,bytes32,uint64),address,bytes32,bytes,bytes)",
+                "lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)",
                 origin,
-                receiver,
                 guid,
                 message,
+                receiver,
                 extraData
             )
         );

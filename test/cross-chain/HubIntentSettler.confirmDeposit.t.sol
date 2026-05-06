@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubIntentSettler} from "../../src/core/cross-chain/HubIntentSettler.sol";
@@ -57,84 +53,45 @@ contract HubIntentSettlerConfirmDepositTest is Test {
 
         // Deploy BalanceLedger
         BalanceLedger ledgerImpl = new BalanceLedger();
-        bytes memory ledgerInit = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, true)
-        );
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubIntentSettler
         HubIntentSettler settlerImpl = new HubIntentSettler();
-        bytes memory settlerInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, operatorAddr, address(ledger))
-        );
-        TransparentUpgradeableProxy settlerProxy = new TransparentUpgradeableProxy(
-            address(settlerImpl),
-            address(this),
-            settlerInit
-        );
+        bytes memory settlerInit = abi.encodeCall(HubIntentSettler.initialize, (owner, operatorAddr, address(ledger)));
+        TransparentUpgradeableProxy settlerProxy =
+            new TransparentUpgradeableProxy(address(settlerImpl), address(this), settlerInit);
         settler = HubIntentSettler(address(settlerProxy));
 
         // Deploy SettlementLedger (required by settler init)
         SettlementLedger slImpl = new SettlementLedger();
-        bytes memory slInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, operatorAddr, address(settler))
-        );
-        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(
-            address(slImpl),
-            address(this),
-            slInit
-        );
+        bytes memory slInit = abi.encodeCall(SettlementLedger.initialize, (owner, operatorAddr, address(settler)));
+        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(address(slImpl), address(this), slInit);
         settlementLedger = SettlementLedger(address(slProxy));
 
         // Deploy RiskModuleStub + HubDepositor + WithdrawalRegistry
         riskModule = new RiskModuleStub(address(ledger));
 
         HubDepositor depImpl = new HubDepositor();
-        bytes memory depInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, address(ledger))
-        );
-        TransparentUpgradeableProxy depProxy = new TransparentUpgradeableProxy(
-            address(depImpl),
-            address(this),
-            depInit
-        );
+        bytes memory depInit = abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)));
+        TransparentUpgradeableProxy depProxy = new TransparentUpgradeableProxy(address(depImpl), address(this), depInit);
         hubDepositor = HubDepositor(address(depProxy));
 
         WithdrawalRegistry regImpl = new WithdrawalRegistry();
         bytes memory regInit = abi.encodeCall(
             WithdrawalRegistry.initialize,
-            (
-                owner,
-                operatorAddr,
-                address(ledger),
-                address(riskModule),
-                address(hubDepositor)
-            )
+            (owner, operatorAddr, address(ledger), address(riskModule), address(hubDepositor))
         );
-        TransparentUpgradeableProxy regProxy = new TransparentUpgradeableProxy(
-            address(regImpl),
-            address(this),
-            regInit
-        );
+        TransparentUpgradeableProxy regProxy = new TransparentUpgradeableProxy(address(regImpl), address(this), regInit);
         registry = WithdrawalRegistry(address(regProxy));
 
         // Wire everything
         vm.startPrank(owner);
         settler.setSettlementLedger(address(settlementLedger));
         settler.setLzEndpoint(address(hubEndpoint));
-        settler.setTrustedRemote(
-            SPOKE_EID,
-            bytes32(uint256(uint160(spokeGateway)))
-        );
+        settler.setTrustedRemote(SPOKE_EID, bytes32(uint256(uint160(spokeGateway))));
         settler.setWithdrawalRegistry(address(registry));
         ledger.forceAddWriter(address(settler));
         ledger.forceAddWriter(address(registry));
@@ -153,45 +110,16 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         uint8 classification,
         uint256 sourceChainId
     ) internal pure returns (bytes memory) {
-        return
-            abi.encode(
-                depositId,
-                payloadUser,
-                asset,
-                amount,
-                classification,
-                sourceChainId
-            );
+        return abi.encode(depositId, payloadUser, asset, amount, classification, sourceChainId);
     }
 
-    function _deliverFromSpoke(
-        bytes32 depositId,
-        address asset,
-        uint256 amount,
-        uint8 classification
-    ) internal {
-        bytes memory payload = _buildPayload(
-            depositId,
-            user,
-            asset,
-            amount,
-            classification,
-            BASE_CHAIN_ID
-        );
+    function _deliverFromSpoke(bytes32 depositId, address asset, uint256 amount, uint8 classification) internal {
+        bytes memory payload = _buildPayload(depositId, user, asset, amount, classification, BASE_CHAIN_ID);
         // Simulate the hub endpoint calling `lzReceive` on the settler.
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: SPOKE_EID,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 1
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 1});
         vm.prank(address(hubEndpoint));
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            payload,
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), payload, address(settler), bytes(""));
     }
 
     // ============ Happy path — BRIDGED ============
@@ -203,72 +131,35 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         _deliverFromSpoke(depositId, address(usdc), amount, BRIDGED);
 
         assertEq(ledger.available(user, address(usdc)), amount);
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.CREDITED)
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.CREDITED));
         // Chain liquidity unchanged for BRIDGED.
         assertEq(registry.chainLiquidity(address(usdc), BASE_CHAIN_ID), 0);
     }
 
     // ============ Happy path — SPOKE_NATIVE ============
 
-    function test_ConfirmDeposit_SpokeNative_CreditsLedgerAndBumpsLiquidity()
-        public
-    {
+    function test_ConfirmDeposit_SpokeNative_CreditsLedgerAndBumpsLiquidity() public {
         bytes32 depositId = keccak256("spoke-native-deposit-1");
         uint256 amount = 50e6;
 
         _deliverFromSpoke(depositId, address(xsgd), amount, SPOKE_NATIVE);
 
         assertEq(ledger.available(user, address(xsgd)), amount);
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.CREDITED)
-        );
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            amount
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.CREDITED));
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), amount);
     }
 
-    function test_ConfirmDeposit_SpokeNative_MultipleDepositsAccumulate()
-        public
-    {
-        _deliverFromSpoke(
-            keccak256("sn-1"),
-            address(xsgd),
-            50e6,
-            SPOKE_NATIVE
-        );
+    function test_ConfirmDeposit_SpokeNative_MultipleDepositsAccumulate() public {
+        _deliverFromSpoke(keccak256("sn-1"), address(xsgd), 50e6, SPOKE_NATIVE);
 
         // Second delivery with different depositId.
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: SPOKE_EID,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 2
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 2});
         vm.prank(address(hubEndpoint));
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                keccak256("sn-2"),
-                user,
-                address(xsgd),
-                30e6,
-                SPOKE_NATIVE,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("sn-2"), user, address(xsgd), 30e6, SPOKE_NATIVE, BASE_CHAIN_ID), address(settler), bytes(""));
 
         assertEq(ledger.available(user, address(xsgd)), 80e6);
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            80e6
-        );
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 80e6);
     }
 
     // ============ Replay ============
@@ -277,59 +168,22 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         bytes32 depositId = keccak256("replay-test");
         _deliverFromSpoke(depositId, address(usdc), 100e6, BRIDGED);
 
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: SPOKE_EID,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 2
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 2});
         vm.prank(address(hubEndpoint));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IHubIntentSettler.DepositAlreadyProcessed.selector,
-                depositId
-            )
-        );
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                depositId,
-                user,
-                address(usdc),
-                100e6,
-                BRIDGED,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        vm.expectRevert(abi.encodeWithSelector(IHubIntentSettler.DepositAlreadyProcessed.selector, depositId));
+        settler.lzReceive(origin, bytes32(0), _buildPayload(depositId, user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
     }
 
     // ============ Access control ============
 
     function test_ConfirmDeposit_RevertInvalidEndpoint() public {
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: SPOKE_EID,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 1
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 1});
 
         vm.prank(outsider); // not the LZ endpoint
         vm.expectRevert(IHubIntentSettler.InvalidLzEndpoint.selector);
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                keccak256("no-ep"),
-                user,
-                address(usdc),
-                100e6,
-                BRIDGED,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("no-ep"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
     }
 
     function test_ConfirmDeposit_RevertUntrustedRemote() public {
@@ -342,57 +196,24 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         vm.prank(address(hubEndpoint));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IHubIntentSettler.UntrustedRemote.selector,
-                SPOKE_EID,
-                bytes32(uint256(uint160(outsider)))
+                IHubIntentSettler.UntrustedRemote.selector, SPOKE_EID, bytes32(uint256(uint160(outsider)))
             )
         );
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                keccak256("untrusted"),
-                user,
-                address(usdc),
-                100e6,
-                BRIDGED,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("untrusted"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
     }
 
     function test_ConfirmDeposit_RevertUnregisteredEid() public {
         uint32 unknownEid = 99999;
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: unknownEid,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 1
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: unknownEid, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 1});
 
         vm.prank(address(hubEndpoint));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IHubIntentSettler.UntrustedRemote.selector,
-                unknownEid,
-                bytes32(uint256(uint160(spokeGateway)))
+                IHubIntentSettler.UntrustedRemote.selector, unknownEid, bytes32(uint256(uint160(spokeGateway)))
             )
         );
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                keccak256("unknown-eid"),
-                user,
-                address(usdc),
-                100e6,
-                BRIDGED,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("unknown-eid"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
     }
 
     // ============ Paused ============
@@ -401,28 +222,12 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         vm.prank(owner);
         settler.pause();
 
-        HubIntentSettler.Origin memory origin = HubIntentSettler.Origin({
-            srcEid: SPOKE_EID,
-            sender: bytes32(uint256(uint160(spokeGateway))),
-            nonce: 1
-        });
+        HubIntentSettler.Origin memory origin =
+            HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 1});
 
         vm.prank(address(hubEndpoint));
         vm.expectRevert(IHubIntentSettler.ContractPaused.selector);
-        settler.lzReceive(
-            origin,
-            address(settler),
-            bytes32(0),
-            _buildPayload(
-                keccak256("paused"),
-                user,
-                address(usdc),
-                100e6,
-                BRIDGED,
-                BASE_CHAIN_ID
-            ),
-            bytes("")
-        );
+        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("paused"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
     }
 
     // ============ Admin ============
@@ -453,10 +258,7 @@ contract HubIntentSettlerConfirmDepositTest is Test {
 
     function test_Views_ReturnCorrectValues() public view {
         assertEq(settler.lzEndpoint(), address(hubEndpoint));
-        assertEq(
-            settler.trustedRemote(SPOKE_EID),
-            bytes32(uint256(uint160(spokeGateway)))
-        );
+        assertEq(settler.trustedRemote(SPOKE_EID), bytes32(uint256(uint160(spokeGateway))));
         assertEq(settler.withdrawalRegistry(), address(registry));
     }
 }

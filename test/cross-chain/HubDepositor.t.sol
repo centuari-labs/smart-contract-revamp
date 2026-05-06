@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
@@ -32,24 +28,15 @@ contract HubDepositorTest is Test {
         // Deploy BalanceLedger behind a proxy
         BalanceLedger ledgerImpl = new BalanceLedger();
         bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubDepositor behind a proxy
         HubDepositor depositorImpl = new HubDepositor();
-        bytes memory depositorInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, address(ledger))
-        );
-        TransparentUpgradeableProxy depositorProxy = new TransparentUpgradeableProxy(
-            address(depositorImpl),
-            address(this),
-            depositorInit
-        );
+        bytes memory depositorInit = abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)));
+        TransparentUpgradeableProxy depositorProxy =
+            new TransparentUpgradeableProxy(address(depositorImpl), address(this), depositorInit);
         depositor = HubDepositor(address(depositorProxy));
 
         // Register HubDepositor as an authorized writer on BalanceLedger
@@ -73,20 +60,14 @@ contract HubDepositorTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         HubDepositor impl = new HubDepositor();
-        bytes memory badInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (address(0), address(ledger))
-        );
+        bytes memory badInit = abi.encodeCall(HubDepositor.initialize, (address(0), address(ledger)));
         vm.expectRevert(IHubDepositor.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
 
     function test_Initialize_RevertZeroBalanceLedger() public {
         HubDepositor impl = new HubDepositor();
-        bytes memory badInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, address(0))
-        );
+        bytes memory badInit = abi.encodeCall(HubDepositor.initialize, (owner, address(0)));
         vm.expectRevert(IHubDepositor.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
@@ -315,12 +296,7 @@ contract HubDepositorTest is Test {
         MockToken dai = new MockToken("Dai", "DAI", 18, 0);
 
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         depositor.addSupportedAsset(address(dai));
     }
 
@@ -343,12 +319,7 @@ contract HubDepositorTest is Test {
 
     function test_RemoveSupportedAsset_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         depositor.removeSupportedAsset(address(usdc));
     }
 
@@ -399,12 +370,7 @@ contract HubDepositorTest is Test {
 
     function test_SetAuthorizedCaller_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         depositor.setAuthorizedCaller(address(0xCAFE), true);
     }
 

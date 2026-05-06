@@ -31,4 +31,3 @@ contract DeployBondFactory is Script {
         return factory;
     }
 }
-

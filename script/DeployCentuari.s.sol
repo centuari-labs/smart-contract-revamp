@@ -25,23 +25,11 @@ contract DeployCentuari is Script {
         address balanceLedger,
         address feeCollector,
         address proxyAdminOwner
-    )
-        external
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) external returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         vm.startBroadcast();
 
-        (centuariProxy, centuariImpl, proxyAdmin) = deploy(
-            owner,
-            settlementPlaceholder,
-            balanceLedger,
-            feeCollector,
-            proxyAdminOwner
-        );
+        (centuariProxy, centuariImpl, proxyAdmin) =
+            deploy(owner, settlementPlaceholder, balanceLedger, feeCollector, proxyAdminOwner);
 
         vm.stopBroadcast();
 
@@ -70,27 +58,15 @@ contract DeployCentuari is Script {
         address balanceLedger,
         address feeCollector,
         address proxyAdminOwner
-    )
-        public
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) public returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         Centuari centuariImplContract = new Centuari();
         centuariImpl = address(centuariImplContract);
 
-        bytes memory initData = abi.encodeCall(
-            Centuari.initialize,
-            (owner, settlementPlaceholder, balanceLedger, feeCollector)
-        );
+        bytes memory initData =
+            abi.encodeCall(Centuari.initialize, (owner, settlementPlaceholder, balanceLedger, feeCollector));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            centuariImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(centuariImpl, proxyAdminOwner, initData);
         centuariProxy = address(transparentProxy);
 
         proxyAdmin = _getProxyAdmin(centuariProxy);

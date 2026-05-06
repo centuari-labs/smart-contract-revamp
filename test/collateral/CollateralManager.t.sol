@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {CollateralManager} from "../../src/core/collateral/CollateralManager.sol";
@@ -20,6 +18,7 @@ contract PermissiveRiskModule is IRiskModule {
     function canUnflag(address, address) external pure returns (bool) {
         return true;
     }
+
     function canWithdraw(address, address, uint256) external pure returns (bool) {
         return true;
     }
@@ -42,11 +41,8 @@ contract CollateralManagerTest is Test {
         // Deploy BalanceLedger behind a proxy.
         BalanceLedger impl = new BalanceLedger();
         bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(impl),
-            address(this),
-            ledgerInit
-        );
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(impl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy the stub and a permissive alt for the happy-path test.
@@ -55,15 +51,9 @@ contract CollateralManagerTest is Test {
 
         // Deploy CollateralManager behind a proxy, with the fail-closed stub.
         CollateralManager mgrImpl = new CollateralManager();
-        bytes memory mgrInit = abi.encodeCall(
-            CollateralManager.initialize,
-            (owner, operatorAddr, address(ledger), address(stub))
-        );
-        TransparentUpgradeableProxy mgrProxy = new TransparentUpgradeableProxy(
-            address(mgrImpl),
-            address(this),
-            mgrInit
-        );
+        bytes memory mgrInit =
+            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(ledger), address(stub)));
+        TransparentUpgradeableProxy mgrProxy = new TransparentUpgradeableProxy(address(mgrImpl), address(this), mgrInit);
         manager = CollateralManager(address(mgrProxy));
 
         // Authorize the manager as a BalanceLedger writer (testnet fast path).
@@ -84,31 +74,23 @@ contract CollateralManagerTest is Test {
     function test_Initialize_RevertZeroAddresses() public {
         CollateralManager mgrImpl = new CollateralManager();
 
-        bytes memory badOwner = abi.encodeCall(
-            CollateralManager.initialize,
-            (address(0), operatorAddr, address(ledger), address(stub))
-        );
+        bytes memory badOwner =
+            abi.encodeCall(CollateralManager.initialize, (address(0), operatorAddr, address(ledger), address(stub)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badOwner);
 
-        bytes memory badOperator = abi.encodeCall(
-            CollateralManager.initialize,
-            (owner, address(0), address(ledger), address(stub))
-        );
+        bytes memory badOperator =
+            abi.encodeCall(CollateralManager.initialize, (owner, address(0), address(ledger), address(stub)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badOperator);
 
-        bytes memory badLedger = abi.encodeCall(
-            CollateralManager.initialize,
-            (owner, operatorAddr, address(0), address(stub))
-        );
+        bytes memory badLedger =
+            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(0), address(stub)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badLedger);
 
-        bytes memory badRisk = abi.encodeCall(
-            CollateralManager.initialize,
-            (owner, operatorAddr, address(ledger), address(0))
-        );
+        bytes memory badRisk =
+            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(ledger), address(0)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badRisk);
     }
@@ -149,9 +131,7 @@ contract CollateralManagerTest is Test {
         // 1 second before the lock expires.
         vm.warp(unlocksAt - 1);
         vm.prank(operatorAddr);
-        vm.expectRevert(
-            abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt)
-        );
+        vm.expectRevert(abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt));
         manager.unflagFor(user, asset);
     }
 

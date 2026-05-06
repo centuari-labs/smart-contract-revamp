@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    IERC20
-} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title MockCCTPMessenger
 /// @notice Minimal burn/mint mock for Circle CCTP v2. Stands in for both
@@ -55,12 +51,7 @@ contract MockCCTPMessenger {
         uint32 destinationDomain
     );
 
-    event MessageReceived(
-        uint32 sourceDomain,
-        uint64 nonce,
-        bytes32 sender,
-        bytes messageBody
-    );
+    event MessageReceived(uint32 sourceDomain, uint64 nonce, bytes32 sender, bytes messageBody);
 
     // ============ Errors ============
 
@@ -78,12 +69,10 @@ contract MockCCTPMessenger {
     /// @notice Mock of `TokenMessengerV2.depositForBurn`.
     /// @dev Pulls tokens via `safeTransferFrom` and "burns" them by locking
     ///      them in this contract (the real CCTP burns via the TokenMinter).
-    function depositForBurn(
-        uint256 amount,
-        uint32 destinationDomain,
-        bytes32 mintRecipient,
-        address burnToken
-    ) external returns (uint64 nonce) {
+    function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken)
+        external
+        returns (uint64 nonce)
+    {
         if (amount == 0) revert ZeroAmount();
         if (burnToken == address(0)) revert ZeroAddress();
 
@@ -105,14 +94,7 @@ contract MockCCTPMessenger {
             })
         );
 
-        emit DepositForBurn(
-            nonce,
-            burnToken,
-            amount,
-            msg.sender,
-            mintRecipient,
-            destinationDomain
-        );
+        emit DepositForBurn(nonce, burnToken, amount, msg.sender, mintRecipient, destinationDomain);
     }
 
     // ============ Mint side (MessageTransmitterV2-like) ============
@@ -130,12 +112,7 @@ contract MockCCTPMessenger {
         bytes32 sender
     ) external {
         IERC20(token).safeTransfer(mintRecipient, amount);
-        emit MessageReceived(
-            sourceDomain,
-            nonce,
-            sender,
-            abi.encode(token, mintRecipient, amount)
-        );
+        emit MessageReceived(sourceDomain, nonce, sender, abi.encode(token, mintRecipient, amount));
     }
 
     // ============ Views ============
@@ -144,9 +121,7 @@ contract MockCCTPMessenger {
         return _burns.length;
     }
 
-    function burnAt(
-        uint256 index
-    ) external view returns (CapturedBurn memory) {
+    function burnAt(uint256 index) external view returns (CapturedBurn memory) {
         return _burns[index];
     }
 }

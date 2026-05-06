@@ -36,10 +36,7 @@ interface IHubDepositor {
     /// @notice Emitted when an authorized caller is added or removed
     /// @param caller The caller address
     /// @param authorized True if added, false if removed
-    event AuthorizedCallerUpdated(
-        address indexed caller,
-        bool authorized
-    );
+    event AuthorizedCallerUpdated(address indexed caller, bool authorized);
 
     // ============ Errors ============
 

@@ -30,36 +30,17 @@ interface ISpokePayout {
     // ============ Events ============
 
     /// @notice Emitted when tokens are released to a user immediately.
-    event PayoutReleased(
-        bytes32 indexed requestId,
-        address indexed user,
-        address indexed asset,
-        uint256 amount
-    );
+    event PayoutReleased(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
 
     /// @notice Emitted when a BRIDGED payout is queued due to insufficient
     ///         buffer.
-    event PayoutQueued(
-        bytes32 indexed requestId,
-        address indexed user,
-        address indexed asset,
-        uint256 amount
-    );
+    event PayoutQueued(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
 
     /// @notice Emitted when a previously queued payout is flushed.
-    event PendingPayoutFlushed(
-        bytes32 indexed requestId,
-        address indexed user,
-        address indexed asset,
-        uint256 amount
-    );
+    event PendingPayoutFlushed(bytes32 indexed requestId, address indexed user, address indexed asset, uint256 amount);
 
     /// @notice Emitted when the sweeper replenishes the bridged buffer.
-    event BridgedBufferReplenished(
-        address indexed asset,
-        uint256 amount,
-        uint256 newTotal
-    );
+    event BridgedBufferReplenished(address indexed asset, uint256 amount, uint256 newTotal);
 
     /// @notice Emitted when the owner sets the vault pointer.
     event VaultSet(address vault);
@@ -102,10 +83,7 @@ interface ISpokePayout {
     // ============ Views ============
 
     function bridgedBuffer(address asset) external view returns (uint256);
-    function pendingPayoutCount(
-        address user,
-        address asset
-    ) external view returns (uint256);
+    function pendingPayoutCount(address user, address asset) external view returns (uint256);
     function vault() external view returns (address);
     function sweeper() external view returns (address);
     function endpoint() external view returns (address);

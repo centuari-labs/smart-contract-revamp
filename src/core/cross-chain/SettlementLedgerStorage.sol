@@ -18,8 +18,7 @@ abstract contract SettlementLedgerStorage {
 
     /// @notice Reimbursement records keyed by depositId
     /// @dev Default value (0) maps to ReimbursementStatus.NONE.
-    mapping(bytes32 => ISettlementLedger.ReimbursementRecord)
-        internal _records;
+    mapping(bytes32 => ISettlementLedger.ReimbursementRecord) internal _records;
 
     // ============ Storage Gap ============
 

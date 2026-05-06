@@ -34,50 +34,25 @@ interface ISpokeVaultStable {
     // ============ Events ============
 
     /// @notice Emitted when the gateway escrows a BRIDGED token in the vault.
-    event BridgedDeposited(
-        address indexed asset,
-        address indexed from,
-        uint256 amount
-    );
+    event BridgedDeposited(address indexed asset, address indexed from, uint256 amount);
 
     /// @notice Emitted when the gateway escrows a SPOKE_NATIVE token.
-    event SpokeNativeDeposited(
-        address indexed asset,
-        address indexed from,
-        uint256 amount
-    );
+    event SpokeNativeDeposited(address indexed asset, address indexed from, uint256 amount);
 
     /// @notice Emitted when the sweeper drains a BRIDGED balance via CCTP.
     event SweptCCTP(
-        address indexed asset,
-        uint256 amount,
-        uint32 destinationDomain,
-        bytes32 mintRecipient,
-        uint64 nonce
+        address indexed asset, uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, uint64 nonce
     );
 
     /// @notice Emitted when the sweeper drains a BRIDGED balance via Stargate.
-    event SweptStargate(
-        address indexed asset,
-        uint256 amount,
-        uint32 dstEid,
-        bytes32 to,
-        uint256 amountReceived
-    );
+    event SweptStargate(address indexed asset, uint256 amount, uint32 dstEid, bytes32 to, uint256 amountReceived);
 
     /// @notice Emitted when the payout contract releases a SPOKE_NATIVE token
     ///         back to a user (PR 4 wires the actual caller).
-    event SpokeNativeReleased(
-        address indexed asset,
-        address indexed to,
-        uint256 amount
-    );
+    event SpokeNativeReleased(address indexed asset, address indexed to, uint256 amount);
 
     /// @notice Emitted when the owner registers or updates an asset classification.
-    event AssetClassificationSet(
-        address indexed asset,
-        AssetClassification classification
-    );
+    event AssetClassificationSet(address indexed asset, AssetClassification classification);
 
     /// @notice Emitted when the owner sets a per-asset Stargate router.
     event StargateRouterSet(address indexed asset, address router);
@@ -114,36 +89,20 @@ interface ISpokeVaultStable {
     ///         `safeTransferFrom(gateway, vault, amount)`.
     /// @dev Asserts the asset is registered as `BRIDGED`. Increments the
     ///      bridged custody balance for the asset.
-    function depositBridged(
-        address asset,
-        address from,
-        uint256 amount
-    ) external;
+    function depositBridged(address asset, address from, uint256 amount) external;
 
     /// @notice Record a SPOKE_NATIVE inflow. Same custody mechanics as
     ///         `depositBridged` but the asset must be registered SPOKE_NATIVE.
-    function depositSpokeNative(
-        address asset,
-        address from,
-        uint256 amount
-    ) external;
+    function depositSpokeNative(address asset, address from, uint256 amount) external;
 
     /// @notice Return BRIDGED escrow back to the original depositor. Only
     ///         callable by the gateway; only valid for assets currently
     ///         registered BRIDGED. Used by `SpokeDepositGateway.refund` to
     ///         honour a timed-out deposit.
-    function recallBridged(
-        address asset,
-        address to,
-        uint256 amount
-    ) external;
+    function recallBridged(address asset, address to, uint256 amount) external;
 
     /// @notice Emitted when the gateway recalls BRIDGED escrow on refund.
-    event BridgedRecalled(
-        address indexed asset,
-        address indexed to,
-        uint256 amount
-    );
+    event BridgedRecalled(address indexed asset, address indexed to, uint256 amount);
 
     // ============ Sweeper-only outflows (BRIDGED) ============
 
@@ -156,11 +115,9 @@ interface ISpokeVaultStable {
     /// @param mintRecipient Hub-side recipient as bytes32
     /// @return amount Amount burned
     /// @return nonce CCTP nonce returned by the messenger
-    function sweepCCTP(
-        address asset,
-        uint32 destinationDomain,
-        bytes32 mintRecipient
-    ) external returns (uint256 amount, uint64 nonce);
+    function sweepCCTP(address asset, uint32 destinationDomain, bytes32 mintRecipient)
+        external
+        returns (uint256 amount, uint64 nonce);
 
     /// @notice Bridge the entire BRIDGED custody for `asset` via Stargate V2.
     /// @dev Calls `IStargate.send`. Asset must be BRIDGED and a per-asset
@@ -172,33 +129,23 @@ interface ISpokeVaultStable {
     /// @param nativeFee Native gas fee forwarded to Stargate (also from msg.value)
     /// @return amountSent Amount of `asset` sent
     /// @return amountReceived Amount expected on the destination after fees
-    function sweepStargate(
-        address asset,
-        uint32 dstEid,
-        bytes32 to,
-        uint256 minAmountOut,
-        uint256 nativeFee
-    ) external payable returns (uint256 amountSent, uint256 amountReceived);
+    function sweepStargate(address asset, uint32 dstEid, bytes32 to, uint256 minAmountOut, uint256 nativeFee)
+        external
+        payable
+        returns (uint256 amountSent, uint256 amountReceived);
 
     // ============ Payout-only outflows (SPOKE_NATIVE) ============
 
     /// @notice Release SPOKE_NATIVE custody back to a user. Caller must be
     ///         the registered `_payout` address (wired in PR 4).
     /// @dev Asserts the asset is SPOKE_NATIVE; reverts for BRIDGED.
-    function releaseSpokeNative(
-        address asset,
-        address to,
-        uint256 amount
-    ) external;
+    function releaseSpokeNative(address asset, address to, uint256 amount) external;
 
     // ============ Admin ============
 
     /// @notice Register or change the routing classification for an asset.
     ///         Owner-only. Setting `UNSUPPORTED` effectively unregisters.
-    function setAssetClassification(
-        address asset,
-        AssetClassification classification
-    ) external;
+    function setAssetClassification(address asset, AssetClassification classification) external;
 
     /// @notice Set the per-asset Stargate router (owner-only).
     function setStargateRouter(address asset, address router) external;
@@ -224,9 +171,7 @@ interface ISpokeVaultStable {
     function spokeNativeBalance(address asset) external view returns (uint256);
 
     /// @notice Routing classification for `asset`.
-    function classificationOf(
-        address asset
-    ) external view returns (AssetClassification);
+    function classificationOf(address asset) external view returns (AssetClassification);
 
     /// @notice Currently registered Stargate router for `asset`.
     function stargateRouterOf(address asset) external view returns (address);

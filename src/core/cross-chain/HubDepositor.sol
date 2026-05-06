@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {
-    IERC20
-} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IHubDepositor} from "../../interfaces/cross-chain/IHubDepositor.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -53,10 +45,7 @@ contract HubDepositor is
     ///      BalanceLedger before any deposit can succeed.
     /// @param owner_ The governance owner
     /// @param balanceLedger_ The BalanceLedger instance this depositor writes to
-    function initialize(
-        address owner_,
-        address balanceLedger_
-    ) external initializer {
+    function initialize(address owner_, address balanceLedger_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (balanceLedger_ == address(0)) revert ZeroAddress();
 
@@ -70,8 +59,9 @@ contract HubDepositor is
 
     /// @notice Restricts access to the owner or authorized callers
     modifier onlyAuthorized() {
-        if (msg.sender != owner() && !_authorizedCallers[msg.sender])
+        if (msg.sender != owner() && !_authorizedCallers[msg.sender]) {
             revert Unauthorized();
+        }
         _;
     }
 
@@ -95,11 +85,7 @@ contract HubDepositor is
     // ============ Authorized actions ============
 
     /// @inheritdoc IHubDepositor
-    function payout(
-        address user,
-        address asset,
-        uint256 amount
-    ) external onlyAuthorized nonReentrant {
+    function payout(address user, address asset, uint256 amount) external onlyAuthorized nonReentrant {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -114,11 +100,7 @@ contract HubDepositor is
     }
 
     /// @inheritdoc IHubDepositor
-    function payoutDirect(
-        address user,
-        address asset,
-        uint256 amount
-    ) external onlyAuthorized nonReentrant {
+    function payoutDirect(address user, address asset, uint256 amount) external onlyAuthorized nonReentrant {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -134,10 +116,7 @@ contract HubDepositor is
     // ============ Authorized caller management ============
 
     /// @inheritdoc IHubDepositor
-    function setAuthorizedCaller(
-        address caller,
-        bool authorized
-    ) external onlyOwner {
+    function setAuthorizedCaller(address caller, bool authorized) external onlyOwner {
         if (caller == address(0)) revert ZeroAddress();
         _authorizedCallers[caller] = authorized;
         emit AuthorizedCallerUpdated(caller, authorized);

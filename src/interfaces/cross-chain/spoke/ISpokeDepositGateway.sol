@@ -69,19 +69,11 @@ interface ISpokeDepositGateway {
 
     /// @notice Emitted when a timed-out BRIDGED deposit is refunded back to
     ///         the original user.
-    event DepositRefunded(
-        bytes32 indexed depositId,
-        address indexed user,
-        address indexed asset,
-        uint256 amount
-    );
+    event DepositRefunded(bytes32 indexed depositId, address indexed user, address indexed asset, uint256 amount);
 
     /// @notice Emitted when the owner registers or updates an asset
     ///         classification on the gateway. Must mirror the vault.
-    event AssetClassificationSet(
-        address indexed asset,
-        ISpokeVaultStable.AssetClassification classification
-    );
+    event AssetClassificationSet(address indexed asset, ISpokeVaultStable.AssetClassification classification);
 
     /// @notice Emitted when a per-eid LayerZero peer is set.
     event PeerSet(uint32 indexed eid, bytes32 peer);
@@ -114,21 +106,14 @@ interface ISpokeDepositGateway {
     ///         credit message to the hub. Caller must approve the gateway
     ///         for `amount` first. `msg.value` covers the LayerZero native fee.
     /// @return depositId Deterministic id (also used in the LZ payload)
-    function deposit(
-        address asset,
-        uint256 amount
-    ) external payable returns (bytes32 depositId);
+    function deposit(address asset, uint256 amount) external payable returns (bytes32 depositId);
 
     /// @notice ERC20-Permit variant. Single-tx flow: permit, pull, escrow,
     ///         dispatch. `msg.value` covers the LayerZero native fee.
-    function permitAndDeposit(
-        address asset,
-        uint256 amount,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external payable returns (bytes32 depositId);
+    function permitAndDeposit(address asset, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        payable
+        returns (bytes32 depositId);
 
     /// @notice Refund a BRIDGED deposit that has timed out. Original
     ///         depositor only. Reverts before `REFUND_WINDOW` elapses or for
@@ -139,10 +124,7 @@ interface ISpokeDepositGateway {
 
     /// @notice Register or update the routing classification for an asset.
     ///         Must mirror the vault. Owner-only.
-    function setAssetClassification(
-        address asset,
-        ISpokeVaultStable.AssetClassification classification
-    ) external;
+    function setAssetClassification(address asset, ISpokeVaultStable.AssetClassification classification) external;
 
     /// @notice Set the LayerZero peer for a given destination eid (owner-only).
     function setPeer(uint32 eid, bytes32 peer) external;
@@ -162,23 +144,16 @@ interface ISpokeDepositGateway {
     function REFUND_WINDOW() external view returns (uint64);
 
     /// @notice Look up a pending deposit by id.
-    function pendingDeposit(
-        bytes32 depositId
-    ) external view returns (PendingDeposit memory);
+    function pendingDeposit(bytes32 depositId) external view returns (PendingDeposit memory);
 
     /// @notice Per-user nonce used to derive `depositId`.
     function userNonce(address user) external view returns (uint256);
 
     /// @notice Routing classification known to the gateway for `asset`.
-    function classificationOf(
-        address asset
-    ) external view returns (ISpokeVaultStable.AssetClassification);
+    function classificationOf(address asset) external view returns (ISpokeVaultStable.AssetClassification);
 
     /// @notice Quote the LayerZero native fee for a deposit message.
-    function quoteDeposit(
-        address asset,
-        uint256 amount
-    ) external view returns (uint256 nativeFee);
+    function quoteDeposit(address asset, uint256 amount) external view returns (uint256 nativeFee);
 
     /// @notice Currently registered LayerZero peer for `eid`.
     function peers(uint32 eid) external view returns (bytes32);

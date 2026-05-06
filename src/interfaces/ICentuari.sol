@@ -12,11 +12,7 @@ interface ICentuari {
     /// @param marketId The unique market identifier
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp
-    event MarketCreated(
-        bytes32 indexed marketId,
-        address indexed loanToken,
-        uint256 indexed maturity
-    );
+    event MarketCreated(bytes32 indexed marketId, address indexed loanToken, uint256 indexed maturity);
 
     /// @notice Emitted when a lend position is created or updated
     /// @param marketId The market identifier
@@ -41,11 +37,7 @@ interface ICentuari {
     /// @param debt The total debt (principal + interest)
     /// @param rate The interest rate in basis points
     event BorrowPositionCreated(
-        bytes32 indexed marketId,
-        address indexed borrower,
-        uint256 principal,
-        uint256 debt,
-        uint256 rate
+        bytes32 indexed marketId, address indexed borrower, uint256 principal, uint256 debt, uint256 rate
     );
 
     /// @notice Emitted when the Settlement contract address is updated
@@ -80,11 +72,7 @@ interface ICentuari {
     /// @param marketId The market identifier
     /// @param borrower The borrower address
     /// @param amount The amount repaid (in token terms)
-    event Repaid(
-        bytes32 indexed marketId,
-        address indexed borrower,
-        uint256 amount
-    );
+    event Repaid(bytes32 indexed marketId, address indexed borrower, uint256 amount);
 
     /// @notice Emitted when the operator address is updated
     /// @param oldOperator The previous operator address
@@ -97,10 +85,7 @@ interface ICentuari {
     /// @param cbtBurned The CBT (bond token) amount burned
     /// @param amountWithdrawn The loan token amount credited to the lender (1:1 with cbtBurned)
     event LendPositionWithdrawn(
-        bytes32 indexed marketId,
-        address indexed lender,
-        uint256 cbtBurned,
-        uint256 amountWithdrawn
+        bytes32 indexed marketId, address indexed lender, uint256 cbtBurned, uint256 amountWithdrawn
     );
 
     // ============ Errors ============
@@ -171,12 +156,7 @@ interface ICentuari {
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
     /// @param amount The amount to repay (capped to current debt)
-    function repay(
-        bytes32 marketId,
-        address borrower,
-        address loanToken,
-        uint256 amount
-    ) external;
+    function repay(bytes32 marketId, address borrower, address loanToken, uint256 amount) external;
 
     /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from Centuari custody and credits loan tokens to caller's BalanceLedger available balance.
     /// @dev CBT is held by Centuari (bond custodian). The caller's internal _lendPositionCbtAmount tracks their claim.
@@ -184,12 +164,7 @@ interface ICentuari {
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp (used for bond token lookup and maturity check)
     /// @param cbtAmount The amount of CBT (bond token) to redeem
-    function withdrawLendPosition(
-        bytes32 marketId,
-        address loanToken,
-        uint256 maturity,
-        uint256 cbtAmount
-    ) external;
+    function withdrawLendPosition(bytes32 marketId, address loanToken, uint256 maturity, uint256 cbtAmount) external;
 
     // ============ View Functions ============
 

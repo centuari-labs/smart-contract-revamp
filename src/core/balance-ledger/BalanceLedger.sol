@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -33,12 +29,7 @@ import {BalanceLedgerStorage} from "./BalanceLedgerStorage.sol";
 ///      rationale (gas economics + zero on-chain consumers in Phase 1).
 ///
 ///      Deployed behind an ERC1967 transparent proxy for upgradeability.
-contract BalanceLedger is
-    Initializable,
-    OwnableUpgradeable,
-    BalanceLedgerStorage,
-    IBalanceLedger
-{
+contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorage, IBalanceLedger {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ============ Constructor ============
@@ -58,10 +49,7 @@ contract BalanceLedger is
     /// @param owner_ The owner address (can manage writers and pause)
     /// @param forceWriterRegistrationEnabled_ Whether forceAddWriter is permitted on this instance.
     ///        MUST be false in mainnet production deployments.
-    function initialize(
-        address owner_,
-        bool forceWriterRegistrationEnabled_
-    ) external initializer {
+    function initialize(address owner_, bool forceWriterRegistrationEnabled_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(owner_);
@@ -87,11 +75,7 @@ contract BalanceLedger is
     // ============ Balance Mutators ============
 
     /// @inheritdoc IBalanceLedger
-    function credit(
-        address user,
-        address asset,
-        uint256 amount
-    ) external onlyAuthorizedWriter whenNotPaused {
+    function credit(address user, address asset, uint256 amount) external onlyAuthorizedWriter whenNotPaused {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -103,11 +87,7 @@ contract BalanceLedger is
     }
 
     /// @inheritdoc IBalanceLedger
-    function debit(
-        address user,
-        address asset,
-        uint256 amount
-    ) external onlyAuthorizedWriter whenNotPaused {
+    function debit(address user, address asset, uint256 amount) external onlyAuthorizedWriter whenNotPaused {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -124,18 +104,12 @@ contract BalanceLedger is
     // ============ Collateral Flag Mutators ============
 
     /// @inheritdoc IBalanceLedger
-    function markCollateral(
-        address user,
-        address asset
-    ) external onlyAuthorizedWriter whenNotPaused {
+    function markCollateral(address user, address asset) external onlyAuthorizedWriter whenNotPaused {
         _setCollateralFlag(user, asset, true);
     }
 
     /// @inheritdoc IBalanceLedger
-    function unmarkCollateral(
-        address user,
-        address asset
-    ) external onlyAuthorizedWriter whenNotPaused {
+    function unmarkCollateral(address user, address asset) external onlyAuthorizedWriter whenNotPaused {
         _setCollateralFlag(user, asset, false);
     }
 
@@ -147,11 +121,7 @@ contract BalanceLedger is
     ///      `_flaggedAt` — the 24-hour flag-lock in `CollateralManager` is
     ///      pinned to the first mark so repeated borrows that reuse the same
     ///      collateral never extend the lockup.
-    function _setCollateralFlag(
-        address user,
-        address asset,
-        bool used
-    ) internal {
+    function _setCollateralFlag(address user, address asset, bool used) internal {
         if (user == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
 

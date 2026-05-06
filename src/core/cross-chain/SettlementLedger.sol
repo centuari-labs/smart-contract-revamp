@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {ISettlementLedger} from "../../interfaces/cross-chain/ISettlementLedger.sol";
 import {IHubIntentSettler} from "../../interfaces/cross-chain/IHubIntentSettler.sol";
@@ -41,11 +37,7 @@ contract SettlementLedger is
     /// @param owner_ The governance owner
     /// @param operator_ The Sweeper Bot operator
     /// @param hubIntentSettler_ The HubIntentSettler that calls register()
-    function initialize(
-        address owner_,
-        address operator_,
-        address hubIntentSettler_
-    ) external initializer {
+    function initialize(address owner_, address operator_, address hubIntentSettler_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (operator_ == address(0)) revert ZeroAddress();
         if (hubIntentSettler_ == address(0)) revert ZeroAddress();
@@ -77,12 +69,7 @@ contract SettlementLedger is
     // ============ HubIntentSettler Actions ============
 
     /// @inheritdoc ISettlementLedger
-    function register(
-        bytes32 depositId,
-        address solver,
-        address asset,
-        uint256 amount
-    ) external onlyHubIntentSettler {
+    function register(bytes32 depositId, address solver, address asset, uint256 amount) external onlyHubIntentSettler {
         if (solver == address(0)) revert ZeroAddress();
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -103,9 +90,7 @@ contract SettlementLedger is
     // ============ Operator Actions ============
 
     /// @inheritdoc ISettlementLedger
-    function matchAndReimburse(
-        bytes32 depositId
-    ) external onlyOperator nonReentrant {
+    function matchAndReimburse(bytes32 depositId) external onlyOperator nonReentrant {
         ReimbursementRecord storage record = _records[depositId];
 
         if (record.status != ReimbursementStatus.REGISTERED) {
@@ -115,18 +100,9 @@ contract SettlementLedger is
         record.status = ReimbursementStatus.REIMBURSED;
 
         // Release tokens from HubIntentSettler to the solver's EOA
-        IHubIntentSettler(_hubIntentSettler).releaseToSolver(
-            record.solver,
-            record.asset,
-            record.amount
-        );
+        IHubIntentSettler(_hubIntentSettler).releaseToSolver(record.solver, record.asset, record.amount);
 
-        emit ReimbursementCompleted(
-            depositId,
-            record.solver,
-            record.asset,
-            record.amount
-        );
+        emit ReimbursementCompleted(depositId, record.solver, record.asset, record.amount);
     }
 
     // ============ Governance ============
@@ -144,9 +120,7 @@ contract SettlementLedger is
 
     /// @notice Update the HubIntentSettler pointer
     /// @param newHubIntentSettler The new HubIntentSettler address
-    function setHubIntentSettler(
-        address newHubIntentSettler
-    ) external onlyOwner {
+    function setHubIntentSettler(address newHubIntentSettler) external onlyOwner {
         if (newHubIntentSettler == address(0)) revert ZeroAddress();
 
         address oldHubIntentSettler = _hubIntentSettler;
@@ -158,9 +132,7 @@ contract SettlementLedger is
     // ============ Views ============
 
     /// @inheritdoc ISettlementLedger
-    function getRecord(
-        bytes32 depositId
-    ) external view returns (ReimbursementRecord memory) {
+    function getRecord(bytes32 depositId) external view returns (ReimbursementRecord memory) {
         return _records[depositId];
     }
 

@@ -36,39 +36,20 @@ contract DeployCrossChainHub is Script {
 
         // 1. WithdrawalRegistry
         WithdrawalRegistry wrImpl = new WithdrawalRegistry();
-        bytes memory wrInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, operator, balanceLedger, riskModule, hubDepositor)
-        );
-        TransparentUpgradeableProxy wrProxy = new TransparentUpgradeableProxy(
-            address(wrImpl),
-            proxyAdminOwner,
-            wrInit
-        );
+        bytes memory wrInit =
+            abi.encodeCall(WithdrawalRegistry.initialize, (owner, operator, balanceLedger, riskModule, hubDepositor));
+        TransparentUpgradeableProxy wrProxy = new TransparentUpgradeableProxy(address(wrImpl), proxyAdminOwner, wrInit);
 
         // 2. HubIntentSettler
         HubIntentSettler hisImpl = new HubIntentSettler();
-        bytes memory hisInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, operator, balanceLedger)
-        );
-        TransparentUpgradeableProxy hisProxy = new TransparentUpgradeableProxy(
-            address(hisImpl),
-            proxyAdminOwner,
-            hisInit
-        );
+        bytes memory hisInit = abi.encodeCall(HubIntentSettler.initialize, (owner, operator, balanceLedger));
+        TransparentUpgradeableProxy hisProxy =
+            new TransparentUpgradeableProxy(address(hisImpl), proxyAdminOwner, hisInit);
 
         // 3. SettlementLedger
         SettlementLedger slImpl = new SettlementLedger();
-        bytes memory slInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, operator, address(hisProxy))
-        );
-        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(
-            address(slImpl),
-            proxyAdminOwner,
-            slInit
-        );
+        bytes memory slInit = abi.encodeCall(SettlementLedger.initialize, (owner, operator, address(hisProxy)));
+        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(address(slImpl), proxyAdminOwner, slInit);
 
         // 4. Wire circular dependency
         HubIntentSettler(address(hisProxy)).setSettlementLedger(address(slProxy));

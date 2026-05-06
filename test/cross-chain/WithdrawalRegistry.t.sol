@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test, Vm} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
@@ -37,28 +33,16 @@ contract WithdrawalRegistryTest is Test {
 
         // Deploy BalanceLedger behind proxy
         BalanceLedger ledgerImpl = new BalanceLedger();
-        bytes memory ledgerInit = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, true)
-        );
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubDepositor behind proxy
         HubDepositor depositorImpl = new HubDepositor();
-        bytes memory depositorInit = abi.encodeCall(
-            HubDepositor.initialize,
-            (owner, address(ledger))
-        );
-        TransparentUpgradeableProxy depositorProxy = new TransparentUpgradeableProxy(
-            address(depositorImpl),
-            address(this),
-            depositorInit
-        );
+        bytes memory depositorInit = abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)));
+        TransparentUpgradeableProxy depositorProxy =
+            new TransparentUpgradeableProxy(address(depositorImpl), address(this), depositorInit);
         depositor = HubDepositor(address(depositorProxy));
 
         // Deploy RiskModuleStub (not upgradeable)
@@ -67,14 +51,10 @@ contract WithdrawalRegistryTest is Test {
         // Deploy WithdrawalRegistry behind proxy
         WithdrawalRegistry registryImpl = new WithdrawalRegistry();
         bytes memory registryInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, operator, address(ledger), address(riskModule), address(depositor))
+            WithdrawalRegistry.initialize, (owner, operator, address(ledger), address(riskModule), address(depositor))
         );
-        TransparentUpgradeableProxy registryProxy = new TransparentUpgradeableProxy(
-            address(registryImpl),
-            address(this),
-            registryInit
-        );
+        TransparentUpgradeableProxy registryProxy =
+            new TransparentUpgradeableProxy(address(registryImpl), address(this), registryInit);
         registry = WithdrawalRegistry(address(registryProxy));
 
         // Wire: register HubDepositor + WithdrawalRegistry as BalanceLedger writers
@@ -92,10 +72,7 @@ contract WithdrawalRegistryTest is Test {
         vm.startPrank(owner);
         registry.setPayoutEndpoint(address(lz));
         registry.setSpokeEid(8453, 30184); // Base chain → Base eid
-        registry.setPayoutPeer(
-            30184,
-            bytes32(uint256(uint160(address(0xFACE))))
-        );
+        registry.setPayoutPeer(30184, bytes32(uint256(uint160(address(0xFACE)))));
         vm.stopPrank();
         vm.deal(operator, 10 ether); // Fund operator for LZ fees
 
@@ -109,10 +86,7 @@ contract WithdrawalRegistryTest is Test {
 
     // ============ Helpers ============
 
-    function _requestWithdrawal(
-        uint256 amount,
-        uint256 targetChainId
-    ) internal returns (bytes32) {
+    function _requestWithdrawal(uint256 amount, uint256 targetChainId) internal returns (bytes32) {
         vm.prank(user);
         return registry.requestWithdrawal(address(usdc), amount, targetChainId);
     }
@@ -149,8 +123,7 @@ contract WithdrawalRegistryTest is Test {
     function test_Initialize_RevertZeroOperator() public {
         WithdrawalRegistry impl = new WithdrawalRegistry();
         bytes memory badInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, address(0), address(ledger), address(riskModule), address(depositor))
+            WithdrawalRegistry.initialize, (owner, address(0), address(ledger), address(riskModule), address(depositor))
         );
         vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
@@ -159,8 +132,7 @@ contract WithdrawalRegistryTest is Test {
     function test_Initialize_RevertZeroBalanceLedger() public {
         WithdrawalRegistry impl = new WithdrawalRegistry();
         bytes memory badInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, operator, address(0), address(riskModule), address(depositor))
+            WithdrawalRegistry.initialize, (owner, operator, address(0), address(riskModule), address(depositor))
         );
         vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
@@ -169,8 +141,7 @@ contract WithdrawalRegistryTest is Test {
     function test_Initialize_RevertZeroRiskModule() public {
         WithdrawalRegistry impl = new WithdrawalRegistry();
         bytes memory badInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, operator, address(ledger), address(0), address(depositor))
+            WithdrawalRegistry.initialize, (owner, operator, address(ledger), address(0), address(depositor))
         );
         vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
@@ -179,8 +150,7 @@ contract WithdrawalRegistryTest is Test {
     function test_Initialize_RevertZeroHubDepositor() public {
         WithdrawalRegistry impl = new WithdrawalRegistry();
         bytes memory badInit = abi.encodeCall(
-            WithdrawalRegistry.initialize,
-            (owner, operator, address(ledger), address(riskModule), address(0))
+            WithdrawalRegistry.initialize, (owner, operator, address(ledger), address(riskModule), address(0))
         );
         vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
@@ -562,12 +532,7 @@ contract WithdrawalRegistryTest is Test {
 
     function test_SetOperator_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         registry.setOperator(address(0xBEEF));
     }
 
@@ -621,12 +586,7 @@ contract WithdrawalRegistryTest is Test {
 
     function test_Pause_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         registry.pause();
     }
 

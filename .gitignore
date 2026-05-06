@@ -8,8 +8,8 @@ out/
 /broadcast/**/dry-run/
 /broadcast
 
-# Dotenv file
-.env
+# Dotenv file (matches .env, .env.chains, .env.local, .env.<anything>)
+.env*
 
 .vscode
 

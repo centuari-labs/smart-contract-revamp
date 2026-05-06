@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubIntentSettler} from "../../src/core/cross-chain/HubIntentSettler.sol";
@@ -36,41 +32,22 @@ contract HubIntentSettlerTest is Test {
 
         // Deploy BalanceLedger behind proxy
         BalanceLedger ledgerImpl = new BalanceLedger();
-        bytes memory ledgerInit = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, true)
-        );
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubIntentSettler behind proxy
         HubIntentSettler settlerImpl = new HubIntentSettler();
-        bytes memory settlerInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, operator, address(ledger))
-        );
-        TransparentUpgradeableProxy settlerProxy = new TransparentUpgradeableProxy(
-            address(settlerImpl),
-            address(this),
-            settlerInit
-        );
+        bytes memory settlerInit = abi.encodeCall(HubIntentSettler.initialize, (owner, operator, address(ledger)));
+        TransparentUpgradeableProxy settlerProxy =
+            new TransparentUpgradeableProxy(address(settlerImpl), address(this), settlerInit);
         settler = HubIntentSettler(address(settlerProxy));
 
         // Deploy SettlementLedger behind proxy
         SettlementLedger slImpl = new SettlementLedger();
-        bytes memory slInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, operator, address(settler))
-        );
-        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(
-            address(slImpl),
-            address(this),
-            slInit
-        );
+        bytes memory slInit = abi.encodeCall(SettlementLedger.initialize, (owner, operator, address(settler)));
+        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(address(slImpl), address(this), slInit);
         settlementLedger = SettlementLedger(address(slProxy));
 
         // Wire settler → settlementLedger
@@ -87,10 +64,7 @@ contract HubIntentSettlerTest is Test {
 
     // ============ Helpers ============
 
-    function _fillFor(
-        bytes32 depositId,
-        uint256 amount
-    ) internal {
+    function _fillFor(bytes32 depositId, uint256 amount) internal {
         vm.startPrank(operator);
         usdc.approve(address(settler), amount);
         settler.fillFor(depositId, user, address(usdc), amount, SOURCE_CHAIN_ID);
@@ -109,30 +83,21 @@ contract HubIntentSettlerTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         HubIntentSettler impl = new HubIntentSettler();
-        bytes memory badInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (address(0), operator, address(ledger))
-        );
+        bytes memory badInit = abi.encodeCall(HubIntentSettler.initialize, (address(0), operator, address(ledger)));
         vm.expectRevert(IHubIntentSettler.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
 
     function test_Initialize_RevertZeroOperator() public {
         HubIntentSettler impl = new HubIntentSettler();
-        bytes memory badInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, address(0), address(ledger))
-        );
+        bytes memory badInit = abi.encodeCall(HubIntentSettler.initialize, (owner, address(0), address(ledger)));
         vm.expectRevert(IHubIntentSettler.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
 
     function test_Initialize_RevertZeroBalanceLedger() public {
         HubIntentSettler impl = new HubIntentSettler();
-        bytes memory badInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, operator, address(0))
-        );
+        bytes memory badInit = abi.encodeCall(HubIntentSettler.initialize, (owner, operator, address(0)));
         vm.expectRevert(IHubIntentSettler.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
@@ -169,10 +134,7 @@ contract HubIntentSettlerTest is Test {
         assertEq(record.solver, operator);
         assertEq(record.asset, address(usdc));
         assertEq(record.amount, amount);
-        assertEq(
-            uint8(record.status),
-            uint8(ISettlementLedger.ReimbursementStatus.REGISTERED)
-        );
+        assertEq(uint8(record.status), uint8(ISettlementLedger.ReimbursementStatus.REGISTERED));
     }
 
     function test_FillFor_SetsDepositStatusFilled() public {
@@ -181,10 +143,7 @@ contract HubIntentSettlerTest is Test {
 
         _fillFor(depositId, amount);
 
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.FILLED)
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.FILLED));
     }
 
     function test_FillFor_EmitsEvent() public {
@@ -195,14 +154,7 @@ contract HubIntentSettlerTest is Test {
         usdc.approve(address(settler), amount);
 
         vm.expectEmit(true, true, true, true);
-        emit IHubIntentSettler.SolverFillRegistered(
-            depositId,
-            operator,
-            user,
-            address(usdc),
-            amount,
-            SOURCE_CHAIN_ID
-        );
+        emit IHubIntentSettler.SolverFillRegistered(depositId, operator, user, address(usdc), amount, SOURCE_CHAIN_ID);
         settler.fillFor(depositId, user, address(usdc), amount, SOURCE_CHAIN_ID);
         vm.stopPrank();
     }
@@ -215,12 +167,7 @@ contract HubIntentSettlerTest is Test {
 
         vm.startPrank(operator);
         usdc.approve(address(settler), amount);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IHubIntentSettler.DepositAlreadyProcessed.selector,
-                depositId
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IHubIntentSettler.DepositAlreadyProcessed.selector, depositId));
         settler.fillFor(depositId, user, address(usdc), amount, SOURCE_CHAIN_ID);
         vm.stopPrank();
     }
@@ -272,10 +219,7 @@ contract HubIntentSettlerTest is Test {
         vm.prank(operator);
         settler.markNoFill(depositId);
 
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.NO_FILL)
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.NO_FILL));
     }
 
     function test_MarkNoFill_EmitsEvent() public {
@@ -293,12 +237,7 @@ contract HubIntentSettlerTest is Test {
         _fillFor(depositId, 1000e6);
 
         vm.prank(operator);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IHubIntentSettler.DepositAlreadyProcessed.selector,
-                depositId
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IHubIntentSettler.DepositAlreadyProcessed.selector, depositId));
         settler.markNoFill(depositId);
     }
 
@@ -353,12 +292,7 @@ contract HubIntentSettlerTest is Test {
 
     function test_SetOperator_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         settler.setOperator(address(0xBEEF));
     }
 
@@ -396,10 +330,7 @@ contract HubIntentSettlerTest is Test {
     // ============ Views ============
 
     function test_DepositStatus_DefaultNone() public view {
-        assertEq(
-            uint8(settler.depositStatus(bytes32(uint256(999)))),
-            uint8(IHubIntentSettler.DepositStatus.NONE)
-        );
+        assertEq(uint8(settler.depositStatus(bytes32(uint256(999)))), uint8(IHubIntentSettler.DepositStatus.NONE));
     }
 
     // ============ Fuzz ============
@@ -412,9 +343,6 @@ contract HubIntentSettlerTest is Test {
 
         assertEq(ledger.available(user, address(usdc)), amount);
         assertEq(usdc.balanceOf(address(settler)), amount);
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.FILLED)
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.FILLED));
     }
 }

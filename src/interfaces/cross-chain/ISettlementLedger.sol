@@ -40,36 +40,20 @@ interface ISettlementLedger {
     /// @param solver The solver who fronted capital
     /// @param asset The ERC20 token
     /// @param amount The amount owed to the solver
-    event ReimbursementRegistered(
-        bytes32 indexed depositId,
-        address indexed solver,
-        address asset,
-        uint256 amount
-    );
+    event ReimbursementRegistered(bytes32 indexed depositId, address indexed solver, address asset, uint256 amount);
 
     /// @notice Emitted when the Sweeper Bot reimburses a solver
     /// @param depositId The deposit whose solver was reimbursed
     /// @param solver The solver who received reimbursement
     /// @param asset The ERC20 token
     /// @param amount The amount reimbursed
-    event ReimbursementCompleted(
-        bytes32 indexed depositId,
-        address indexed solver,
-        address asset,
-        uint256 amount
-    );
+    event ReimbursementCompleted(bytes32 indexed depositId, address indexed solver, address asset, uint256 amount);
 
     /// @notice Emitted when the operator address is updated
-    event OperatorUpdated(
-        address indexed previousOperator,
-        address indexed newOperator
-    );
+    event OperatorUpdated(address indexed previousOperator, address indexed newOperator);
 
     /// @notice Emitted when the HubIntentSettler pointer is updated
-    event HubIntentSettlerUpdated(
-        address indexed previousHubIntentSettler,
-        address indexed newHubIntentSettler
-    );
+    event HubIntentSettlerUpdated(address indexed previousHubIntentSettler, address indexed newHubIntentSettler);
 
     // ============ Errors ============
 
@@ -86,10 +70,7 @@ interface ISettlementLedger {
     error NotRegistered(bytes32 depositId);
 
     /// @notice Thrown when the record is in an unexpected status
-    error InvalidStatus(
-        bytes32 depositId,
-        ReimbursementStatus current
-    );
+    error InvalidStatus(bytes32 depositId, ReimbursementStatus current);
 
     /// @notice Thrown when an unauthorized caller attempts a restricted action
     error Unauthorized();
@@ -102,12 +83,7 @@ interface ISettlementLedger {
     /// @param solver The solver to reimburse
     /// @param asset The ERC20 token
     /// @param amount The amount owed
-    function register(
-        bytes32 depositId,
-        address solver,
-        address asset,
-        uint256 amount
-    ) external;
+    function register(bytes32 depositId, address solver, address asset, uint256 amount) external;
 
     // ============ Operator Actions ============
 
@@ -132,9 +108,7 @@ interface ISettlementLedger {
     /// @notice Get the reimbursement record for a deposit
     /// @param depositId The deposit to query
     /// @return The reimbursement record
-    function getRecord(
-        bytes32 depositId
-    ) external view returns (ReimbursementRecord memory);
+    function getRecord(bytes32 depositId) external view returns (ReimbursementRecord memory);
 
     /// @notice The HubIntentSettler that calls register()
     function hubIntentSettler() external view returns (address);

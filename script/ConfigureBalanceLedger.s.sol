@@ -22,11 +22,7 @@ contract ConfigureBalanceLedger is Script {
     /// @param balanceLedger BalanceLedger proxy address
     /// @param centuari Centuari proxy address
     /// @param hubDepositor HubDepositor proxy address
-    function run(
-        address balanceLedger,
-        address centuari,
-        address hubDepositor
-    ) external {
+    function run(address balanceLedger, address centuari, address hubDepositor) external {
         vm.startBroadcast();
 
         BalanceLedger ledger = BalanceLedger(balanceLedger);

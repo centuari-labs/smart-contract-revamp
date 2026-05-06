@@ -11,10 +11,7 @@ contract ConfigureHubDepositorAuth is Script {
     /// @notice Set WithdrawalRegistry as an authorized caller on HubDepositor.
     /// @param hubDepositor HubDepositor proxy address
     /// @param withdrawalRegistry WithdrawalRegistry proxy address
-    function run(
-        address hubDepositor,
-        address withdrawalRegistry
-    ) external {
+    function run(address hubDepositor, address withdrawalRegistry) external {
         vm.startBroadcast();
 
         HubDepositor(hubDepositor).setAuthorizedCaller(withdrawalRegistry, true);

@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    IERC20
-} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title MockStargateRouter
 /// @notice Minimal pool-bridge mock for Stargate V2. Stands in for the
@@ -99,40 +95,35 @@ contract MockStargateRouter {
         return _sends.length;
     }
 
-    function sendAt(
-        uint256 index
-    ) external view returns (CapturedSend memory) {
+    function sendAt(uint256 index) external view returns (CapturedSend memory) {
         return _sends[index];
     }
 
     // ============ Stargate-like Surface ============
 
     /// @notice Mirrors `IStargate.quoteSend`.
-    function quoteSend(
-        SendParam calldata /* params */,
-        bool /* payInLzToken */
-    ) external view returns (MessagingFee memory fee) {
+    function quoteSend(SendParam calldata, /* params */ bool /* payInLzToken */ )
+        external
+        view
+        returns (MessagingFee memory fee)
+    {
         return MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
     }
 
     /// @notice Mirrors `IStargate.send`. The return name drops the `LD`
     ///         suffix (vs. the `OFTSent` event) to satisfy mixedCase lint;
     ///         semantics are identical (Local Decimals).
-    function send(
-        SendParam calldata params,
-        MessagingFee calldata fee,
-        address /* refundAddress */
-    ) external payable returns (bytes32 guid, uint256 amountReceived) {
+    function send(SendParam calldata params, MessagingFee calldata fee, address /* refundAddress */ )
+        external
+        payable
+        returns (bytes32 guid, uint256 amountReceived)
+    {
         if (params.amountLD == 0) revert ZeroAmount();
         if (msg.value < fee.nativeFee) {
             revert InsufficientNativeFee(msg.value, fee.nativeFee);
         }
 
-        IERC20(TOKEN).safeTransferFrom(
-            msg.sender,
-            address(this),
-            params.amountLD
-        );
+        IERC20(TOKEN).safeTransferFrom(msg.sender, address(this), params.amountLD);
 
         // Apply pool fee: received = amount * (10_000 - bps) / 10_000
         amountReceived = (params.amountLD * (10_000 - poolFeeBps)) / 10_000;
@@ -141,14 +132,7 @@ contract MockStargateRouter {
         }
 
         guid = keccak256(
-            abi.encodePacked(
-                block.chainid,
-                params.dstEid,
-                msg.sender,
-                params.to,
-                params.amountLD,
-                _sends.length
-            )
+            abi.encodePacked(block.chainid, params.dstEid, msg.sender, params.to, params.amountLD, _sends.length)
         );
 
         _sends.push(
@@ -161,12 +145,6 @@ contract MockStargateRouter {
             })
         );
 
-        emit OFTSent(
-            guid,
-            params.dstEid,
-            msg.sender,
-            params.amountLD,
-            amountReceived
-        );
+        emit OFTSent(guid, params.dstEid, msg.sender, params.amountLD, amountReceived);
     }
 }

@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {ICollateralManager} from "../../interfaces/ICollateralManager.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -28,12 +24,7 @@ import {CollateralManagerStorage} from "./CollateralManagerStorage.sol";
 ///      through either `Settlement._processMatch` (auto-flag at match) or
 ///      `Centuari.repay` (auto-unflag at repay-to-zero), neither of which
 ///      touches this contract.
-contract CollateralManager is
-    Initializable,
-    OwnableUpgradeable,
-    CollateralManagerStorage,
-    ICollateralManager
-{
+contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManagerStorage, ICollateralManager {
     // ============ Constants ============
 
     /// @notice Ceiling on `_flagLock` to prevent governance from bricking the
@@ -60,12 +51,10 @@ contract CollateralManager is
     /// @param operator_ The protocol settlement key allowed to flag/unflag
     /// @param balanceLedger_ The BalanceLedger instance this manager writes to
     /// @param riskModule_ The initial RiskModule policy pointer (stub in Phase 1)
-    function initialize(
-        address owner_,
-        address operator_,
-        address balanceLedger_,
-        address riskModule_
-    ) external initializer {
+    function initialize(address owner_, address operator_, address balanceLedger_, address riskModule_)
+        external
+        initializer
+    {
         if (owner_ == address(0)) revert ZeroAddress();
         if (operator_ == address(0)) revert ZeroAddress();
         if (balanceLedger_ == address(0)) revert ZeroAddress();

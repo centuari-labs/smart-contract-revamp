@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {RiskModuleStub} from "../src/core/risk/RiskModuleStub.sol";
 import {CollateralManager} from "../src/core/collateral/CollateralManager.sol";
@@ -29,12 +27,7 @@ contract DeployCollateralStack is Script {
     /// @param operator Protocol settlement key allowed to call flagFor/unflagFor
     /// @param balanceLedger The already-deployed BalanceLedger proxy address
     /// @param proxyAdminOwner Owner of the CollateralManager's TransparentUpgradeableProxy admin
-    function run(
-        address owner,
-        address operator,
-        address balanceLedger,
-        address proxyAdminOwner
-    )
+    function run(address owner, address operator, address balanceLedger, address proxyAdminOwner)
         external
         returns (
             address riskModuleStub,
@@ -55,16 +48,11 @@ contract DeployCollateralStack is Script {
         CollateralManager mgrImpl = new CollateralManager();
         collateralManagerImpl = address(mgrImpl);
 
-        bytes memory initData = abi.encodeCall(
-            CollateralManager.initialize,
-            (owner, operator, balanceLedger, riskModuleStub)
-        );
+        bytes memory initData =
+            abi.encodeCall(CollateralManager.initialize, (owner, operator, balanceLedger, riskModuleStub));
 
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            collateralManagerImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy proxy =
+            new TransparentUpgradeableProxy(collateralManagerImpl, proxyAdminOwner, initData);
         collateralManagerProxy = address(proxy);
         collateralManagerProxyAdmin = _getProxyAdmin(collateralManagerProxy);
 

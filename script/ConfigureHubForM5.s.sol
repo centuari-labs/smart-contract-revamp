@@ -65,42 +65,24 @@ contract ConfigureHubForM5 is Script {
         console.log("=== Hub M5 Configuration Complete ===");
     }
 
-    function _registerSpokeIfSet(
-        HubIntentSettler settler,
-        string memory chain
-    ) internal {
-        string memory gatewayKey = string.concat(
-            "SPOKE_GATEWAY_",
-            chain
-        );
+    function _registerSpokeIfSet(HubIntentSettler settler, string memory chain) internal {
+        string memory gatewayKey = string.concat("SPOKE_GATEWAY_", chain);
         string memory eidKey = string.concat("SPOKE_EID_", chain);
 
         try vm.envAddress(gatewayKey) returns (address gateway) {
             uint32 eid = uint32(vm.envUint(eidKey));
             bytes32 peer = bytes32(uint256(uint160(gateway)));
             settler.setTrustedRemote(eid, peer);
-            console.log(
-                string.concat("Settler: trusted remote ", chain, " ->"),
-                gateway
-            );
+            console.log(string.concat("Settler: trusted remote ", chain, " ->"), gateway);
         } catch {
             // Env not set — skip this chain.
         }
     }
 
-    function _registerPayoutIfSet(
-        WithdrawalRegistry registry,
-        string memory chain
-    ) internal {
-        string memory payoutKey = string.concat(
-            "SPOKE_PAYOUT_",
-            chain
-        );
+    function _registerPayoutIfSet(WithdrawalRegistry registry, string memory chain) internal {
+        string memory payoutKey = string.concat("SPOKE_PAYOUT_", chain);
         string memory eidKey = string.concat("SPOKE_EID_", chain);
-        string memory chainIdKey = string.concat(
-            "SPOKE_CHAIN_ID_",
-            chain
-        );
+        string memory chainIdKey = string.concat("SPOKE_CHAIN_ID_", chain);
 
         try vm.envAddress(payoutKey) returns (address payoutAddr) {
             uint32 eid = uint32(vm.envUint(eidKey));
@@ -108,44 +90,22 @@ contract ConfigureHubForM5 is Script {
             bytes32 peer = bytes32(uint256(uint160(payoutAddr)));
             registry.setPayoutPeer(eid, peer);
             registry.setSpokeEid(chainId, eid);
-            console.log(
-                string.concat("Registry: payout peer ", chain, " ->"),
-                payoutAddr
-            );
+            console.log(string.concat("Registry: payout peer ", chain, " ->"), payoutAddr);
         } catch {
             // Env not set — skip this chain.
         }
     }
 
-    function _registerSpokeNativeRouteIfSet(
-        WithdrawalRegistry registry,
-        string memory token,
-        string memory chain
-    ) internal {
-        string memory assetKey = string.concat(
-            "SPOKE_NATIVE_ASSET_",
-            token,
-            "_",
-            chain
-        );
-        string memory chainIdKey = string.concat(
-            "SPOKE_CHAIN_ID_",
-            chain
-        );
+    function _registerSpokeNativeRouteIfSet(WithdrawalRegistry registry, string memory token, string memory chain)
+        internal
+    {
+        string memory assetKey = string.concat("SPOKE_NATIVE_ASSET_", token, "_", chain);
+        string memory chainIdKey = string.concat("SPOKE_CHAIN_ID_", chain);
 
         try vm.envAddress(assetKey) returns (address asset) {
             uint256 chainId = vm.envUint(chainIdKey);
             registry.setSpokeNativeRoute(asset, chainId, true);
-            console.log(
-                string.concat(
-                    "Registry: spoke-native route ",
-                    token,
-                    "/",
-                    chain,
-                    " ->"
-                ),
-                asset
-            );
+            console.log(string.concat("Registry: spoke-native route ", token, "/", chain, " ->"), asset);
         } catch {
             // Env not set — skip.
         }

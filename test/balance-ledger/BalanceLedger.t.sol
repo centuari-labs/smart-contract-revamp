@@ -49,20 +49,10 @@ contract BalanceLedgerTest is Test {
 
     // ============ Helpers ============
 
-    function _deployLedger(
-        address owner_,
-        bool forceWriterRegistrationEnabled_
-    ) internal returns (BalanceLedger) {
+    function _deployLedger(address owner_, bool forceWriterRegistrationEnabled_) internal returns (BalanceLedger) {
         BalanceLedger impl = new BalanceLedger();
-        bytes memory initData = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner_, forceWriterRegistrationEnabled_)
-        );
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(impl),
-            proxyAdminOwner,
-            initData
-        );
+        bytes memory initData = abi.encodeCall(BalanceLedger.initialize, (owner_, forceWriterRegistrationEnabled_));
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
         return BalanceLedger(address(proxy));
     }
 
@@ -77,10 +67,7 @@ contract BalanceLedgerTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         BalanceLedger impl = new BalanceLedger();
-        bytes memory initData = abi.encodeCall(
-            BalanceLedger.initialize,
-            (address(0), false)
-        );
+        bytes memory initData = abi.encodeCall(BalanceLedger.initialize, (address(0), false));
         vm.expectRevert(IBalanceLedger.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
     }
@@ -340,10 +327,7 @@ contract BalanceLedgerTest is Test {
     ///         underflows.
     /// @dev `inOrders` and `inYieldRouter` are always zero in Phase 1, so the
     ///      sum of sub-states should equal `available`.
-    function testFuzz_Invariant_CreditMinusDebitEqualsSum(
-        uint96[16] memory credits,
-        uint96[16] memory debits
-    ) public {
+    function testFuzz_Invariant_CreditMinusDebitEqualsSum(uint96[16] memory credits, uint96[16] memory debits) public {
         uint256 totalCredited;
         uint256 totalDebited;
 
@@ -400,13 +384,7 @@ contract BalanceLedgerTest is Test {
 
         vm.prank(writer);
         vm.expectEmit(true, true, true, true);
-        emit IBalanceLedger.CollateralFlagSet(
-            writer,
-            user1,
-            asset1,
-            true,
-            uint64(block.timestamp)
-        );
+        emit IBalanceLedger.CollateralFlagSet(writer, user1, asset1, true, uint64(block.timestamp));
         ledger.markCollateral(user1, asset1);
 
         assertTrue(ledger.usedAsCollateral(user1, asset1));

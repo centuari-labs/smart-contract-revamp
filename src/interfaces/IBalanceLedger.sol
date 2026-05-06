@@ -21,11 +21,7 @@ interface IBalanceLedger {
     /// @param amount The amount credited
     /// @param newAvailable The user's available balance after the credit
     event Credited(
-        address indexed writer,
-        address indexed user,
-        address indexed asset,
-        uint256 amount,
-        uint256 newAvailable
+        address indexed writer, address indexed user, address indexed asset, uint256 amount, uint256 newAvailable
     );
 
     /// @notice Emitted when an authorized writer debits a user's available balance
@@ -35,11 +31,7 @@ interface IBalanceLedger {
     /// @param amount The amount debited
     /// @param newAvailable The user's available balance after the debit
     event Debited(
-        address indexed writer,
-        address indexed user,
-        address indexed asset,
-        uint256 amount,
-        uint256 newAvailable
+        address indexed writer, address indexed user, address indexed asset, uint256 amount, uint256 newAvailable
     );
 
     /// @notice Emitted when a new authorized writer is proposed (starts 48h timer)
@@ -80,11 +72,7 @@ interface IBalanceLedger {
     /// @param used The new flag state (true = flagged, false = unflagged)
     /// @param flaggedAt The new `_flaggedAt` stamp (block.timestamp on mark, 0 on unmark)
     event CollateralFlagSet(
-        address indexed writer,
-        address indexed user,
-        address indexed asset,
-        bool used,
-        uint64 flaggedAt
+        address indexed writer, address indexed user, address indexed asset, bool used, uint64 flaggedAt
     );
 
     // ============ Errors ============

@@ -26,8 +26,7 @@ abstract contract HubIntentSettlerStorage {
 
     /// @notice Deposit processing status keyed by depositId
     /// @dev Default value (0) maps to DepositStatus.NONE, meaning unprocessed.
-    mapping(bytes32 => IHubIntentSettler.DepositStatus)
-        internal _depositStatuses;
+    mapping(bytes32 => IHubIntentSettler.DepositStatus) internal _depositStatuses;
 
     /// @notice The trusted LayerZero V2 endpoint on the hub chain.
     /// @dev Set by governance via `setLzEndpoint`. `lzReceive` only accepts

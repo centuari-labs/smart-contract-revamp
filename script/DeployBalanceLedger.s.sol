@@ -18,25 +18,14 @@ contract DeployBalanceLedger is Script {
     /// @return balanceLedgerProxy BalanceLedger proxy address
     /// @return balanceLedgerImpl BalanceLedger implementation address
     /// @return proxyAdmin ProxyAdmin address
-    function run(
-        address owner,
-        bool forceWriterRegistrationEnabled,
-        address proxyAdminOwner
-    )
+    function run(address owner, bool forceWriterRegistrationEnabled, address proxyAdminOwner)
         external
-        returns (
-            address balanceLedgerProxy,
-            address balanceLedgerImpl,
-            address proxyAdmin
-        )
+        returns (address balanceLedgerProxy, address balanceLedgerImpl, address proxyAdmin)
     {
         vm.startBroadcast();
 
-        (balanceLedgerProxy, balanceLedgerImpl, proxyAdmin) = deploy(
-            owner,
-            forceWriterRegistrationEnabled,
-            proxyAdminOwner
-        );
+        (balanceLedgerProxy, balanceLedgerImpl, proxyAdmin) =
+            deploy(owner, forceWriterRegistrationEnabled, proxyAdminOwner);
 
         vm.stopBroadcast();
 
@@ -55,31 +44,17 @@ contract DeployBalanceLedger is Script {
     /// @param owner BalanceLedger owner
     /// @param forceWriterRegistrationEnabled Whether forceAddWriter is permitted
     /// @param proxyAdminOwner Owner of the ProxyAdmin
-    function deploy(
-        address owner,
-        bool forceWriterRegistrationEnabled,
-        address proxyAdminOwner
-    )
+    function deploy(address owner, bool forceWriterRegistrationEnabled, address proxyAdminOwner)
         public
-        returns (
-            address balanceLedgerProxy,
-            address balanceLedgerImpl,
-            address proxyAdmin
-        )
+        returns (address balanceLedgerProxy, address balanceLedgerImpl, address proxyAdmin)
     {
         BalanceLedger impl = new BalanceLedger();
         balanceLedgerImpl = address(impl);
 
-        bytes memory initData = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, forceWriterRegistrationEnabled)
-        );
+        bytes memory initData = abi.encodeCall(BalanceLedger.initialize, (owner, forceWriterRegistrationEnabled));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            balanceLedgerImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(balanceLedgerImpl, proxyAdminOwner, initData);
         balanceLedgerProxy = address(transparentProxy);
 
         proxyAdmin = _getProxyAdmin(balanceLedgerProxy);

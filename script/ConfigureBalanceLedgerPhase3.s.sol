@@ -14,11 +14,7 @@ contract ConfigureBalanceLedgerPhase3 is Script {
     /// @param balanceLedger BalanceLedger proxy address
     /// @param withdrawalRegistry WithdrawalRegistry proxy address
     /// @param hubIntentSettler HubIntentSettler proxy address
-    function run(
-        address balanceLedger,
-        address withdrawalRegistry,
-        address hubIntentSettler
-    ) external {
+    function run(address balanceLedger, address withdrawalRegistry, address hubIntentSettler) external {
         vm.startBroadcast();
 
         BalanceLedger ledger = BalanceLedger(balanceLedger);

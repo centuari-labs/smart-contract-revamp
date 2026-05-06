@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubIntentSettler} from "../../src/core/cross-chain/HubIntentSettler.sol";
@@ -34,41 +30,22 @@ contract SettlementLedgerTest is Test {
 
         // Deploy BalanceLedger behind proxy
         BalanceLedger ledgerImpl = new BalanceLedger();
-        bytes memory ledgerInit = abi.encodeCall(
-            BalanceLedger.initialize,
-            (owner, true)
-        );
-        TransparentUpgradeableProxy ledgerProxy = new TransparentUpgradeableProxy(
-            address(ledgerImpl),
-            address(this),
-            ledgerInit
-        );
+        bytes memory ledgerInit = abi.encodeCall(BalanceLedger.initialize, (owner, true));
+        TransparentUpgradeableProxy ledgerProxy =
+            new TransparentUpgradeableProxy(address(ledgerImpl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
         // Deploy HubIntentSettler behind proxy
         HubIntentSettler settlerImpl = new HubIntentSettler();
-        bytes memory settlerInit = abi.encodeCall(
-            HubIntentSettler.initialize,
-            (owner, operator, address(ledger))
-        );
-        TransparentUpgradeableProxy settlerProxy = new TransparentUpgradeableProxy(
-            address(settlerImpl),
-            address(this),
-            settlerInit
-        );
+        bytes memory settlerInit = abi.encodeCall(HubIntentSettler.initialize, (owner, operator, address(ledger)));
+        TransparentUpgradeableProxy settlerProxy =
+            new TransparentUpgradeableProxy(address(settlerImpl), address(this), settlerInit);
         settler = HubIntentSettler(address(settlerProxy));
 
         // Deploy SettlementLedger behind proxy
         SettlementLedger slImpl = new SettlementLedger();
-        bytes memory slInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, operator, address(settler))
-        );
-        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(
-            address(slImpl),
-            address(this),
-            slInit
-        );
+        bytes memory slInit = abi.encodeCall(SettlementLedger.initialize, (owner, operator, address(settler)));
+        TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(address(slImpl), address(this), slInit);
         settlementLedger = SettlementLedger(address(slProxy));
 
         // Wire settler ↔ settlementLedger
@@ -85,10 +62,7 @@ contract SettlementLedgerTest is Test {
 
     // ============ Helpers ============
 
-    function _fillDeposit(
-        bytes32 depositId,
-        uint256 amount
-    ) internal {
+    function _fillDeposit(bytes32 depositId, uint256 amount) internal {
         vm.startPrank(operator);
         usdc.approve(address(settler), amount);
         settler.fillFor(depositId, user, address(usdc), amount, SOURCE_CHAIN_ID);
@@ -105,30 +79,21 @@ contract SettlementLedgerTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         SettlementLedger impl = new SettlementLedger();
-        bytes memory badInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (address(0), operator, address(settler))
-        );
+        bytes memory badInit = abi.encodeCall(SettlementLedger.initialize, (address(0), operator, address(settler)));
         vm.expectRevert(ISettlementLedger.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
 
     function test_Initialize_RevertZeroOperator() public {
         SettlementLedger impl = new SettlementLedger();
-        bytes memory badInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, address(0), address(settler))
-        );
+        bytes memory badInit = abi.encodeCall(SettlementLedger.initialize, (owner, address(0), address(settler)));
         vm.expectRevert(ISettlementLedger.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
 
     function test_Initialize_RevertZeroHubIntentSettler() public {
         SettlementLedger impl = new SettlementLedger();
-        bytes memory badInit = abi.encodeCall(
-            SettlementLedger.initialize,
-            (owner, operator, address(0))
-        );
+        bytes memory badInit = abi.encodeCall(SettlementLedger.initialize, (owner, operator, address(0)));
         vm.expectRevert(ISettlementLedger.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
@@ -145,10 +110,7 @@ contract SettlementLedgerTest is Test {
         assertEq(record.solver, operator);
         assertEq(record.asset, address(usdc));
         assertEq(record.amount, amount);
-        assertEq(
-            uint8(record.status),
-            uint8(ISettlementLedger.ReimbursementStatus.REGISTERED)
-        );
+        assertEq(uint8(record.status), uint8(ISettlementLedger.ReimbursementStatus.REGISTERED));
     }
 
     function test_Register_RevertNotHubIntentSettler() public {
@@ -165,12 +127,7 @@ contract SettlementLedgerTest is Test {
         // replay check first. Test the SettlementLedger side by calling directly
         // from the hubIntentSettler address.
         vm.prank(address(settler));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISettlementLedger.AlreadyRegistered.selector,
-                depositId
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISettlementLedger.AlreadyRegistered.selector, depositId));
         settlementLedger.register(depositId, operator, address(usdc), 1000e6);
     }
 
@@ -198,10 +155,7 @@ contract SettlementLedgerTest is Test {
         settlementLedger.matchAndReimburse(depositId);
 
         ISettlementLedger.ReimbursementRecord memory record = settlementLedger.getRecord(depositId);
-        assertEq(
-            uint8(record.status),
-            uint8(ISettlementLedger.ReimbursementStatus.REIMBURSED)
-        );
+        assertEq(uint8(record.status), uint8(ISettlementLedger.ReimbursementStatus.REIMBURSED));
     }
 
     function test_MatchAndReimburse_EmitsEvent() public {
@@ -212,12 +166,7 @@ contract SettlementLedgerTest is Test {
 
         vm.prank(operator);
         vm.expectEmit(true, true, false, true);
-        emit ISettlementLedger.ReimbursementCompleted(
-            depositId,
-            operator,
-            address(usdc),
-            amount
-        );
+        emit ISettlementLedger.ReimbursementCompleted(depositId, operator, address(usdc), amount);
         settlementLedger.matchAndReimburse(depositId);
     }
 
@@ -227,9 +176,7 @@ contract SettlementLedgerTest is Test {
         vm.prank(operator);
         vm.expectRevert(
             abi.encodeWithSelector(
-                ISettlementLedger.InvalidStatus.selector,
-                depositId,
-                ISettlementLedger.ReimbursementStatus.NONE
+                ISettlementLedger.InvalidStatus.selector, depositId, ISettlementLedger.ReimbursementStatus.NONE
             )
         );
         settlementLedger.matchAndReimburse(depositId);
@@ -245,9 +192,7 @@ contract SettlementLedgerTest is Test {
         vm.prank(operator);
         vm.expectRevert(
             abi.encodeWithSelector(
-                ISettlementLedger.InvalidStatus.selector,
-                depositId,
-                ISettlementLedger.ReimbursementStatus.REIMBURSED
+                ISettlementLedger.InvalidStatus.selector, depositId, ISettlementLedger.ReimbursementStatus.REIMBURSED
             )
         );
         settlementLedger.matchAndReimburse(depositId);
@@ -283,12 +228,7 @@ contract SettlementLedgerTest is Test {
 
     function test_SetOperator_RevertNonOwner() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
         settlementLedger.setOperator(address(0xBEEF));
     }
 
@@ -312,16 +252,11 @@ contract SettlementLedgerTest is Test {
     // ============ Views ============
 
     function test_GetRecord_DefaultNone() public view {
-        ISettlementLedger.ReimbursementRecord memory record = settlementLedger.getRecord(
-            bytes32(uint256(999))
-        );
+        ISettlementLedger.ReimbursementRecord memory record = settlementLedger.getRecord(bytes32(uint256(999)));
         assertEq(record.solver, address(0));
         assertEq(record.asset, address(0));
         assertEq(record.amount, 0);
-        assertEq(
-            uint8(record.status),
-            uint8(ISettlementLedger.ReimbursementStatus.NONE)
-        );
+        assertEq(uint8(record.status), uint8(ISettlementLedger.ReimbursementStatus.NONE));
     }
 
     // ============ Fuzz ============

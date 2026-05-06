@@ -803,7 +803,37 @@ Routing per token per chain is defined in the Token × Chain Matrix (see "Token 
 
 ---
 
-### Module 8: indexer-v3 from scratch (custom, no framework) ⚪ NOT STARTED
+### Module 8: indexer-v3 from scratch (custom, no framework) ✅ DONE 2026-05-06
+
+**Burn-in verification (live testnet, real LayerZero V2 round-trip):**
+
+| Event | Chain | Block | Tx | Indexer captured |
+|---|---|---|---|---|
+| `DepositInitiated` | Base Sepolia (40245) | 41,074,237 | `0x28859d20...4052c` | `cross_chain_deposit` row `0x2afaac2d...626483` state=`INITIATED` |
+| `DepositConfirmed` (LZ V2 relay) | Arb Sepolia (40231) | 265,677,851 | `0x8f99a27a...aac56` | Same row state=`CREDITED`, `credited_tx` stamped |
+| `BalanceLedger.Credited` | Arb Sepolia | 265,677,851 | (same tx) | `user_balance.available = 1,000,000` for user `0x477d…EfE1` / asset `0x5113…e70b3` |
+
+End-to-end latency: ~22 min (LZ testnet, low-priority pathway). 3 of 3 critical processors verified live.
+
+**Substrate (already done before burn-in):** 10 processors, 4 migrations, Fastify REST API, C10 idempotency helper, 235/235 unit tests pass. Hub-only burn-in passed 2026-04-21. Spoke + LZ + Centuari positions burn-in completed 2026-05-06.
+
+**Contract bugs found during burn-in + patched** (see `docs/m8-burn-in-completion.md` for full handoff):
+1. `SpokeDepositGateway._lzSend` + `quoteDeposit` passed `bytes("")` for LZ options → `LZ_ULN_InvalidWorkerOptions`. Patched both with Type-3 ExecutorLzReceiveOption.
+2. `SpokeVaultStable.setGateway` / `setPayout` never called by setup scripts → `Unauthorized()` on first deposit.
+3. `HubIntentSettler` + `SpokePayout` missing `allowInitializePath()` (LZ V2 ILayerZeroReceiver requirement) → LZ scanner: `Not Initializable`.
+4. `HubIntentSettler.lzReceive` + `SpokePayout.lzReceive` used non-standard arg order `(Origin, address, bytes32, bytes, bytes)` instead of LZ V2 standard `(Origin, bytes32, bytes, address, bytes)`. MockLZEndpoint had the same wrong signature so unit tests never caught it. Patched all 3 + tests.
+
+All 4 patched contracts deployed + upgraded on Arb Sepolia / Base Sepolia testnet. 235/235 unit tests pass post-patch.
+
+**New tooling delivered:**
+- `bin/run-all-cross-chain.sh` — master orchestrator (6 phases A–F, resumable)
+- `bin/lz-testnet-config.sh` — LZ V2 endpoint + EID constants
+- `script/ConfigureSpokeForM5.s.sol` — spoke-side LZ peer + asset classification (mirror of `ConfigureHubForM5`)
+- `script/BurnInSpokeDeposit.s.sol` — burn-in trigger (approve + quote + deposit)
+- `docs/m8-burn-in-runbook.md` — Phase 0 prereqs runbook
+- `docs/m8-burn-in-completion.md` — handoff doc with full bug list + verification evidence
+
+### Module 8 (original spec, marked NOT STARTED before burn-in)
 
 **Scope:** brand-new custom Node.js/TypeScript indexer. **Ponder explicitly rejected** — the previous attempt hit dead ends because Ponder's enforced schema model and handler abstraction did not fit multi-chain state rollups (e.g., reflecting a single user's balance from events on hub + all four spokes in one `UserBalance` row). We build our own with the same stack conventions as `backend-v2`: TypeScript, pnpm, Viem, raw `pg`, Biome. Docker-compose already expects `indexer-v3/` at port 42069; directory does not exist yet.
 

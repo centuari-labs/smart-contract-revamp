@@ -2,12 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {SpokeVaultStable} from "../../../src/core/cross-chain/spoke/SpokeVaultStable.sol";
 import {ISpokeVaultStable} from "../../../src/interfaces/cross-chain/spoke/ISpokeVaultStable.sol";
@@ -17,9 +13,9 @@ import {MockStargateRouter} from "../../mocks/MockStargateRouter.sol";
 
 contract SpokeVaultStableTest is Test {
     SpokeVaultStable internal vault;
-    MockToken internal usdc;          // BRIDGED
-    MockToken internal xsgd;          // SPOKE_NATIVE
-    MockToken internal weth;          // BRIDGED, no Stargate router set (negative tests)
+    MockToken internal usdc; // BRIDGED
+    MockToken internal xsgd; // SPOKE_NATIVE
+    MockToken internal weth; // BRIDGED, no Stargate router set (negative tests)
     MockCCTPMessenger internal cctp;
     MockStargateRouter internal stargateUsdc;
 
@@ -42,11 +38,7 @@ contract SpokeVaultStableTest is Test {
 
         SpokeVaultStable impl = new SpokeVaultStable();
         bytes memory init = abi.encodeCall(SpokeVaultStable.initialize, (owner));
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(impl),
-            address(this),
-            init
-        );
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(address(impl), address(this), init);
         vault = SpokeVaultStable(address(proxy));
 
         vm.startPrank(owner);
@@ -74,10 +66,7 @@ contract SpokeVaultStableTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         SpokeVaultStable impl = new SpokeVaultStable();
-        bytes memory badInit = abi.encodeCall(
-            SpokeVaultStable.initialize,
-            (address(0))
-        );
+        bytes memory badInit = abi.encodeCall(SpokeVaultStable.initialize, (address(0)));
         vm.expectRevert(ISpokeVaultStable.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), address(this), badInit);
     }
@@ -86,43 +75,23 @@ contract SpokeVaultStableTest is Test {
 
     function test_SetAssetClassification_OwnerOnly() public {
         vm.prank(outsider);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OwnableUpgradeable.OwnableUnauthorizedAccount.selector,
-                outsider
-            )
-        );
-        vault.setAssetClassification(
-            address(usdc),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
+        vault.setAssetClassification(address(usdc), ISpokeVaultStable.AssetClassification.BRIDGED);
     }
 
     function test_SetAssetClassification_RevertZeroAsset() public {
         vm.prank(owner);
         vm.expectRevert(ISpokeVaultStable.ZeroAddress.selector);
-        vault.setAssetClassification(
-            address(0),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
+        vault.setAssetClassification(address(0), ISpokeVaultStable.AssetClassification.BRIDGED);
     }
 
     function test_SetAssetClassification_EmitsEvent() public {
         MockToken usdt = new MockToken("Tether", "USDT", 6, 0);
         vm.prank(owner);
         vm.expectEmit(true, false, false, true);
-        emit ISpokeVaultStable.AssetClassificationSet(
-            address(usdt),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
-        vault.setAssetClassification(
-            address(usdt),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
-        assertEq(
-            uint8(vault.classificationOf(address(usdt))),
-            uint8(ISpokeVaultStable.AssetClassification.BRIDGED)
-        );
+        emit ISpokeVaultStable.AssetClassificationSet(address(usdt), ISpokeVaultStable.AssetClassification.BRIDGED);
+        vault.setAssetClassification(address(usdt), ISpokeVaultStable.AssetClassification.BRIDGED);
+        assertEq(uint8(vault.classificationOf(address(usdt))), uint8(ISpokeVaultStable.AssetClassification.BRIDGED));
     }
 
     // ============ Role setters ============
@@ -228,11 +197,7 @@ contract SpokeVaultStableTest is Test {
         _seedBridged(address(usdc), amount);
 
         vm.prank(sweeper);
-        (uint256 swept, uint64 nonce) = vault.sweepCCTP(
-            address(usdc),
-            3,
-            bytes32(uint256(uint160(user)))
-        );
+        (uint256 swept, uint64 nonce) = vault.sweepCCTP(address(usdc), 3, bytes32(uint256(uint160(user))));
 
         assertEq(swept, amount);
         assertEq(nonce, 1);
@@ -256,13 +221,7 @@ contract SpokeVaultStableTest is Test {
 
     function test_SweepCCTP_RevertZeroBalance() public {
         vm.prank(sweeper);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeVaultStable.InsufficientBridgedBalance.selector,
-                0,
-                0
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVaultStable.InsufficientBridgedBalance.selector, 0, 0));
         vault.sweepCCTP(address(usdc), 3, bytes32(uint256(uint160(user))));
     }
 
@@ -313,51 +272,22 @@ contract SpokeVaultStableTest is Test {
         vm.deal(sweeper, 1 ether);
         uint256 nativeFee = stargateUsdc.nativeFee();
         vm.prank(sweeper);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                SpokeVaultStable.InsufficientLzFee.selector,
-                0,
-                nativeFee
-            )
-        );
-        vault.sweepStargate(
-            address(usdc),
-            30110,
-            bytes32(uint256(uint160(user))),
-            0,
-            nativeFee
-        );
+        vm.expectRevert(abi.encodeWithSelector(SpokeVaultStable.InsufficientLzFee.selector, 0, nativeFee));
+        vault.sweepStargate(address(usdc), 30110, bytes32(uint256(uint160(user))), 0, nativeFee);
     }
 
     function test_SweepStargate_RevertNoRouter() public {
         _seedBridged(address(weth), 1e6);
         vm.deal(sweeper, 1 ether);
         vm.prank(sweeper);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeVaultStable.StargateRouterNotSet.selector,
-                address(weth)
-            )
-        );
-        vault.sweepStargate{value: 0.001 ether}(
-            address(weth),
-            30110,
-            bytes32(uint256(uint160(user))),
-            0,
-            0.001 ether
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVaultStable.StargateRouterNotSet.selector, address(weth)));
+        vault.sweepStargate{value: 0.001 ether}(address(weth), 30110, bytes32(uint256(uint160(user))), 0, 0.001 ether);
     }
 
     function test_SweepStargate_RevertSpokeNativeAsset() public {
         vm.prank(sweeper);
         vm.expectRevert(ISpokeVaultStable.CannotSweepSpokeNative.selector);
-        vault.sweepStargate{value: 0}(
-            address(xsgd),
-            30110,
-            bytes32(uint256(uint160(user))),
-            0,
-            0
-        );
+        vault.sweepStargate{value: 0}(address(xsgd), 30110, bytes32(uint256(uint160(user))), 0, 0);
     }
 
     function test_SweepStargate_OnlySweeper() public {
@@ -365,13 +295,7 @@ contract SpokeVaultStableTest is Test {
         vm.deal(outsider, 1 ether);
         vm.prank(outsider);
         vm.expectRevert(ISpokeVaultStable.Unauthorized.selector);
-        vault.sweepStargate{value: 0.001 ether}(
-            address(usdc),
-            30110,
-            bytes32(uint256(uint160(user))),
-            0,
-            0.001 ether
-        );
+        vault.sweepStargate{value: 0.001 ether}(address(usdc), 30110, bytes32(uint256(uint160(user))), 0, 0.001 ether);
     }
 
     // ============ releaseSpokeNative ============
@@ -412,13 +336,7 @@ contract SpokeVaultStableTest is Test {
     function test_ReleaseSpokeNative_RevertInsufficient() public {
         _seedSpokeNative(address(xsgd), 10);
         vm.prank(payoutRole);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeVaultStable.InsufficientSpokeNativeBalance.selector,
-                10,
-                100
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVaultStable.InsufficientSpokeNativeBalance.selector, 10, 100));
         vault.releaseSpokeNative(address(xsgd), user, 100);
     }
 
@@ -453,13 +371,7 @@ contract SpokeVaultStableTest is Test {
     function test_RecallBridged_RevertInsufficient() public {
         _seedBridged(address(usdc), 10);
         vm.prank(gateway);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokeVaultStable.InsufficientBridgedBalance.selector,
-                10,
-                100
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokeVaultStable.InsufficientBridgedBalance.selector, 10, 100));
         vault.recallBridged(address(usdc), user, 100);
     }
 }

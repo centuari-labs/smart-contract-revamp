@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 // Spoke contracts
 import {SpokeDepositGateway} from "../../../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
@@ -64,21 +62,11 @@ contract SpokePayoutIntegrationTest is Test {
         hubEndpoint = new MockLZEndpoint(HUB_EID);
 
         // ---- Deploy hub contracts ----
-        ledger = BalanceLedger(
-            _proxy(
-                address(new BalanceLedger()),
-                abi.encodeCall(BalanceLedger.initialize, (owner, true))
-            )
-        );
+        ledger =
+            BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
 
         hubDepositor = HubDepositor(
-            _proxy(
-                address(new HubDepositor()),
-                abi.encodeCall(
-                    HubDepositor.initialize,
-                    (owner, address(ledger))
-                )
-            )
+            _proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger))))
         );
 
         riskModule = new RiskModuleStub(address(ledger));
@@ -86,20 +74,14 @@ contract SpokePayoutIntegrationTest is Test {
         settler = HubIntentSettler(
             _proxy(
                 address(new HubIntentSettler()),
-                abi.encodeCall(
-                    HubIntentSettler.initialize,
-                    (owner, operatorAddr, address(ledger))
-                )
+                abi.encodeCall(HubIntentSettler.initialize, (owner, operatorAddr, address(ledger)))
             )
         );
 
         settlementLedger = SettlementLedger(
             _proxy(
                 address(new SettlementLedger()),
-                abi.encodeCall(
-                    SettlementLedger.initialize,
-                    (owner, operatorAddr, address(settler))
-                )
+                abi.encodeCall(SettlementLedger.initialize, (owner, operatorAddr, address(settler)))
             )
         );
 
@@ -108,42 +90,27 @@ contract SpokePayoutIntegrationTest is Test {
                 address(new WithdrawalRegistry()),
                 abi.encodeCall(
                     WithdrawalRegistry.initialize,
-                    (
-                        owner,
-                        operatorAddr,
-                        address(ledger),
-                        address(riskModule),
-                        address(hubDepositor)
-                    )
+                    (owner, operatorAddr, address(ledger), address(riskModule), address(hubDepositor))
                 )
             )
         );
 
         // ---- Deploy spoke contracts ----
         vault = SpokeVaultStable(
-            _proxy(
-                address(new SpokeVaultStable()),
-                abi.encodeCall(SpokeVaultStable.initialize, (owner))
-            )
+            _proxy(address(new SpokeVaultStable()), abi.encodeCall(SpokeVaultStable.initialize, (owner)))
         );
 
         gateway = SpokeDepositGateway(
             _proxy(
                 address(new SpokeDepositGateway()),
-                abi.encodeCall(
-                    SpokeDepositGateway.initialize,
-                    (owner, address(vault), address(spokeEndpoint), HUB_EID)
-                )
+                abi.encodeCall(SpokeDepositGateway.initialize, (owner, address(vault), address(spokeEndpoint), HUB_EID))
             )
         );
 
         spokePayout = SpokePayout(
             _proxy(
                 address(new SpokePayout()),
-                abi.encodeCall(
-                    SpokePayout.initialize,
-                    (owner, address(vault), address(spokeEndpoint))
-                )
+                abi.encodeCall(SpokePayout.initialize, (owner, address(vault), address(spokeEndpoint)))
             )
         );
 
@@ -152,10 +119,7 @@ contract SpokePayoutIntegrationTest is Test {
         // Hub wiring
         settler.setSettlementLedger(address(settlementLedger));
         settler.setLzEndpoint(address(hubEndpoint));
-        settler.setTrustedRemote(
-            SPOKE_EID,
-            bytes32(uint256(uint160(address(gateway))))
-        );
+        settler.setTrustedRemote(SPOKE_EID, bytes32(uint256(uint160(address(gateway)))));
         settler.setWithdrawalRegistry(address(registry));
 
         ledger.forceAddWriter(address(settler));
@@ -169,34 +133,19 @@ contract SpokePayoutIntegrationTest is Test {
         registry.setSpokeNativeRoute(address(xsgd), BASE_CHAIN_ID, true);
         registry.setPayoutEndpoint(address(hubEndpoint));
         registry.setSpokeEid(BASE_CHAIN_ID, SPOKE_EID);
-        registry.setPayoutPeer(
-            SPOKE_EID,
-            bytes32(uint256(uint160(address(spokePayout))))
-        );
+        registry.setPayoutPeer(SPOKE_EID, bytes32(uint256(uint160(address(spokePayout)))));
 
         // Spoke wiring
         vault.setGateway(address(gateway));
         vault.setPayout(address(spokePayout));
         vault.setSweeper(sweeperAddr);
-        vault.setAssetClassification(
-            address(xsgd),
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        );
+        vault.setAssetClassification(address(xsgd), ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
 
-        gateway.setAssetClassification(
-            address(xsgd),
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        );
-        gateway.setPeer(
-            HUB_EID,
-            bytes32(uint256(uint160(address(settler))))
-        );
+        gateway.setAssetClassification(address(xsgd), ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
+        gateway.setPeer(HUB_EID, bytes32(uint256(uint160(address(settler)))));
 
         spokePayout.setSweeper(sweeperAddr);
-        spokePayout.setPeer(
-            HUB_EID,
-            bytes32(uint256(uint160(address(registry))))
-        );
+        spokePayout.setPeer(HUB_EID, bytes32(uint256(uint160(address(registry)))));
         vm.stopPrank();
 
         // ---- LZ endpoint cross-wiring for auto-delivery ----
@@ -214,18 +163,8 @@ contract SpokePayoutIntegrationTest is Test {
         vm.deal(operatorAddr, 100 ether);
     }
 
-    function _proxy(
-        address impl,
-        bytes memory init
-    ) internal returns (address) {
-        return
-            address(
-                new TransparentUpgradeableProxy(
-                    impl,
-                    address(this),
-                    init
-                )
-            );
+    function _proxy(address impl, bytes memory init) internal returns (address) {
+        return address(new TransparentUpgradeableProxy(impl, address(this), init));
     }
 
     // ============ Full round-trip: SPOKE_NATIVE deposit → credit → withdraw → payout ============
@@ -239,41 +178,25 @@ contract SpokePayoutIntegrationTest is Test {
         vm.chainId(BASE_CHAIN_ID);
         vm.startPrank(user);
         xsgd.approve(address(gateway), DEPOSIT);
-        bytes32 depositId = gateway.deposit{value: 0.001 ether}(
-            address(xsgd),
-            DEPOSIT
-        );
+        bytes32 depositId = gateway.deposit{value: 0.001 ether}(address(xsgd), DEPOSIT);
         vm.stopPrank();
         vm.chainId(31337); // revert to default for hub assertions
 
         // Verify: hub BalanceLedger credited via auto-delivery.
         assertEq(ledger.available(user, address(xsgd)), DEPOSIT);
         // Verify: chain liquidity bumped.
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            DEPOSIT
-        );
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), DEPOSIT);
         // Verify: deposit marked CREDITED.
-        assertEq(
-            uint8(settler.depositStatus(depositId)),
-            uint8(IHubIntentSettler.DepositStatus.CREDITED)
-        );
+        assertEq(uint8(settler.depositStatus(depositId)), uint8(IHubIntentSettler.DepositStatus.CREDITED));
 
         // Step 2: User requests withdrawal back to Base.
         vm.prank(user);
-        bytes32 requestId = registry.requestWithdrawal(
-            address(xsgd),
-            DEPOSIT,
-            BASE_CHAIN_ID
-        );
+        bytes32 requestId = registry.requestWithdrawal(address(xsgd), DEPOSIT, BASE_CHAIN_ID);
 
         // Verify: ledger debited.
         assertEq(ledger.available(user, address(xsgd)), 0);
         // Verify: chain liquidity decremented.
-        assertEq(
-            registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID),
-            0
-        );
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 0);
 
         // Step 3: Operator authorizes → LZ dispatches payout to spoke
         //         → SpokePayout.lzReceive → vault.releaseSpokeNative → user gets XSGD.

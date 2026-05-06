@@ -42,9 +42,5 @@ interface IRiskModule {
     /// @param asset The asset being withdrawn
     /// @param amount The amount being withdrawn
     /// @return True if the withdrawal is permitted under current policy
-    function canWithdraw(
-        address user,
-        address asset,
-        uint256 amount
-    ) external view returns (bool);
+    function canWithdraw(address user, address asset, uint256 amount) external view returns (bool);
 }

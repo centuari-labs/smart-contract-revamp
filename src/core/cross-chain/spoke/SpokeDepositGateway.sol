@@ -1,21 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {
-    IERC20
-} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    IERC20Permit
-} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ISpokeDepositGateway} from "../../../interfaces/cross-chain/spoke/ISpokeDepositGateway.sol";
 import {ISpokeVaultStable} from "../../../interfaces/cross-chain/spoke/ISpokeVaultStable.sol";
@@ -46,15 +36,12 @@ interface ILzEndpointLite {
         MessagingFee fee;
     }
 
-    function quote(
-        MessagingParams calldata params,
-        address sender
-    ) external view returns (MessagingFee memory);
+    function quote(MessagingParams calldata params, address sender) external view returns (MessagingFee memory);
 
-    function send(
-        MessagingParams calldata params,
-        address refundAddress
-    ) external payable returns (MessagingReceipt memory);
+    function send(MessagingParams calldata params, address refundAddress)
+        external
+        payable
+        returns (MessagingReceipt memory);
 }
 
 /// @title SpokeDepositGateway
@@ -90,12 +77,7 @@ contract SpokeDepositGateway is
     /// @notice Initialise the gateway with all mandatory wiring. Asset
     ///         classifications and peers are configured separately by the
     ///         owner.
-    function initialize(
-        address owner_,
-        address vault_,
-        address endpoint_,
-        uint32 hubEid_
-    ) external initializer {
+    function initialize(address owner_, address vault_, address endpoint_, uint32 hubEid_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (vault_ == address(0)) revert ZeroAddress();
         if (endpoint_ == address(0)) revert ZeroAddress();
@@ -111,36 +93,21 @@ contract SpokeDepositGateway is
     // ============ User actions ============
 
     /// @inheritdoc ISpokeDepositGateway
-    function deposit(
-        address asset,
-        uint256 amount
-    ) external payable nonReentrant returns (bytes32 depositId) {
+    function deposit(address asset, uint256 amount) external payable nonReentrant returns (bytes32 depositId) {
         return _deposit(asset, amount);
     }
 
     /// @inheritdoc ISpokeDepositGateway
-    function permitAndDeposit(
-        address asset,
-        uint256 amount,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external payable nonReentrant returns (bytes32 depositId) {
+    function permitAndDeposit(address asset, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        payable
+        nonReentrant
+        returns (bytes32 depositId)
+    {
         // Best-effort permit — silently ignore failure so that a frontend
         // re-submitting after a permit has already been consumed in a
         // racing tx still succeeds via the existing allowance.
-        try
-            IERC20Permit(asset).permit(
-                msg.sender,
-                address(this),
-                amount,
-                deadline,
-                v,
-                r,
-                s
-            )
-        {} catch {}
+        try IERC20Permit(asset).permit(msg.sender, address(this), amount, deadline, v, r, s) {} catch {}
 
         return _deposit(asset, amount);
     }
@@ -151,10 +118,7 @@ contract SpokeDepositGateway is
         if (pd.user == address(0)) revert UnknownDeposit();
         if (pd.refunded) revert AlreadyRefunded();
         if (msg.sender != pd.user) revert NotOriginalDepositor();
-        if (
-            pd.classification ==
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        ) {
+        if (pd.classification == ISpokeVaultStable.AssetClassification.SPOKE_NATIVE) {
             revert RefundNotPermittedForSpokeNative();
         }
         uint64 unlockAt = pd.timestamp + REFUND_WINDOW;
@@ -178,10 +142,7 @@ contract SpokeDepositGateway is
 
     // ============ Internal core ============
 
-    function _deposit(
-        address asset,
-        uint256 amount
-    ) internal returns (bytes32 depositId) {
+    function _deposit(address asset, uint256 amount) internal returns (bytes32 depositId) {
         if (asset == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
@@ -197,17 +158,9 @@ contract SpokeDepositGateway is
         IERC20(asset).forceApprove(_vault, amount);
 
         if (cls == ISpokeVaultStable.AssetClassification.BRIDGED) {
-            ISpokeVaultStable(_vault).depositBridged(
-                asset,
-                msg.sender,
-                amount
-            );
+            ISpokeVaultStable(_vault).depositBridged(asset, msg.sender, amount);
         } else {
-            ISpokeVaultStable(_vault).depositSpokeNative(
-                asset,
-                msg.sender,
-                amount
-            );
+            ISpokeVaultStable(_vault).depositSpokeNative(asset, msg.sender, amount);
         }
 
         // Allocate a deterministic id and persist the pending state BEFORE
@@ -226,73 +179,54 @@ contract SpokeDepositGateway is
         });
 
         // Dispatch the credit message.
-        ILzEndpointLite.MessagingReceipt memory receipt = _lzSend(
-            depositId,
-            asset,
-            amount,
-            cls
-        );
+        ILzEndpointLite.MessagingReceipt memory receipt = _lzSend(depositId, asset, amount, cls);
 
         if (cls == ISpokeVaultStable.AssetClassification.BRIDGED) {
-            emit DepositInitiated(
-                depositId,
-                msg.sender,
-                asset,
-                amount,
-                _hubEid,
-                receipt.guid
-            );
+            emit DepositInitiated(depositId, msg.sender, asset, amount, _hubEid, receipt.guid);
         } else {
-            emit SpokeNativeDeposit(
-                depositId,
-                msg.sender,
-                asset,
-                amount,
-                _hubEid,
-                receipt.guid
-            );
+            emit SpokeNativeDeposit(depositId, msg.sender, asset, amount, _hubEid, receipt.guid);
         }
     }
 
-    function _lzSend(
-        bytes32 depositId,
-        address asset,
-        uint256 amount,
-        ISpokeVaultStable.AssetClassification cls
-    ) internal returns (ILzEndpointLite.MessagingReceipt memory receipt) {
-        bytes memory payload = abi.encode(
-            depositId,
-            msg.sender,
-            asset,
-            amount,
-            uint8(cls),
-            block.chainid
-        );
+    /// @dev LayerZero V2 ULN libraries reject empty options blobs with
+    ///      `LZ_ULN_InvalidWorkerOptions`. We supply a Type-3 options blob
+    ///      that requests 200,000 gas for `lzReceive` on the destination —
+    ///      enough for HubIntentSettler.confirmDeposit to credit the user
+    ///      via BalanceLedger. Built via:
+    ///        OptionsBuilder.newOptions().addExecutorLzReceiveOption(200_000, 0)
+    ///      Encoding breakdown:
+    ///        0x0003                      = Type 3 options marker
+    ///        0x01                        = workerId 1 (executor)
+    ///        0x0011                      = option size = 17 bytes
+    ///        0x01                        = optionType 1 (lzReceive)
+    ///        0x00..00030d40 (uint128)    = 200_000 gas, packed
+    bytes private constant DEFAULT_LZ_OPTIONS = hex"00030100110100000000000000000000000000030d40";
 
-        ILzEndpointLite.MessagingParams memory params = ILzEndpointLite
-            .MessagingParams({
-                dstEid: _hubEid,
-                receiver: _peers[_hubEid],
-                message: payload,
-                options: bytes(""),
-                payInLzToken: false
-            });
+    function _lzSend(bytes32 depositId, address asset, uint256 amount, ISpokeVaultStable.AssetClassification cls)
+        internal
+        returns (ILzEndpointLite.MessagingReceipt memory receipt)
+    {
+        bytes memory payload = abi.encode(depositId, msg.sender, asset, amount, uint8(cls), block.chainid);
 
-        ILzEndpointLite.MessagingFee memory fee = ILzEndpointLite(_endpoint)
-            .quote(params, address(this));
+        ILzEndpointLite.MessagingParams memory params = ILzEndpointLite.MessagingParams({
+            dstEid: _hubEid,
+            receiver: _peers[_hubEid],
+            message: payload,
+            options: DEFAULT_LZ_OPTIONS,
+            payInLzToken: false
+        });
+
+        ILzEndpointLite.MessagingFee memory fee = ILzEndpointLite(_endpoint).quote(params, address(this));
         if (msg.value < fee.nativeFee) {
             revert InsufficientLzFee(msg.value, fee.nativeFee);
         }
 
-        receipt = ILzEndpointLite(_endpoint).send{value: fee.nativeFee}(
-            params,
-            msg.sender
-        );
+        receipt = ILzEndpointLite(_endpoint).send{value: fee.nativeFee}(params, msg.sender);
 
         // Refund any excess native to the original caller.
         uint256 excess = msg.value - fee.nativeFee;
         if (excess > 0) {
-            (bool ok, ) = msg.sender.call{value: excess}("");
+            (bool ok,) = msg.sender.call{value: excess}("");
             // Silently ignore: the user passed extra value, the worst case is
             // the change is left on this contract until rescued. PR 4 wires
             // the rescue path from SpokePayout.
@@ -302,11 +236,7 @@ contract SpokeDepositGateway is
 
     /// @dev Pulls tokens back out of the vault's bridged custody and returns
     ///      them to the original depositor. Only invoked from `refund`.
-    function _recallFromVault(
-        address asset,
-        address to,
-        uint256 amount
-    ) internal {
+    function _recallFromVault(address asset, address to, uint256 amount) internal {
         // The vault implements a one-shot "gateway recall" path via a
         // dedicated selector: `recallBridged(asset, to, amount)`. PR 2 wires
         // this on the vault side because the existing payout role only
@@ -317,10 +247,10 @@ contract SpokeDepositGateway is
     // ============ Admin ============
 
     /// @inheritdoc ISpokeDepositGateway
-    function setAssetClassification(
-        address asset,
-        ISpokeVaultStable.AssetClassification classification
-    ) external onlyOwner {
+    function setAssetClassification(address asset, ISpokeVaultStable.AssetClassification classification)
+        external
+        onlyOwner
+    {
         if (asset == address(0)) revert ZeroAddress();
         _classifications[asset] = classification;
         emit AssetClassificationSet(asset, classification);
@@ -355,9 +285,7 @@ contract SpokeDepositGateway is
     // ============ Views ============
 
     /// @inheritdoc ISpokeDepositGateway
-    function pendingDeposit(
-        bytes32 depositId
-    ) external view returns (PendingDeposit memory) {
+    function pendingDeposit(bytes32 depositId) external view returns (PendingDeposit memory) {
         return _pendingDeposits[depositId];
     }
 
@@ -367,37 +295,22 @@ contract SpokeDepositGateway is
     }
 
     /// @inheritdoc ISpokeDepositGateway
-    function classificationOf(
-        address asset
-    ) external view returns (ISpokeVaultStable.AssetClassification) {
+    function classificationOf(address asset) external view returns (ISpokeVaultStable.AssetClassification) {
         return _classifications[asset];
     }
 
     /// @inheritdoc ISpokeDepositGateway
-    function quoteDeposit(
-        address asset,
-        uint256 amount
-    ) external view returns (uint256 nativeFee) {
+    function quoteDeposit(address asset, uint256 amount) external view returns (uint256 nativeFee) {
         ISpokeVaultStable.AssetClassification cls = _classifications[asset];
-        bytes memory payload = abi.encode(
-            bytes32(0),
-            msg.sender,
-            asset,
-            amount,
-            uint8(cls),
-            block.chainid
-        );
-        ILzEndpointLite.MessagingParams memory params = ILzEndpointLite
-            .MessagingParams({
-                dstEid: _hubEid,
-                receiver: _peers[_hubEid],
-                message: payload,
-                options: bytes(""),
-                payInLzToken: false
-            });
-        nativeFee = ILzEndpointLite(_endpoint)
-            .quote(params, address(this))
-            .nativeFee;
+        bytes memory payload = abi.encode(bytes32(0), msg.sender, asset, amount, uint8(cls), block.chainid);
+        ILzEndpointLite.MessagingParams memory params = ILzEndpointLite.MessagingParams({
+            dstEid: _hubEid,
+            receiver: _peers[_hubEid],
+            message: payload,
+            options: DEFAULT_LZ_OPTIONS,
+            payInLzToken: false
+        });
+        nativeFee = ILzEndpointLite(_endpoint).quote(params, address(this)).nativeFee;
     }
 
     /// @inheritdoc ISpokeDepositGateway
@@ -425,9 +338,5 @@ contract SpokeDepositGateway is
 ///         gateway can return BRIDGED escrow during a refund without taking
 ///         on the sweeper or payout roles.
 interface ISpokeVaultStableRecall {
-    function recallBridged(
-        address asset,
-        address to,
-        uint256 amount
-    ) external;
+    function recallBridged(address asset, address to, uint256 amount) external;
 }

@@ -21,18 +21,9 @@ contract DeploySettlement is Script {
     /// @return proxy The deployed proxy address
     /// @return proxyAdmin The deployed ProxyAdmin address
     /// @return implementation The deployed implementation address
-    function run(
-        address owner,
-        address operator,
-        address centuari,
-        address proxyAdminOwner
-    )
+    function run(address owner, address operator, address centuari, address proxyAdminOwner)
         external
-        returns (
-            address proxy,
-            address proxyAdmin,
-            address implementation
-        )
+        returns (address proxy, address proxyAdmin, address implementation)
     {
         vm.startBroadcast();
 
@@ -60,37 +51,22 @@ contract DeploySettlement is Script {
     /// @return proxy The deployed proxy address
     /// @return proxyAdmin The deployed ProxyAdmin address
     /// @return implementation The deployed implementation address
-    function deploy(
-        address owner,
-        address operator,
-        address centuari,
-        address proxyAdminOwner
-    )
+    function deploy(address owner, address operator, address centuari, address proxyAdminOwner)
         public
-        returns (
-            address proxy,
-            address proxyAdmin,
-            address implementation
-        )
+        returns (address proxy, address proxyAdmin, address implementation)
     {
         // 1. Deploy Settlement implementation
         Settlement settlementImpl = new Settlement();
         implementation = address(settlementImpl);
 
         // 2. Prepare initialization data
-        bytes memory initData = abi.encodeCall(
-            Settlement.initialize,
-            (owner, operator, centuari)
-        );
+        bytes memory initData = abi.encodeCall(Settlement.initialize, (owner, operator, centuari));
 
         // 3. Deploy TransparentUpgradeableProxy
         //    Note: TransparentUpgradeableProxy deploys its own ProxyAdmin internally
         //    and transfers ownership to the specified admin address
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            implementation,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(implementation, proxyAdminOwner, initData);
         proxy = address(transparentProxy);
 
         // 4. Get the ProxyAdmin address

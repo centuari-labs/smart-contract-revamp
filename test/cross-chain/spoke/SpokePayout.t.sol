@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {SpokePayout} from "../../../src/core/cross-chain/spoke/SpokePayout.sol";
 import {SpokeVaultStable} from "../../../src/core/cross-chain/spoke/SpokeVaultStable.sol";
@@ -39,49 +37,21 @@ contract SpokePayoutTest is Test {
 
         // Deploy vault
         SpokeVaultStable vaultImpl = new SpokeVaultStable();
-        bytes memory vaultInit = abi.encodeCall(
-            SpokeVaultStable.initialize,
-            (owner)
-        );
-        vault = SpokeVaultStable(
-            address(
-                new TransparentUpgradeableProxy(
-                    address(vaultImpl),
-                    address(this),
-                    vaultInit
-                )
-            )
-        );
+        bytes memory vaultInit = abi.encodeCall(SpokeVaultStable.initialize, (owner));
+        vault = SpokeVaultStable(address(new TransparentUpgradeableProxy(address(vaultImpl), address(this), vaultInit)));
 
         // Deploy payout
         SpokePayout payoutImpl = new SpokePayout();
-        bytes memory payoutInit = abi.encodeCall(
-            SpokePayout.initialize,
-            (owner, address(vault), address(lz))
-        );
-        payout = SpokePayout(
-            address(
-                new TransparentUpgradeableProxy(
-                    address(payoutImpl),
-                    address(this),
-                    payoutInit
-                )
-            )
-        );
+        bytes memory payoutInit = abi.encodeCall(SpokePayout.initialize, (owner, address(vault), address(lz)));
+        payout = SpokePayout(address(new TransparentUpgradeableProxy(address(payoutImpl), address(this), payoutInit)));
 
         // Wire roles
         vm.startPrank(owner);
         vault.setGateway(gatewayAddr);
         vault.setPayout(address(payout));
         vault.setSweeper(sweeperAddr);
-        vault.setAssetClassification(
-            address(usdc),
-            ISpokeVaultStable.AssetClassification.BRIDGED
-        );
-        vault.setAssetClassification(
-            address(xsgd),
-            ISpokeVaultStable.AssetClassification.SPOKE_NATIVE
-        );
+        vault.setAssetClassification(address(usdc), ISpokeVaultStable.AssetClassification.BRIDGED);
+        vault.setAssetClassification(address(xsgd), ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
         payout.setSweeper(sweeperAddr);
         payout.setPeer(HUB_EID, bytes32(uint256(uint160(hubRegistry))));
         vm.stopPrank();
@@ -99,32 +69,12 @@ contract SpokePayoutTest is Test {
 
     // ============ Helpers ============
 
-    function _deliverPayout(
-        bytes32 requestId,
-        address asset,
-        uint256 amount,
-        uint8 classification
-    ) internal {
-        bytes memory payload = abi.encode(
-            requestId,
-            user,
-            asset,
-            amount,
-            classification
-        );
-        SpokePayout.Origin memory origin = SpokePayout.Origin({
-            srcEid: HUB_EID,
-            sender: bytes32(uint256(uint160(hubRegistry))),
-            nonce: 1
-        });
+    function _deliverPayout(bytes32 requestId, address asset, uint256 amount, uint8 classification) internal {
+        bytes memory payload = abi.encode(requestId, user, asset, amount, classification);
+        SpokePayout.Origin memory origin =
+            SpokePayout.Origin({srcEid: HUB_EID, sender: bytes32(uint256(uint160(hubRegistry))), nonce: 1});
         vm.prank(address(lz));
-        payout.lzReceive(
-            origin,
-            address(payout),
-            bytes32(0),
-            payload,
-            bytes("")
-        );
+        payout.lzReceive(origin, bytes32(0), payload, address(payout), bytes(""));
     }
 
     // ============ lzReceive — SPOKE_NATIVE ============
@@ -234,70 +184,30 @@ contract SpokePayoutTest is Test {
     }
 
     function test_FlushPending_RevertNoPending() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokePayout.NoPendingPayouts.selector,
-                user,
-                address(usdc)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(ISpokePayout.NoPendingPayouts.selector, user, address(usdc)));
         payout.flushPending(user, address(usdc));
     }
 
     // ============ Access control ============
 
     function test_LzReceive_RevertInvalidEndpoint() public {
-        bytes memory payload = abi.encode(
-            keccak256("x"),
-            user,
-            address(usdc),
-            100e6,
-            BRIDGED
-        );
-        SpokePayout.Origin memory origin = SpokePayout.Origin({
-            srcEid: HUB_EID,
-            sender: bytes32(uint256(uint160(hubRegistry))),
-            nonce: 1
-        });
+        bytes memory payload = abi.encode(keccak256("x"), user, address(usdc), 100e6, BRIDGED);
+        SpokePayout.Origin memory origin =
+            SpokePayout.Origin({srcEid: HUB_EID, sender: bytes32(uint256(uint160(hubRegistry))), nonce: 1});
         vm.prank(outsider);
         vm.expectRevert(ISpokePayout.InvalidLzEndpoint.selector);
-        payout.lzReceive(
-            origin,
-            address(payout),
-            bytes32(0),
-            payload,
-            bytes("")
-        );
+        payout.lzReceive(origin, bytes32(0), payload, address(payout), bytes(""));
     }
 
     function test_LzReceive_RevertUntrustedRemote() public {
-        bytes memory payload = abi.encode(
-            keccak256("x"),
-            user,
-            address(usdc),
-            100e6,
-            BRIDGED
-        );
-        SpokePayout.Origin memory origin = SpokePayout.Origin({
-            srcEid: HUB_EID,
-            sender: bytes32(uint256(uint160(outsider))),
-            nonce: 1
-        });
+        bytes memory payload = abi.encode(keccak256("x"), user, address(usdc), 100e6, BRIDGED);
+        SpokePayout.Origin memory origin =
+            SpokePayout.Origin({srcEid: HUB_EID, sender: bytes32(uint256(uint160(outsider))), nonce: 1});
         vm.prank(address(lz));
         vm.expectRevert(
-            abi.encodeWithSelector(
-                ISpokePayout.UntrustedRemote.selector,
-                HUB_EID,
-                bytes32(uint256(uint160(outsider)))
-            )
+            abi.encodeWithSelector(ISpokePayout.UntrustedRemote.selector, HUB_EID, bytes32(uint256(uint160(outsider))))
         );
-        payout.lzReceive(
-            origin,
-            address(payout),
-            bytes32(0),
-            payload,
-            bytes("")
-        );
+        payout.lzReceive(origin, bytes32(0), payload, address(payout), bytes(""));
     }
 
     // ============ Admin ============
@@ -319,9 +229,6 @@ contract SpokePayoutTest is Test {
         assertEq(payout.vault(), address(vault));
         assertEq(payout.sweeper(), sweeperAddr);
         assertEq(payout.endpoint(), address(lz));
-        assertEq(
-            payout.peers(HUB_EID),
-            bytes32(uint256(uint160(hubRegistry)))
-        );
+        assertEq(payout.peers(HUB_EID), bytes32(uint256(uint160(hubRegistry))));
     }
 }

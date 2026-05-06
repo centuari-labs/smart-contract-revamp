@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {
-    IERC20
-} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    SafeERC20
-} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ISpokeVaultStable} from "../../../interfaces/cross-chain/spoke/ISpokeVaultStable.sol";
 import {SpokeVaultStableStorage} from "./SpokeVaultStableStorage.sol";
@@ -21,12 +13,9 @@ import {ReentrancyGuardUpgradeable} from "../../../utils/ReentrancyGuardUpgradea
 /// @notice Minimal CCTP v2 burn-side surface used by the vault. Mirrors
 ///         `TokenMessengerV2.depositForBurn` and `MockCCTPMessenger`.
 interface ICctpTokenMessengerLite {
-    function depositForBurn(
-        uint256 amount,
-        uint32 destinationDomain,
-        bytes32 mintRecipient,
-        address burnToken
-    ) external returns (uint64 nonce);
+    function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken)
+        external
+        returns (uint64 nonce);
 }
 
 /// @notice Minimal Stargate V2 send-side surface. Field names mirror upstream
@@ -51,11 +40,10 @@ interface IStargateLite {
         uint256 lzTokenFee;
     }
 
-    function send(
-        SendParam calldata params,
-        MessagingFee calldata fee,
-        address refundAddress
-    ) external payable returns (bytes32 guid, uint256 amountReceived);
+    function send(SendParam calldata params, MessagingFee calldata fee, address refundAddress)
+        external
+        payable
+        returns (bytes32 guid, uint256 amountReceived);
 }
 
 /// @title SpokeVaultStable
@@ -113,11 +101,7 @@ contract SpokeVaultStable is
     // ============ Gateway-only inflows ============
 
     /// @inheritdoc ISpokeVaultStable
-    function depositBridged(
-        address asset,
-        address from,
-        uint256 amount
-    ) external onlyGateway nonReentrant {
+    function depositBridged(address asset, address from, uint256 amount) external onlyGateway nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
         if (from == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -134,11 +118,7 @@ contract SpokeVaultStable is
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function depositSpokeNative(
-        address asset,
-        address from,
-        uint256 amount
-    ) external onlyGateway nonReentrant {
+    function depositSpokeNative(address asset, address from, uint256 amount) external onlyGateway nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
         if (from == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -153,11 +133,7 @@ contract SpokeVaultStable is
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function recallBridged(
-        address asset,
-        address to,
-        uint256 amount
-    ) external onlyGateway nonReentrant {
+    function recallBridged(address asset, address to, uint256 amount) external onlyGateway nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -179,11 +155,12 @@ contract SpokeVaultStable is
     // ============ Sweeper-only outflows (BRIDGED) ============
 
     /// @inheritdoc ISpokeVaultStable
-    function sweepCCTP(
-        address asset,
-        uint32 destinationDomain,
-        bytes32 mintRecipient
-    ) external onlySweeper nonReentrant returns (uint256 amount, uint64 nonce) {
+    function sweepCCTP(address asset, uint32 destinationDomain, bytes32 mintRecipient)
+        external
+        onlySweeper
+        nonReentrant
+        returns (uint256 amount, uint64 nonce)
+    {
         if (asset == address(0)) revert ZeroAddress();
         AssetClassification cls = _classifications[asset];
         if (cls == AssetClassification.UNSUPPORTED) revert UnsupportedAsset();
@@ -197,24 +174,13 @@ contract SpokeVaultStable is
         _bridgedBalance[asset] = 0;
 
         IERC20(asset).forceApprove(_cctpMessenger, amount);
-        nonce = ICctpTokenMessengerLite(_cctpMessenger).depositForBurn(
-            amount,
-            destinationDomain,
-            mintRecipient,
-            asset
-        );
+        nonce = ICctpTokenMessengerLite(_cctpMessenger).depositForBurn(amount, destinationDomain, mintRecipient, asset);
 
         emit SweptCCTP(asset, amount, destinationDomain, mintRecipient, nonce);
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function sweepStargate(
-        address asset,
-        uint32 dstEid,
-        bytes32 to,
-        uint256 minAmountOut,
-        uint256 nativeFee
-    )
+    function sweepStargate(address asset, uint32 dstEid, bytes32 to, uint256 minAmountOut, uint256 nativeFee)
         external
         payable
         onlySweeper
@@ -248,16 +214,9 @@ contract SpokeVaultStable is
             composeMsg: bytes(""),
             oftCmd: bytes("")
         });
-        IStargateLite.MessagingFee memory fee = IStargateLite.MessagingFee({
-            nativeFee: nativeFee,
-            lzTokenFee: 0
-        });
+        IStargateLite.MessagingFee memory fee = IStargateLite.MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
 
-        (, amountReceived) = IStargateLite(router).send{value: nativeFee}(
-            params,
-            fee,
-            msg.sender
-        );
+        (, amountReceived) = IStargateLite(router).send{value: nativeFee}(params, fee, msg.sender);
 
         emit SweptStargate(asset, amountSent, dstEid, to, amountReceived);
     }
@@ -270,11 +229,7 @@ contract SpokeVaultStable is
     // ============ Payout-only outflows (SPOKE_NATIVE) ============
 
     /// @inheritdoc ISpokeVaultStable
-    function releaseSpokeNative(
-        address asset,
-        address to,
-        uint256 amount
-    ) external onlyPayout nonReentrant {
+    function releaseSpokeNative(address asset, address to, uint256 amount) external onlyPayout nonReentrant {
         if (asset == address(0)) revert ZeroAddress();
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
@@ -296,20 +251,14 @@ contract SpokeVaultStable is
     // ============ Admin ============
 
     /// @inheritdoc ISpokeVaultStable
-    function setAssetClassification(
-        address asset,
-        AssetClassification classification
-    ) external onlyOwner {
+    function setAssetClassification(address asset, AssetClassification classification) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
         _classifications[asset] = classification;
         emit AssetClassificationSet(asset, classification);
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function setStargateRouter(
-        address asset,
-        address router
-    ) external onlyOwner {
+    function setStargateRouter(address asset, address router) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
         _stargateRouter[asset] = router;
         emit StargateRouterSet(asset, router);
@@ -347,23 +296,17 @@ contract SpokeVaultStable is
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function spokeNativeBalance(
-        address asset
-    ) external view returns (uint256) {
+    function spokeNativeBalance(address asset) external view returns (uint256) {
         return _spokeNativeBalance[asset];
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function classificationOf(
-        address asset
-    ) external view returns (AssetClassification) {
+    function classificationOf(address asset) external view returns (AssetClassification) {
         return _classifications[asset];
     }
 
     /// @inheritdoc ISpokeVaultStable
-    function stargateRouterOf(
-        address asset
-    ) external view returns (address) {
+    function stargateRouterOf(address asset) external view returns (address) {
         return _stargateRouter[asset];
     }
 

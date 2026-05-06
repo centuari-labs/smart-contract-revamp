@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    Initializable
-} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {
-    OwnableUpgradeable
-} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {
-    ReentrancyGuardUpgradeable
-} from "../../utils/ReentrancyGuardUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
 import {ICentuari} from "../../interfaces/ICentuari.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -24,13 +18,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @dev This contract handles position accounting, share calculations, and coordinates with BalanceLedger for balance mutations.
 ///      It is designed to be deployed behind an ERC1967 proxy for upgradeability.
 ///      Markets are identified by (loanToken, maturity) pairs.
-contract Centuari is
-    Initializable,
-    OwnableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    CentuariStorage,
-    ICentuari
-{
+contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, CentuariStorage, ICentuari {
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -46,12 +34,10 @@ contract Centuari is
     /// @param settlement_ The Settlement contract address
     /// @param balanceLedger_ The BalanceLedger contract address
     /// @param feeCollector_ The address that receives protocol fee credits
-    function initialize(
-        address owner_,
-        address settlement_,
-        address balanceLedger_,
-        address feeCollector_
-    ) external initializer {
+    function initialize(address owner_, address settlement_, address balanceLedger_, address feeCollector_)
+        external
+        initializer
+    {
         if (owner_ == address(0)) revert ZeroAddress();
         if (settlement_ == address(0)) revert ZeroAddress();
         if (balanceLedger_ == address(0)) revert ZeroAddress();
@@ -128,31 +114,15 @@ contract Centuari is
 
         address bondToken = address(0);
         if (_bondTokenFactory != address(0)) {
-            bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(
-                loanToken,
-                maturity
-            );
+            bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(loanToken, maturity);
         }
 
-        uint256 cbtAmount = _processLendPosition(
-            marketId,
-            lender,
-            matchedAmount,
-            rate,
-            maturity,
-            bondToken
-        );
+        uint256 cbtAmount = _processLendPosition(marketId, lender, matchedAmount, rate, maturity, bondToken);
 
         // Capture whether this is a new debt market for the borrower before processing
         bool isNewDebtMarket = (_borrowDebt[marketId][borrower] == 0);
 
-        _processBorrowPosition(
-            marketId,
-            borrower,
-            matchedAmount,
-            rate,
-            maturity
-        );
+        _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
         // Track active debt count (used for debt-state views/health checks)
         if (isNewDebtMarket) {
@@ -207,26 +177,12 @@ contract Centuari is
         uint256 maturity,
         address bondToken
     ) internal returns (uint256 cbtAmount) {
-        cbtAmount =
-            principal +
-            _interestWithDayCount(
-                principal,
-                rate,
-                block.timestamp,
-                maturity
-            );
+        cbtAmount = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
 
         _marketTotalCbt[marketId] += cbtAmount;
         _lendPositionCbtAmount[marketId][lender] += cbtAmount;
 
-        emit LendPositionCreated(
-            marketId,
-            lender,
-            bondToken,
-            cbtAmount,
-            principal,
-            rate
-        );
+        emit LendPositionCreated(marketId, lender, bondToken, cbtAmount, principal, rate);
     }
 
     /// @notice Process the borrower's position
@@ -242,8 +198,7 @@ contract Centuari is
         uint256 rate,
         uint256 maturity
     ) internal {
-        uint256 debt = principal +
-            _interestWithDayCount(principal, rate, block.timestamp, maturity);
+        uint256 debt = principal + _interestWithDayCount(principal, rate, block.timestamp, maturity);
         _borrowDebt[marketId][borrower] += debt;
 
         emit BorrowPositionCreated(marketId, borrower, principal, debt, rate);
@@ -252,12 +207,12 @@ contract Centuari is
     // ============ Repay Function ============
 
     /// @inheritdoc ICentuari
-    function repay(
-        bytes32 marketId,
-        address borrower,
-        address loanToken,
-        uint256 amount
-    ) external onlyOperator whenNotPaused nonReentrant {
+    function repay(bytes32 marketId, address borrower, address loanToken, uint256 amount)
+        external
+        onlyOperator
+        whenNotPaused
+        nonReentrant
+    {
         if (borrower == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidAmount();
 
@@ -287,23 +242,22 @@ contract Centuari is
     /// @inheritdoc ICentuari
     /// @dev `cbtAmount` is denominated in CBT units, which are 1:1 with the
     ///      withdrawable loan token amount at maturity for this market.
-    function withdrawLendPosition(
-        bytes32 marketId,
-        address loanToken,
-        uint256 maturity,
-        uint256 cbtAmount
-    ) external whenNotPaused nonReentrant {
+    function withdrawLendPosition(bytes32 marketId, address loanToken, uint256 maturity, uint256 cbtAmount)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         if (cbtAmount == 0) revert InvalidAmount();
         if (_bondTokenFactory == address(0)) revert BondTokenNotFound();
 
-        address bondToken = CentuariBondERC20Factory(_bondTokenFactory)
-            .getBondToken(loanToken, maturity);
+        address bondToken = CentuariBondERC20Factory(_bondTokenFactory).getBondToken(loanToken, maturity);
         if (bondToken == address(0)) revert BondTokenNotFound();
 
         if (block.timestamp < maturity) revert NotYetMatured();
 
-        if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount)
+        if (_lendPositionCbtAmount[marketId][msg.sender] < cbtAmount) {
             revert InvalidAmount();
+        }
         if (_marketTotalCbt[marketId] < cbtAmount) revert InvalidAmount();
 
         // Burn bonds from Centuari's own custody
@@ -324,29 +278,21 @@ contract Centuari is
     /// @param start The settlement/start timestamp
     /// @param maturity The maturity timestamp
     /// @return interest The calculated interest amount
-    function _interestWithDayCount(
-        uint256 principal,
-        uint256 rate,
-        uint256 start,
-        uint256 maturity
-    ) internal pure returns (uint256 interest) {
+    function _interestWithDayCount(uint256 principal, uint256 rate, uint256 start, uint256 maturity)
+        internal
+        pure
+        returns (uint256 interest)
+    {
         uint256 rawDays = (maturity - start) / 1 days;
         uint256 days_ = rawDays > 0 ? rawDays - 1 : 0;
-        interest = Math.mulDiv(
-            Math.mulDiv(principal, rate, RATE_PRECISION),
-            days_,
-            365
-        );
+        interest = Math.mulDiv(Math.mulDiv(principal, rate, RATE_PRECISION), days_, 365);
     }
 
     /// @notice Calculate market ID from loan token and maturity
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp
     /// @return The market ID
-    function _getMarketId(
-        address loanToken,
-        uint256 maturity
-    ) internal pure returns (bytes32) {
+    function _getMarketId(address loanToken, uint256 maturity) internal pure returns (bytes32) {
         return keccak256(abi.encode(loanToken, maturity));
     }
 
@@ -429,33 +375,22 @@ contract Centuari is
     // ============ View Functions ============
 
     /// @inheritdoc ICentuari
-    function getMarketId(
-        address loanToken,
-        uint256 maturity
-    ) external pure returns (bytes32) {
+    function getMarketId(address loanToken, uint256 maturity) external pure returns (bytes32) {
         return _getMarketId(loanToken, maturity);
     }
 
     /// @inheritdoc ICentuari
-    function getMarketTotalCbt(
-        bytes32 marketId
-    ) external view returns (uint256) {
+    function getMarketTotalCbt(bytes32 marketId) external view returns (uint256) {
         return _marketTotalCbt[marketId];
     }
 
     /// @inheritdoc ICentuari
-    function getLendPositionCbtAmount(
-        bytes32 marketId,
-        address lender
-    ) external view returns (uint256) {
+    function getLendPositionCbtAmount(bytes32 marketId, address lender) external view returns (uint256) {
         return _lendPositionCbtAmount[marketId][lender];
     }
 
     /// @inheritdoc ICentuari
-    function getBorrowPosition(
-        bytes32 marketId,
-        address borrower
-    ) external view returns (uint256) {
+    function getBorrowPosition(bytes32 marketId, address borrower) external view returns (uint256) {
         return _borrowDebt[marketId][borrower];
     }
 

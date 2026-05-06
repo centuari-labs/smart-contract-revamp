@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TransparentUpgradeableProxy
-} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
@@ -26,11 +24,7 @@ contract RiskModuleStubTest is Test {
     function setUp() public {
         BalanceLedger impl = new BalanceLedger();
         bytes memory initData = abi.encodeCall(BalanceLedger.initialize, (owner, true));
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(impl),
-            address(this),
-            initData
-        );
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(address(impl), address(this), initData);
         ledger = BalanceLedger(address(proxy));
 
         vm.prank(owner);

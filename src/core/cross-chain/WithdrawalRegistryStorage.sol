@@ -31,8 +31,7 @@ abstract contract WithdrawalRegistryStorage {
     uint256 internal _requestCounter;
 
     /// @notice Withdrawal request records keyed by requestId
-    mapping(bytes32 => IWithdrawalRegistry.WithdrawalRequest)
-        internal _requests;
+    mapping(bytes32 => IWithdrawalRegistry.WithdrawalRequest) internal _requests;
 
     /// @notice Physical-token liquidity available per (token, chainId) pair.
     /// @dev Used by M5 to capacity-gate SPOKE_NATIVE withdrawals: tokens that
