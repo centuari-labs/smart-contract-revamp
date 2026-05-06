@@ -25,6 +25,9 @@ contract CentuariBondERC20 is ERC20 {
     /// @notice The maturity timestamp for this bond
     uint256 public immutable MATURITY;
 
+    /// @notice The decimals used by this bond token (mirrors underlying loan token at deployment)
+    uint8 public immutable DECIMALS;
+
     // ============ Constructor ============
 
     /// @notice Creates a new bond token
@@ -33,16 +36,19 @@ contract CentuariBondERC20 is ERC20 {
     /// @param minter_ The address authorized to mint (Centuari contract)
     /// @param loanToken_ The underlying loan token address
     /// @param maturity_ The maturity timestamp
+    /// @param decimals_ The number of decimals to use for this token
     constructor(
         string memory name_,
         string memory symbol_,
         address minter_,
         address loanToken_,
-        uint256 maturity_
+        uint256 maturity_,
+        uint8 decimals_
     ) ERC20(name_, symbol_) {
         MINTER = minter_;
         LOAN_TOKEN = loanToken_;
         MATURITY = maturity_;
+        DECIMALS = decimals_;
     }
 
     // ============ Modifiers ============
@@ -61,7 +67,6 @@ contract CentuariBondERC20 is ERC20 {
     /// @param amount The amount of tokens to mint
     function mint(address to, uint256 amount) external onlyMinter {
         _mint(to, amount);
-        //@todo : should emit event for amount, market id, account id
     }
 
     /// @notice Burn tokens from caller's balance
@@ -81,5 +86,10 @@ contract CentuariBondERC20 is ERC20 {
     }
 
     // ============ View Functions ============
+    /// @notice Returns the number of decimals used for this token
+    /// @dev Set at construction time to mirror the underlying loan token's decimals
+    function decimals() public view override returns (uint8) {
+        return DECIMALS;
+    }
 }
 

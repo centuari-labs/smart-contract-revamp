@@ -26,6 +26,7 @@ contract MockCentuari is ICentuari {
     }
 
     function settleMatch(
+        bytes32, // marketId - unused in mock
         address lender,
         address borrower,
         address, // loanToken - unused in mock
@@ -91,9 +92,9 @@ contract MockCentuari is ICentuari {
         return address(0);
     }
 
-    function repay(address, address, uint256, uint256) external pure override {}
+    function repay(bytes32, address, address, uint256) external pure override {}
 
-    function withdrawLendPosition(address, uint256, uint256) external pure override {}
+    function withdrawLendPosition(bytes32, address, uint256, uint256) external pure override {}
 
     function operator() external pure returns (address) {
         return address(0);
@@ -214,6 +215,7 @@ contract SettlementTest is Test {
     ) internal view returns (ISettlement.MatchData memory) {
         return ISettlement.MatchData({
             matchId: matchId,
+            marketId: keccak256(abi.encodePacked("market", matchId)),
             lendOrderId: keccak256(abi.encodePacked("lend", matchId)),
             borrowOrderId: keccak256(abi.encodePacked("borrow", matchId)),
             lender: lender,
@@ -573,6 +575,7 @@ contract SettlementTest is Test {
 
         ISettlement.MatchData memory matchData = ISettlement.MatchData({
             matchId: matchId,
+            marketId: keccak256(abi.encodePacked("market", matchId)),
             lendOrderId: keccak256(abi.encodePacked("lend", matchId)),
             borrowOrderId: keccak256(abi.encodePacked("borrow", matchId)),
             lender: lender,

@@ -135,6 +135,7 @@ contract Settlement is
 
         // Call Centuari to handle positions and token transfers
         ICentuari(centuariAddr).settleMatch(
+            matchData.marketId,
             matchData.lender,
             matchData.borrower,
             matchData.loanToken,

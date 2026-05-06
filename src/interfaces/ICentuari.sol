@@ -21,12 +21,14 @@ interface ICentuari {
     /// @notice Emitted when a lend position is created or updated
     /// @param marketId The market identifier
     /// @param lender The lender address
+    /// @param bondToken The CBT (bond token) contract address for the market
     /// @param cbtAmount The CBT (claim at maturity) added to the position
     /// @param principal The effective principal amount lent (after fees)
     /// @param rate The interest rate in basis points
     event LendPositionCreated(
         bytes32 indexed marketId,
         address indexed lender,
+        address indexed bondToken,
         uint256 cbtAmount,
         uint256 principal,
         uint256 rate
@@ -138,6 +140,7 @@ interface ICentuari {
     /// @param makerFeeAmount Trade fee charged to the maker (for Centuari internal accounting)
     /// @param takerFeeAmount Trade fee charged to the taker (for Centuari internal accounting)
     function settleMatch(
+        bytes32 marketId,
         address lender,
         address borrower,
         address loanToken,
@@ -152,24 +155,26 @@ interface ICentuari {
     ) external;
 
     /// @notice Repay debt for a borrower in a given market. Only callable by operator (backend).
+    /// @param marketId The market identifier (bytes32)
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
-    /// @param maturity The maturity timestamp (identifies the market)
     /// @param amount The amount to repay (capped to current debt)
     function repay(
+        bytes32 marketId,
         address borrower,
         address loanToken,
-        uint256 maturity,
         uint256 amount
     ) external;
 
     /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from caller and credits loan tokens to caller's Treasury balance.
     /// @dev Caller must have approved Centuari to spend at least cbtAmount of the market's bond token.
     ///      Withdrawable amount is limited by Treasury's available balance (from repayments).
+    /// @param marketId The market identifier (bytes32)
     /// @param loanToken The loan token address
-    /// @param maturity The maturity timestamp (identifies the market)
+    /// @param maturity The maturity timestamp (used for bond token lookup and maturity check)
     /// @param cbtAmount The amount of CBT (bond token) to redeem
     function withdrawLendPosition(
+        bytes32 marketId,
         address loanToken,
         uint256 maturity,
         uint256 cbtAmount

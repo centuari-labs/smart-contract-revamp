@@ -25,6 +25,7 @@ interface ISettlement {
     /// @param takerFeeAmount Trade fee charged to the taker
     struct MatchData {
         bytes32 matchId;
+        bytes32 marketId;
         bytes32 lendOrderId; //@note : change into order market id
         bytes32 borrowOrderId; //@note : change into order market id
         address lender; //@note : change into account id
