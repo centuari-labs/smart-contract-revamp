@@ -276,4 +276,146 @@ contract CollateralManagerTest is Test {
         manager.unflagFor(user, asset2);
         assertFalse(ledger.usedAsCollateral(user, asset2));
     }
+
+    // ============ Direct caller — flag(asset) ============
+
+    function test_Flag_DirectCaller_MarksLedger() public {
+        vm.warp(1_700_000_000);
+        // No vm.prank to operator — `user` calls directly for themselves.
+        vm.prank(user);
+        manager.flag(asset);
+
+        assertTrue(ledger.usedAsCollateral(user, asset));
+        assertEq(ledger.flaggedAt(user, asset), uint64(block.timestamp));
+    }
+
+    /// @notice Proves the absence of `onlyOperator` on the direct path.
+    /// @dev `outsider` is not the operator; the call must still succeed for
+    ///      `outsider` flagging their own asset (msg.sender == outsider).
+    function test_Flag_DirectCaller_NoOperatorGate() public {
+        vm.warp(1_700_000_000);
+        vm.prank(outsider);
+        manager.flag(asset);
+
+        assertTrue(ledger.usedAsCollateral(outsider, asset));
+        assertEq(ledger.flaggedAt(outsider, asset), uint64(block.timestamp));
+        // Sanity: flagging self does not flag a different user.
+        assertFalse(ledger.usedAsCollateral(user, asset));
+    }
+
+    // ============ Direct caller — unflag(asset) ============
+
+    function test_Unflag_DirectCaller_RevertNotFlagged() public {
+        vm.prank(user);
+        vm.expectRevert(ICollateralManager.NotFlagged.selector);
+        manager.unflag(asset);
+    }
+
+    function test_Unflag_DirectCaller_RevertFlagLockActiveBefore24h() public {
+        vm.warp(1_700_000_000);
+        vm.prank(user);
+        manager.flag(asset);
+
+        uint64 flaggedAt = ledger.flaggedAt(user, asset);
+        uint64 unlocksAt = flaggedAt + 24 hours;
+
+        // 1 second before the lock expires.
+        vm.warp(unlocksAt - 1);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt));
+        manager.unflag(asset);
+    }
+
+    function test_Unflag_DirectCaller_RevertWouldMakeUnhealthyWhenStubBlocks() public {
+        vm.warp(1_700_000_000);
+        vm.prank(user);
+        manager.flag(asset);
+
+        // Warp past the lock. Stub still returns canUnflag = false.
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(user);
+        vm.expectRevert(ICollateralManager.WouldMakeUnhealthy.selector);
+        manager.unflag(asset);
+    }
+
+    function test_Unflag_DirectCaller_SucceedsAfter24hWhenRiskModulePermits() public {
+        // Swap in the permissive RiskModule to isolate the flag-lock / write
+        // path from the Phase 1 stub's fail-closed policy.
+        vm.prank(owner);
+        manager.setRiskModule(address(permissive));
+
+        vm.warp(1_700_000_000);
+        vm.prank(user);
+        manager.flag(asset);
+
+        // Exactly at the 24h boundary.
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(user);
+        manager.unflag(asset);
+
+        assertFalse(ledger.usedAsCollateral(user, asset));
+        assertEq(ledger.flaggedAt(user, asset), 0);
+    }
+
+    /// @notice The single-policy-seam invariant: a user cannot flag via the
+    ///         operator path and unflag via the direct path to bypass the
+    ///         24h lock or RiskModule gate (or vice versa). Both entry-point
+    ///         families share `_unflag`, so the gate fires uniformly.
+    function test_Unflag_DirectCaller_SamePolicyAsOperatorPath() public {
+        // Flag via the operator path.
+        vm.warp(1_700_000_000);
+        vm.prank(operatorAddr);
+        manager.flagFor(user, asset);
+
+        // Try to unflag via the direct path BEFORE the lock expires — must
+        // hit FlagLockActive identically to the operator path.
+        uint64 unlocksAt = ledger.flaggedAt(user, asset) + 24 hours;
+        vm.warp(unlocksAt - 1);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt));
+        manager.unflag(asset);
+
+        // Past the lock the stub still rejects via WouldMakeUnhealthy — same
+        // policy seam regardless of which entry point is used.
+        vm.warp(unlocksAt);
+        vm.prank(user);
+        vm.expectRevert(ICollateralManager.WouldMakeUnhealthy.selector);
+        manager.unflag(asset);
+    }
+
+    // ============ Refactor regressions ============
+
+    /// @notice Regression: the operator path still works after the refactor.
+    /// @dev `flagFor` now delegates to `_flag`. The 17 existing tests prove
+    ///      the operator path is intact at the function level; this test
+    ///      exercises a happy-path round trip through the operator path
+    ///      after the refactor specifically.
+    function test_FlagFor_OperatorPath_StillWorks() public {
+        vm.warp(1_700_000_000);
+        vm.prank(operatorAddr);
+        manager.flagFor(user, asset);
+        assertTrue(ledger.usedAsCollateral(user, asset));
+
+        vm.prank(owner);
+        manager.setRiskModule(address(permissive));
+
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(operatorAddr);
+        manager.unflagFor(user, asset);
+        assertFalse(ledger.usedAsCollateral(user, asset));
+    }
+
+    /// @notice Regression: the operator path's flag-lock check still fires
+    ///         after extracting `_unflag`.
+    function test_UnflagFor_OperatorPath_StillReverts_FlagLockActive() public {
+        vm.warp(1_700_000_000);
+        vm.prank(operatorAddr);
+        manager.flagFor(user, asset);
+
+        uint64 unlocksAt = ledger.flaggedAt(user, asset) + 24 hours;
+        vm.warp(unlocksAt - 1);
+        vm.prank(operatorAddr);
+        vm.expectRevert(abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt));
+        manager.unflagFor(user, asset);
+    }
 }

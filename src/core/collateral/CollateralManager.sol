@@ -18,12 +18,20 @@ import {CollateralManagerStorage} from "./CollateralManagerStorage.sol";
 ///      purpose wrappers lets each layer evolve on its own upgrade path and
 ///      keeps BalanceLedger's storage layout stable.
 ///
-///      The contract is deliberately minimal — a single operator role, a
-///      single RiskModule pointer, a single uint64 flag-lock duration, and two
-///      write entry points. Every other collateral mutation in Phase 1 goes
-///      through either `Settlement._processMatch` (auto-flag at match) or
-///      `Centuari.repay` (auto-unflag at repay-to-zero), neither of which
-///      touches this contract.
+///      Two parallel entry-point families share one policy seam:
+///        * Operator-gated (`flagFor` / `unflagFor`): the protocol settlement
+///          key calls these on behalf of an arbitrary `user`. Used by
+///          backend-v2's `POST /collateral/unflag` after the dequeue branch.
+///        * Direct caller (`flag` / `unflag`): `msg.sender` flags or unflags
+///          themselves. No operator gate. Used by the frontend's emergency
+///          "Flag now" affordance (Phase 5) and forward-compatible with
+///          Phase 6 `CentuariRouter`-style integrators that want to bypass
+///          the backend entirely. Trustlessness invariant: a user can always
+///          exit their own collateral position even if the backend is down.
+///
+///      Both families call the same internal `_flag` / `_unflag` helpers, so
+///      the 24h flag-lock and `IRiskModule.canUnflag` gate cannot be bypassed
+///      by picking a different entry point.
 contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManagerStorage, ICollateralManager {
     // ============ Constants ============
 
@@ -84,14 +92,48 @@ contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManag
 
     /// @inheritdoc ICollateralManager
     function flagFor(address user, address asset) external onlyOperator {
-        // No HF check: flagging strictly increases collateralization, it can
-        // never push a user's HF below 1. BalanceLedger.markCollateral is
-        // idempotent and will no-op if the pair is already flagged.
-        IBalanceLedger(_balanceLedger).markCollateral(user, asset);
+        _flag(user, asset);
     }
 
     /// @inheritdoc ICollateralManager
     function unflagFor(address user, address asset) external onlyOperator {
+        _unflag(user, asset);
+    }
+
+    // ============ Direct-caller actions ============
+
+    /// @inheritdoc ICollateralManager
+    function flag(address asset) external {
+        _flag(msg.sender, asset);
+    }
+
+    /// @inheritdoc ICollateralManager
+    function unflag(address asset) external {
+        _unflag(msg.sender, asset);
+    }
+
+    // ============ Internals ============
+
+    /// @notice Mark `(user, asset)` as collateral on the BalanceLedger.
+    /// @dev No HF check: flagging strictly increases collateralization, it can
+    ///      never push a user's HF below 1. `BalanceLedger.markCollateral` is
+    ///      idempotent and will no-op (without refreshing `_flaggedAt`) if the
+    ///      pair is already flagged. Both entry points (operator + direct
+    ///      caller) funnel through this helper so the policy is uniform.
+    function _flag(address user, address asset) internal {
+        IBalanceLedger(_balanceLedger).markCollateral(user, asset);
+    }
+
+    /// @notice Unmark `(user, asset)` as collateral on the BalanceLedger.
+    /// @dev Enforces, in order: flag must exist, the 24-hour `_flagLock` must
+    ///      have elapsed since the FIRST mark (`flaggedAt` is not refreshed by
+    ///      idempotent re-marks), and `IRiskModule.canUnflag` must return true.
+    ///      Reverts with the specific error on each failure so the backend can
+    ///      map it to a distinct HTTP response code, and so direct callers see
+    ///      the same diagnostics. Both entry points funnel through this helper
+    ///      so the single-policy-seam invariant cannot be bypassed by picking
+    ///      a different external function.
+    function _unflag(address user, address asset) internal {
         IBalanceLedger ledger = IBalanceLedger(_balanceLedger);
 
         uint64 fAt = ledger.flaggedAt(user, asset);

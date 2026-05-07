@@ -78,6 +78,29 @@ interface ICollateralManager {
     /// @param asset The asset to unflag
     function unflagFor(address user, address asset) external;
 
+    // ============ Direct-caller actions ============
+
+    /// @notice Flag `msg.sender`'s asset as collateral
+    /// @dev Direct-caller counterpart to `flagFor`: implicit `user = msg.sender`,
+    ///      no operator gate. Used by the frontend's emergency "Flag now"
+    ///      affordance (user-signed, user-paid) and by Phase 6 integrators that
+    ///      compose with CollateralManager rather than the operator key. Routes
+    ///      through the same internal `_flag` helper as `flagFor` so flagging
+    ///      semantics are uniform across the two paths. No HF check (flagging
+    ///      strictly improves HF).
+    /// @param asset The asset to flag for the caller
+    function flag(address asset) external;
+
+    /// @notice Unflag `msg.sender`'s asset as collateral
+    /// @dev Direct-caller counterpart to `unflagFor`: implicit `user = msg.sender`,
+    ///      no operator gate. Routes through the same internal `_unflag` helper
+    ///      so the 24h flag-lock and `IRiskModule.canUnflag` gate cannot be
+    ///      bypassed by picking this entry point over `unflagFor`. Trustlessness
+    ///      invariant: a user can always exit their own collateral position even
+    ///      if the backend is down.
+    /// @param asset The asset to unflag for the caller
+    function unflag(address asset) external;
+
     // ============ Governance actions ============
 
     /// @notice Update the operator that may call `flagFor` / `unflagFor`
