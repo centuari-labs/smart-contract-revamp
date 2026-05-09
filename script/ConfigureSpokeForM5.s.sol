@@ -7,8 +7,9 @@ import {ISpokeVaultStable} from "../src/interfaces/cross-chain/spoke/ISpokeVault
 import {ISpokePayout} from "../src/interfaces/cross-chain/spoke/ISpokePayout.sol";
 
 /// @title ConfigureSpokeForM5
-/// @notice Spoke-side counterpart to ConfigureHubForM5. Wires LayerZero peers
-///         and registers asset classifications so that:
+/// @notice Spoke-side counterpart to ConfigureHubForM5. Wires LayerZero peers,
+///         registers vault authorities, and registers asset classifications so
+///         that:
 ///
 ///         1. The spoke gateway accepts deposits for the listed assets.
 ///         2. The spoke vault mirrors the same classification (required by
@@ -19,6 +20,8 @@ import {ISpokePayout} from "../src/interfaces/cross-chain/spoke/ISpokePayout.sol
 ///         4. The spoke payout recognises the hub's WithdrawalRegistry as the
 ///            trusted peer at HUB_EID, so inbound LZ payout packets pass
 ///            authentication.
+///         5. The spoke vault accepts deposit forwards from the gateway and
+///            payout calls from the payout module (onlyGateway / onlyPayout).
 ///
 /// @dev Required env vars:
 ///        SPOKE_GATEWAY            — SpokeDepositGateway proxy on this chain
@@ -65,7 +68,16 @@ contract ConfigureSpokeForM5 is Script {
         console.log("Payout: set peer at hubEid", uint256(hubEid));
         console.log("  withdrawal registry:", hubRegistry);
 
-        // --- 3. Asset classifications -----------------------------------------
+        // --- 3. Vault authority registration ----------------------------------
+        // Without these the vault's onlyGateway / onlyPayout modifiers reject
+        // every deposit and payout call. Discovered manually during M8 burn-in
+        // (see docs/m8-burn-in-completion.md, bug 2).
+        vault.setGateway(gatewayAddr);
+        console.log("Vault: set gateway authority", gatewayAddr);
+        vault.setPayout(payoutAddr);
+        console.log("Vault: set payout authority", payoutAddr);
+
+        // --- 4. Asset classifications -----------------------------------------
         _classifyAssets(gateway, vault, "BRIDGED_ASSETS", ISpokeVaultStable.AssetClassification.BRIDGED);
         _classifyAssets(gateway, vault, "SPOKE_NATIVE_ASSETS", ISpokeVaultStable.AssetClassification.SPOKE_NATIVE);
 
