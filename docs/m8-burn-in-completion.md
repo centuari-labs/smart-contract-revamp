@@ -57,7 +57,7 @@ All bugs are real production issues, not testnet-only. Each was upstream of the 
 
 **Fix (interim, manual):** `cast send vault setGateway(gateway)` and `cast send vault setPayout(payout)` for Base Sepolia. Same wiring needed on Eth/BNB/Polygon for production.
 
-**Better fix (TODO):** add these calls to `script/ConfigureSpokeForM5.s.sol` so future deploys are wired automatically.
+**Better fix (✅ DONE 2026-05-09):** `script/ConfigureSpokeForM5.s.sol` now calls `vault.setGateway(gatewayAddr)` and `vault.setPayout(payoutAddr)` between the LZ peer wiring and asset classification (new section 3). Future spoke deploys via `bin/run-all-cross-chain.sh` phase C are wired automatically.
 
 ### Bug 3 — `HubIntentSettler` + `SpokePayout` missing `allowInitializePath()`
 
@@ -129,7 +129,7 @@ These are the production-relevant fixes. Each can be a focused PR.
 1. **PR: SpokeDepositGateway LZ options fix** — port the `DEFAULT_LZ_OPTIONS` constant + the two call-site updates. Apply on all 4 spoke chains via a `bin/upgrade-spoke-gateway.sh` helper.
 2. **PR: HubIntentSettler + SpokePayout `allowInitializePath`** — small, low-risk method addition. Plus `lzReceive` signature rewrite to match LZ V2 `(Origin, bytes32 guid, bytes message, address executor, bytes extraData)`.
 3. **PR: MockLZEndpoint signature fix + test rewrites** — bundle with #2 since the tests are coupled.
-4. **PR: ConfigureSpokeForM5 wires `vault.setGateway` + `vault.setPayout`** — closes the missing-setup hole for fresh deploys.
+4. ✅ **DONE 2026-05-09 — ConfigureSpokeForM5 wires `vault.setGateway` + `vault.setPayout`.** Section 3 of the script now registers the vault authorities; closes the missing-setup hole for fresh deploys.
 5. **PR: orchestrator polish** — the `bin/run-all-cross-chain.sh` had several iterations during burn-in (skip-spoke handling, idempotent retries, pipefail, env var name mapping for `SPOKE_ETHEREUM_*`). Clean up + add unit tests if any.
 
 ## Indexer-v3 state at completion
