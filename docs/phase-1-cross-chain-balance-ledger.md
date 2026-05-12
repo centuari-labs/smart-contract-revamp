@@ -2,6 +2,8 @@
 
 > **2026-04-17 update — collateral flag model corrected.** This doc was originally written around an auto-flag-at-settlement / auto-unflag-at-repay model. That behavior has been **reverted**: `Centuari.settleMatch` now flags only the assets the borrower explicitly requested via `MatchData.collateralAssets[]`, and `Centuari.repay` never touches flags. Unflagging always flows through `CollateralManager.unflagFor` (24h lock + `RiskModule.canUnflag`). Read any reference in this file to "auto-flag" or "auto-unflag" through that lens — the authoritative current-state summary lives in [`collateral-loophole-fix-plan.md`](./collateral-loophole-fix-plan.md) under the P1b-explicit section.
 
+> **2026-05-12 update — indexer-v3 consumer-facing data API removed.** This doc was originally written around indexer-v3 exposing a REST API on port 42069 (`/balance`, `/portfolio`, `/collateral`, `/deposits`, `/withdrawals`) for consumption by backend-v2, matching-engine, and frontend. **None of those routes were ever wired up by any consumer at runtime.** All consumer services read the shared Postgres schema directly via their own DB pools (see Phase-A §A5 for backend-v2's `DatabaseService` direct-SQL pattern). Indexer-v3 now exposes only `/health` (docker healthcheck) and `/metrics` (Prometheus). Its sole responsibilities are: (1) apply on-chain effects via `@centuari-labs/on-chain-effects` from its ChainWatchers, (2) backfill chain history on reorg. Read any reference below to "indexer REST API," "indexer endpoint," "`GET /balance`," "`GET /portfolio`," etc. as historical — the read path is now a direct Postgres query in every case. Frontend continues to call only backend-v2.
+
 ## Context
 
 Centuari is migrating from a single-chain, deposit-at-order-time lending protocol (current staging) to a cross-chain, deposit-first, gasless-orders protocol. This plan covers **Phase 1 only** from the Centuari Full Architecture v6 document and `Centuari_Implementation_Plan.pdf`.
@@ -122,7 +124,7 @@ The docker-compose file references `indexer-v3/` but the directory does not exis
 
 **Prior consideration — Ponder rejected:** Ponder forces a framework-shaped schema and handler model that did not fit the Centuari architecture on the previous attempt. Ponder's strict event-driven handler pattern and internal schema abstraction got in the way of tracking multi-chain state rollups (e.g., a single user's balance reflects events from both the hub and the spoke `SpokeDepositGateway`). Dropped.
 
-**Resolution:** Phase 1 Module 8 builds a **custom Node.js/TypeScript indexer** using Viem's `watchEvent` + `getLogs` with a Postgres backend and a fully user-controlled schema. No framework lock-in. Same stack conventions as backend-v2 (TypeScript, pnpm, Viem, raw `pg` for Postgres, Biome for lint). Phase 1 scope is minimal: index `BalanceLedger`, `Centuari`, `HubIntentSettler`, `WithdrawalRegistry`, `SettlementLedger` on the hub, and `SpokeVaultStable`, `SpokeDepositGateway` on each of the four spokes. Expose a small REST API (Fastify or Hono) for backend/frontend/matching-engine consumption.
+**Resolution:** Phase 1 Module 8 builds a **custom Node.js/TypeScript indexer** using Viem's `watchEvent` + `getLogs` with a Postgres backend and a fully user-controlled schema. No framework lock-in. Same stack conventions as backend-v2 (TypeScript, pnpm, Viem, raw `pg` for Postgres, Biome for lint). Phase 1 scope is minimal: index `BalanceLedger`, `Centuari`, `HubIntentSettler`, `WithdrawalRegistry`, `SettlementLedger` on the hub, and `SpokeVaultStable`, `SpokeDepositGateway` on each of the four spokes. Exposes only `/health` and `/metrics` for ops — no consumer-facing data API. All reader services (backend-v2, matching-engine) query the shared Postgres schema directly via their own DB clients.
 
 ### C7. LayerZero DVN configuration is security-critical and easy to get wrong
 
@@ -168,7 +170,7 @@ For every tx that mutates DB-visible state (deposit, settlement, withdrawal auth
 - **Sweeper bot (Module 7)** updates `cross_chain_deposit.state = BRIDGED` immediately after its bridge tx lands; indexer tails as backup. (Phase 1 has no solver reimbursement flow — the Sweeper only bridges escrowed tokens spoke → hub for custody.)
 - **Backend deposit module (Module 9)** — when the frontend POSTs a deposit tx hash, the backend fetches the receipt, verifies the `HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated` event, and eagerly applies the row update; indexer tails as backup. For cross-chain deposits, the LZ-confirmed credit on the hub is tailed by the indexer as the primary path; the backend eagerly applies the credit if it detects the hub-side event first.
 - **WithdrawalRegistry state transitions (Module 9)** — backend updates `withdrawal_request.state` on each authorize / complete / fail tx; indexer tails as backup.
-- **Frontend (Module 10)** always reads from the same DB (via backend or indexer REST — they return the same rows). Because the eager path is usually faster than the indexer, the user sees updated state within a few hundred ms of the tx landing, not seconds later.
+- **Frontend (Module 10)** reads only from backend-v2. Backend-v2 in turn queries the shared Postgres schema directly via its `DatabaseService` pool (the same schema indexer-v3's processors write to). Because the eager path is usually faster than the indexer tail, the user sees updated state within a few hundred ms of the tx landing, not seconds later. Indexer-v3 exposes no consumer-facing API; frontend never talks to it.
 
 **What lives on the shared library vs. per-service:**
 
@@ -875,8 +877,8 @@ All 4 patched contracts deployed + upgraded on Arb Sepolia / Base Sepolia testne
 - **Event watcher layer:** one `ChainWatcher` per chain (hub + 4 spokes = 5 watchers). Each uses Viem `createPublicClient` with a WebSocket transport (falling back to HTTP polling) and `watchEvent` / `getLogs` per contract on that chain. A `BlockCursor` table per chain tracks the last fully-processed block; on restart, the watcher replays from `lastBlock + 1` to current.
 - **Reorg handling:** store each event with `blockNumber`, `blockHash`, `logIndex`. On every new head, compare the chain's recent N-block hashes against stored hashes; if a divergence is found, delete rows with block > fork-point and replay. N = 12 for hub (Arbitrum finality), N = 64 for Ethereum Sepolia, N = 32 for others. Configurable per chain.
 - **Event processors:** each contract has a processor module that takes a decoded event and writes domain entities transactionally using `pg` client `BEGIN/COMMIT`. All writes for a single block on a single chain happen in one transaction so the block cursor + entity updates are atomic.
-- **REST API layer:** lightweight Fastify server (Fastify chosen over Hono for node-native ergonomics and because backend-v2 already uses Fastify-style plugins under NestJS). Exposes the endpoints the backend + matching engine + frontend need.
-- **No GraphQL.** REST only. Matches backend-v2 conventions and avoids a second query language.
+- **Ops HTTP surface only:** lightweight Fastify server (Fastify chosen for node-native ergonomics). Exposes only `GET /health` (per-chain cursor lag for docker healthcheck) and `GET /metrics` (Prometheus). No consumer-facing data routes — all reader services hit the shared Postgres schema directly.
+- **No GraphQL, no data REST.** The indexer is a writer + ops endpoint; reads happen at the DB layer.
 
 **Files to create:**
 
@@ -903,13 +905,10 @@ All 4 patched contracts deployed + upgraded on Arb Sepolia / Base Sepolia testne
 - `indexer-v3/src/processors/settlement-ledger.processor.ts` — **dormant in Phase 1** (no solver reimbursement flow). Keep the processor stub for forward compatibility but it will not receive events.
 - `indexer-v3/src/processors/spoke-deposit-gateway.processor.ts` — handles `DepositInitiated` events on spoke chains, seeds `cross_chain_deposit` rows
 - `indexer-v3/src/processors/spoke-vault.processor.ts` — handles spoke custody events
-- `indexer-v3/src/api/server.ts` — Fastify bootstrap
-- `indexer-v3/src/api/routes/balance.ts` — `GET /balance/:user` + `GET /balance/:user/:asset`
-- `indexer-v3/src/api/routes/collateral.ts` — **read-only** `GET /collateral/:user/:asset` returning `{ used: boolean, flaggedAt: number | null, unlocksAt: number | null }`. Flag writes happen on-chain via `CollateralFlagSet` events and flow through `balance-ledger.processor.ts` — there is **no internal write endpoint**. The old `PUT /internal/collateral/:user/:asset` from the earlier draft is removed along with the backend module that called it (see Module 9).
-- `indexer-v3/src/api/routes/withdrawals.ts` — `GET /withdrawals/:user`
-- `indexer-v3/src/api/routes/deposits.ts` — `GET /deposits/:user` + `GET /deposits/:depositId` (cross-chain deposit tracking)
-- `indexer-v3/src/api/routes/portfolio.ts` — `GET /portfolio/:user` (aggregates balance + open withdrawals + in-flight cross-chain deposits in one call for frontend)
-- `indexer-v3/src/api/routes/health.ts` — `GET /health` reports per-chain cursor lag
+- `indexer-v3/src/api/server.ts` — Fastify bootstrap; serves only `/metrics` (Prometheus) and `/health`
+- `indexer-v3/src/api/routes/health.ts` — `GET /health` reports per-chain cursor lag (docker healthcheck + ops)
+
+**Historical (removed 2026-05-12):** the original Module 8 design included `routes/balance.ts`, `routes/collateral.ts`, `routes/portfolio.ts`, `routes/deposits.ts`, `routes/withdrawals.ts`, and `routes/positions.ts` for backend/frontend/matching-engine consumption. None of these routes were ever consumed by any service at runtime — every consumer queries the shared Postgres schema directly. The route files were deleted; backend reads (e.g. `/portfolio` in backend-v2) hit `user_balance`, `withdrawal_request`, `cross_chain_deposit` directly via `DatabaseService`.
 - `indexer-v3/src/abi/` — generated TypeScript ABI constants imported from `smart-contract-revamp/abi/` via a small `copy-abi.ts` script run on build
 
 **Postgres schema (migrations/001_init.sql — sketch):**
@@ -1031,8 +1030,9 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 - `pnpm run dev` starts the indexer, runs migrations, connects to all configured chains, begins tailing.
 - `curl localhost:42069/health` returns per-chain block-lag (< 10s for testnet).
-- Trigger a deposit via HubDepositor on Arbitrum Sepolia → `GET /balance/0x<user>` returns the updated `available` within 2 seconds.
-- Trigger a cross-chain deposit on Base Sepolia's `SpokeDepositGateway` → `GET /deposits/<depositId>` shows the deposit moving `INITIATED → CREDITED → BRIDGED`.
+- `curl localhost:42069/metrics` returns Prometheus output.
+- Trigger a deposit via HubDepositor on Arbitrum Sepolia → `SELECT available FROM user_balance WHERE user_address = $1 AND asset = $2` returns the updated value within 2 seconds.
+- Trigger a cross-chain deposit on Base Sepolia's `SpokeDepositGateway` → `SELECT state FROM cross_chain_deposit WHERE deposit_id = $1` shows the deposit moving `INITIATED → CREDITED → BRIDGED`.
 
 ---
 
@@ -1061,7 +1061,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 - `backend-v2/src/deposit/` — no signing, no intent forwarding. The frontend drives the deposit tx directly against `HubDepositor` (Arbitrum) or `SpokeDepositGateway` (spokes), then POSTs the resulting `txHash + sourceChainId` back to `POST /deposit/confirm`. The backend fetches the receipt via Viem, calls the shared `applyOnChainEffect` helper to verify the expected event (`HubDepositor.Deposited` or `SpokeDepositGateway.DepositInitiated`), and eagerly applies the resulting DB mutation (`user_balance.available += amount` for hub-direct, or `deposit_event` row + `cross_chain_deposit` seed for spoke). Returns the updated state to the frontend so the UI reflects it without waiting on the indexer. Indexer tails the same events as the safety net per C10. `GET /deposit/targets` returns the supported source-chain metadata. `GET /deposit/:depositId` reads the canonical row for progress polling. The existing `POST /deposit` Treasury-writing endpoint is removed. For cross-chain deposits, the hub-side BalanceLedger credit happens automatically when the LZ message arrives — no solver or backend intervention needed for the credit itself.
 - `backend-v2/src/withdraw/` — replace `Treasury.withdraw` call path. New flow: backend calls `Centuari.requestWithdrawal(user, asset, amount, targetChain)` which hits `WithdrawalRegistry`, then eagerly applies the PENDING-state row via `applyOnChainEffect`. Subsequent state transitions (PROCESSING on LZ send, COMPLETED on LZ ack, FAILED on timeout) are applied the same way when the backend/settlement-engine submits each follow-up tx. Indexer tails as safety net per C10.
-- `backend-v2/src/portfolio/` — replace Treasury balance queries with indexer-v3 REST calls. Surface the 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus the per-asset `usedAsCollateral` flag in the portfolio response shape.
+- `backend-v2/src/portfolio/` — replace Treasury balance queries with direct SQL against the shared on-chain-state schema (`user_balance` written by indexer-v3 + eager-path stamps from `applyOnChainEffect`). Surface the 3 sub-states (`available`, `inOrders`, `inYieldRouter`) plus the per-asset `usedAsCollateral` flag in the portfolio response shape.
 - `backend-v2/src/collateral/` — **new module, on-chain-backed.** Two endpoints gated on Privy JWT + 5/user/24h Redis rate limit (see `collateral-loophole-fix-plan.md` P4). `POST /collateral/flag { asset }` — when the user has no pending borrow, submits `CollateralManager.flagFor(user, asset)` via the protocol settlement key; when the user has a pending borrow, enqueues the flag request to a persistent `pending_collateral_flags` table so the settlement engine can attach it to the next match via `MatchData.collateralAssets[]`. `POST /collateral/unflag { asset }` path:
   1. Reads the user's current flag state + `flagged_at` from indexer-v3 and rejects with HTTP 400 `NotFlagged` if the asset is not flagged.
   2. Rejects with HTTP 409 `FlagLockActive { unlocksAt }` if `now < flagged_at + 24h`.
@@ -1096,7 +1096,7 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 
 **Verification:**
 
-- Full end-to-end: `POST /deposit` with `sourceChain: arbitrum-sepolia` → Centuari.deposit → BalanceLedger.credit → indexer-v3 picks up event → `GET /portfolio/:user` returns new balance.
+- Full end-to-end: `POST /deposit` with `sourceChain: arbitrum-sepolia` → Centuari.deposit → BalanceLedger.credit → indexer-v3 picks up event → backend-v2 `GET /portfolio/:user` (which reads `user_balance` directly via `DatabaseService`) returns new balance.
 - Place a lend order exceeding available balance → matching engine rejects.
 
 ---
@@ -1120,14 +1120,14 @@ All timestamp columns are `TIMESTAMPTZ` per project convention.
 - `frontend-revamp/src/components/centuari-borrow/` — borrow order form gains a **collateral asset multi-select** (checkbox list of the user's deposited assets, default all selected). On submit, shows a confirmation modal: *"These assets will be locked as collateral for at least 24 hours after the match settles. You will not be able to unflag them before then, even after partial repayment. Full repayment will release them immediately. Continue?"* — user must tick an ack box before the submit button enables. The selected assets are posted as `collateralAssets: string[]` on the borrow order body.
 - `frontend-revamp/src/components/centuari-deposit/` — source-chain selector is **token-aware**, driven by the token×chain matrix. For each token, only shows chains where `CustodyType != —` (i.e., the token is available on that chain). Users see "Arbitrum (direct)" for hub-native, spoke chains for cross-chain. Arbitrum (direct) uses `HubDepositor.deposit()` — single tx, ~15s. All cross-chain deposits (both BRIDGED and SPOKE_NATIVE) use the LZ-confirmed credit flow — balance appears in **~30s-2min** after LayerZero message confirmation. For SPOKE_NATIVE deposits, a note explains "Token will remain on {chain} for custody."
 - `frontend-revamp/src/components/centuari-withdraw/` — target-chain selector is **token-aware and liquidity-aware**. For BRIDGED tokens: shows all chains the bridge supports (hub has full liquidity). Arbitrum (direct) releases via `HubDepositor.payout()` — instant. Cross-chain BRIDGED withdrawals use CCTP or Stargate (~2-5 min). For SPOKE_NATIVE tokens: shows each chain with its available liquidity amount, greys out chains with 0 liquidity. Reads `ChainLiquidity` from indexer-v3 via `GET /liquidity/:token`.
-- `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls `GET /deposits/:depositId` for cross-chain progress (`INITIATED → CREDITED → BRIDGED`).
+- `frontend-revamp/src/hooks/use-deposit.ts` — single `useWriteContract` call. Arbitrum (direct) → `HubDepositor.deposit(asset, amount)`. Spokes → `SpokeDepositGateway.permitAndDeposit(...)` if EIP-2612, else `approve` + `deposit`. **No `signTypedData`, no intent construction.** Polls backend-v2's deposit-status endpoint for cross-chain progress (`INITIATED → CREDITED → BRIDGED`); backend reads `cross_chain_deposit` directly from Postgres.
 - `frontend-revamp/src/hooks/use-withdraw.ts` — withdrawal state tracking via indexer-v3 polling.
 - `frontend-revamp/src/hooks/use-unflag-collateral.ts` — **new hook.** No wallet popup. Calls `POST /collateral/unflag { asset }` with the Privy JWT. Optimistic update on click; rolls back on error. Distinct error paths:
   - `FlagLockActive` (HTTP 409) → toast "Locked until {unlocksAt}", disables button until the countdown elapses.
   - `WouldMakeUnhealthy` (HTTP 400, Phase 1 stub) → toast "Repay in full to release this collateral".
   - `WouldMakeUnhealthy` (HTTP 400, Phase 2 real) → toast "Would drop health factor below 1".
   The hook is purely a backend call; the Phase 2 swap is invisible at the UI layer.
-- `frontend-revamp/src/lib/portfolio-data.ts` — indexer-v3 API, returns the 3 sub-states + `usedAsCollateral` + `flaggedAt` per asset.
+- `frontend-revamp/src/lib/portfolio-data.ts` — backend-v2 portfolio API (backend reads the shared schema directly), returns the 3 sub-states + `usedAsCollateral` + `flaggedAt` per asset.
 - `frontend-revamp/src/lib/chain-config.ts` — spoke chain configs + token×chain matrix. Exports `getDepositChains(token): ChainConfig[]` and `getWithdrawChains(token): ChainConfig[]` for the selectors. For SPOKE_NATIVE tokens, `getWithdrawChains` requires a live liquidity lookup from indexer-v3.
 - `frontend-revamp/e2e/cross-chain-deposit.spec.ts` — Playwright end-to-end.
 - `frontend-revamp/e2e/collateral-flow.spec.ts` — Playwright e2e: (a) place a borrow with `collateralAssets = [USDC]` → collateral badge appears on the portfolio row after settlement; (b) unflag button is disabled with a countdown until `flagged_at + 24h`; (c) direct API call to `POST /collateral/unflag` before 24h returns HTTP 409 `FlagLockActive`; (d) after 24h, unflag while still in debt returns HTTP 400 `WouldMakeUnhealthy` (Phase 1 stub); (e) full repay auto-clears the flag without waiting 24h.
@@ -1390,7 +1390,7 @@ All contracts have passing tests (339 total as of M4 landing).
 ### Phase E — frontend-revamp
 - Remove any single-bucket "balance" UI that collapses `available` / `inOrders` / `inYieldRouter` into one number.
 - Remove any collateral-toggle UX that implies instant unflag (must show 24h countdown).
-- Repoint hooks at indexer-v3 REST when their backing backend endpoints get deleted in Phase C.
+- Repoint hooks at backend-v2 endpoints (backend reads the shared schema directly); no hooks ever target indexer-v3, which exposes only `/health` + `/metrics`.
 
 ### Phase F — indexer-v3
 - Confirm no service still imports from `indexer-v2/` (Ponder-based, superseded).

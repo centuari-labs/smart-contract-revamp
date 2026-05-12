@@ -30,7 +30,7 @@ That's two sources of truth for the same on-chain state. `applyOnChainEffect` on
 ### In scope
 - Rewrite settlement-engine's Phase-1+Phase-2 persistence onto `applyOnChainEffect` targeting indexer-v3 tables.
 - Any schema gaps in indexer-v3 (columns the tail does not yet populate but settlement-engine needs to stamp): add via new migration.
-- Repoint backend-v2 read endpoints that serve portfolio / lend-position / borrow-position data to indexer-v3's Fastify REST (`:42069`).
+- Repoint backend-v2 read endpoints that serve portfolio / lend-position / borrow-position data to the shared on-chain-state Postgres tables (`user_balance`, `lend_position`, `borrow_position`, `market`) via direct SQL through backend-v2's `DatabaseService` pool. (Earlier drafts said "indexer-v3 Fastify REST" — superseded; see A5 note. Indexer-v3 now exposes only `/health` + `/metrics`.)
 - Delete the legacy backend-v2 UUID tables + their TypeORM entities + persistence modules in the same commit.
 
 ### Out of scope
@@ -59,7 +59,7 @@ That's two sources of truth for the same on-chain state. `applyOnChainEffect` on
 - `indexer-v3/src/processors/balance-ledger.processor.ts` — same pattern for `Credited` / `Debited` (portfolio balance deltas).
 
 ### backend-v2 (partial read migration)
-- `backend-v2/src/portfolio/` — swap TypeORM queries against `portfolio` / `lend_positions` / `borrow_positions` to `fetch('http://indexer-v3:42069/portfolio/:user')`.
+- `backend-v2/src/portfolio/` — swap TypeORM queries against legacy `portfolio` / `lend_positions` / `borrow_positions` tables for direct SQL against the shared `user_balance` / `lend_position` / `borrow_position` schema via `DatabaseService`. (Earlier sketch suggested `fetch('http://indexer-v3:42069/portfolio/:user')` — superseded; see A5 note.)
 - `backend-v2/src/orders/` — if `orders.settlement_status` is read anywhere downstream for settled state display, redirect that read; otherwise leave `orders` table intact (matching-engine still writes it in Phase B).
 - Delete TypeORM entities: `SettlementBatch`, `SettlementItem`, `LendPosition` (backend version), `BorrowPosition` (backend version), `CbtAsset`, `Portfolio`, `Market` (backend version).
 
@@ -219,12 +219,12 @@ replaced by `WithdrawalRegistry.requestWithdraw`); order/match reads
 3. `cd backend-v2 && pnpm test` → portfolio/position read endpoints return indexer-v3-shaped data.
 
 ### Manual end-to-end smoke
-Preconditions: Docker stack up (`docker-compose up -d`), all contracts deployed via `./bin/run-all.sh`, indexer-v3 running on `:42069`.
+Preconditions: Docker stack up (`docker-compose up -d`), all contracts deployed via `./bin/run-all.sh`, indexer-v3 running and reporting healthy via `curl localhost:42069/health`.
 
 1. Submit a lend order + matching borrow order through the frontend (or direct REST call to backend-v2).
 2. Wait for settlement batch (≤ 5s default interval).
-3. `curl http://localhost:42069/portfolio/<lender>` → lender's `user_balance.available` decreased by principal + fees.
-4. `curl http://localhost:42069/portfolio/<borrower>` → borrower's `user_balance.available` increased by principal − fees.
+3. `psql $DATABASE_URL -c "SELECT available FROM user_balance WHERE user_address = decode('<lender>', 'hex')"` → lender's `available` decreased by principal + fees.
+4. `psql $DATABASE_URL -c "SELECT available FROM user_balance WHERE user_address = decode('<borrower>', 'hex')"` → borrower's `available` increased by principal − fees.
 5. `GET /lend-positions/<lender>` via backend-v2 → position row present with correct `cbt_balance` + `principal` + weighted `rate`.
 6. Query Postgres: `SELECT applied_by_tx_hash FROM lend_position WHERE lender = $1` → matches the settlement tx hash.
 7. **Idempotency:** manually re-run the settlement-engine against the same Redis-stream entries (or replay from a snapshot). No duplicate rows; no position values changed.
@@ -250,4 +250,4 @@ Rollback is non-trivial because legacy tables are dropped in the same commit. Sa
 - **Rate rollup correctness:** weighted-average `rate` math in `lend_position.upsertRollup` must match what `persistence.ts` does today. Port carefully with unit tests that compare old vs new on the same match set.
 - **`bond_token` ownership:** if backend-v2 anywhere writes to `cbt_assets` / `bond_token` outside settlement-engine (e.g. a manual admin script), that path must also migrate. Grep before deleting.
 - **Portfolio `locked_amount`:** settlement-engine currently clears `locked_amount` on settle ([persistence.ts:359-371](settlement-engine/src/settlement/database/persistence.ts)). Indexer-v3's `user_balance` has no `locked_amount` — that concept belongs to matching-engine reservations (Phase B's `inOrders`). Confirm frontend doesn't read `locked_amount` for settled state; if it does, coordinate with Phase B.
-- **Rate limits on indexer-v3 REST:** backend-v2 now depends on indexer-v3 availability for portfolio reads. Add circuit breaker + fallback error response; surface indexer lag in backend health endpoint.
+- **Indexer-v3 tail lag:** backend-v2 reads the shared Postgres directly, so it is independent of indexer-v3 HTTP availability. But indexer-v3 is still the canonical writer for tail-only events (e.g. cross-chain `HubIntentSettler.confirmDeposit`); if the indexer tail lags, those rows stay stale. Surface per-chain tail lag in backend health endpoint via a `SELECT updated_at FROM block_cursor` probe (or proxy `:42069/health`).
