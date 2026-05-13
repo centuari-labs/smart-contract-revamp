@@ -19,7 +19,7 @@ Phases A–F are wrapped in a single resumable orchestrator: [bin/run-all-cross-
 | **D** | Hub-side LZ wiring | `--phase=D` (calls existing `ConfigureHubForM5.s.sol`) | 10 min | Hub trusted remotes + payout peers registered |
 | **E** | Unified `deploy-cross-chain-latest.json` summary | `--phase=E` | <1 min | Aggregated hub + 4 spoke addresses |
 | **F** | Auto-populate `indexer-v3/.env` from the unified summary | `--phase=F` | <1 min | Indexer ready to tail 5 chains |
-| **G** | Live burn-in: trigger spoke deposit, watch indexer process LZ-confirmed credit, trigger settlement | manual (Phase G stub below) | 30 min | M8 done |
+| **G** | Live burn-in: trigger spoke deposit, watch indexer process LZ-confirmed credit, trigger settlement | ✅ DONE 2026-05-06 — see [m8-burn-in-completion.md](m8-burn-in-completion.md) | 30 min | M8 done |
 
 The orchestrator script also accepts `--reset` (clear all phase markers), `--dry-run` (print plan without sending tx), and `--verify` (Etherscan verification).
 
@@ -259,10 +259,8 @@ Or just run them all unattended:
 - **Phase E** — writes `deployments/deploy-cross-chain-latest.json` aggregating hub + 4 spoke addresses + LZ EIDs into one file the rest of the system can consume.
 - **Phase F** — generates `indexer-v3/.env` from the unified summary + RPC URLs in `.env.chains`. Backs up any existing `.env` to `.env.bak.<timestamp>` first.
 
-## Phase G — Live burn-in trigger + verify (TBD)
+## Phase G — Live burn-in trigger + verify ✅ DONE 2026-05-06
 
 After Phase F: start the indexer, trigger a real spoke deposit, watch the `cross_chain_deposit` row transition `INITIATED → CREDITED` once LayerZero confirms (~30s–2min on testnets). Then trigger a `Settlement.settleMatches()` on the hub to validate the Centuari positions processor.
 
-I'll add the detailed Phase G commands once Phases A–F land successfully — the trigger script (`script/BurnInSpokeDeposit.s.sol`) is the last piece of new code.
-
-After Phase G passes, mark M8 ✅ in [phase-1-cross-chain-balance-ledger.md](phase-1-cross-chain-balance-ledger.md) with the verification tx hashes (one for each: spoke deposit, LZ-confirmed credit, hub settlement).
+**Outcome:** end-to-end LZ V2 spoke→hub round-trip verified live on testnet (Base Sepolia → Arb Sepolia). 5 contract bugs surfaced + patched. All 3 critical processors (`spoke-deposit-gateway`, `hub-intent-settler`, `balance-ledger`) captured against real events. Detailed evidence (tx hashes, block numbers, indexer row states) + the 5 contract patches are documented in [m8-burn-in-completion.md](m8-burn-in-completion.md).

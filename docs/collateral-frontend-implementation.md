@@ -8,7 +8,7 @@
 | Phase 2 — backend-v2 queue-only flag, dequeue-or-submit unflag | 🟢 SHIPPED | `POST /collateral/flag { asset }` always queues; `POST /collateral/unflag { asset }` dequeues if queue-only, else `readContract(canUnflag)` short-circuit then operator-key `unflagFor`. Redis 10/wallet/24h rate limit, 20-row queue cap. Legacy `PUT /portfolio/is-collateral` deleted. |
 | Phase 3 — settlement-engine queue read at settle + receipt-event DELETE | 🟢 SHIPPED | `pending_collateral_flags` read for distinct borrowers; encoded into `MatchData.collateralAssets` per match; eager DELETE on `CollateralFlagSet` events from receipt logs. |
 | Phase 4 — indexer-v3 tail DELETE in `balance-ledger.processor.ts` | 🟢 SHIPPED | Idempotent peer DELETE alongside backend dequeue + settlement-engine eager. Covers direct-caller events + missed eager writes. |
-| **Phase 5 — frontend hooks + UI + emergency direct flag** | ⚪ **NOT STARTED** | This doc. |
+| **Phase 5 — frontend hooks + UI + emergency direct flag** | 🟢 **SHIPPED** | Three hooks live (`use-flag-collateral`, `use-flag-collateral-direct`, `use-unflag-collateral`); `CollateralBadge` + `CollateralActions` in `data-table-assets.tsx`; `centuari-hf-banner.tsx` + `use-asset-as-collateral-dialog.tsx`. Backend `pendingCollateralFlag` field + `POST /collateral/{flag,unflag}` endpoints live. **One follow-up still open:** E2E suite `e2e/collateral-toggle.spec.ts` has 8 scenarios but is `test.skip()`-gated via `preflightOrSkip()` because Privy SDK 3.10.0 rejects stub JWTs — see "Privy auth re-capture cadence" follow-up below. |
 
 This is a living document. Pick it up when the frontend stream is unblocked; extend / correct / annotate freely.
 
