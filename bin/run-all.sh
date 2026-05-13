@@ -705,4 +705,19 @@ write_deploy_summary
 
 echo "Deployment summary written to $SUMMARY_FILE"
 echo "Latest deployment summary symlink at $LATEST_FILE"
+
+# ===========================
+# Post-deploy: export ABIs and sync to consumer services.
+# Skip with SKIP_SYNC=1 (e.g. for partial / debug runs that shouldn't propagate addresses).
+# ===========================
+if [[ "${SKIP_SYNC:-0}" != "1" ]]; then
+  echo "=== Exporting ABIs (./bin/export-abi.sh) ==="
+  "$SCRIPT_DIR/export-abi.sh"
+
+  echo "=== Syncing ABIs + addresses to consumer services (./bin/sync-to-services.sh) ==="
+  "$SCRIPT_DIR/sync-to-services.sh" --network="$NETWORK_SLUG"
+else
+  echo "Skipping export-abi + sync-to-services (SKIP_SYNC=1)"
+fi
+
 echo "=== run-all.sh finished ==="

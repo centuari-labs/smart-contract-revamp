@@ -7,13 +7,14 @@ Solidity 0.8.x · Foundry · OpenZeppelin v5 (standard + upgradeable) · ERC1967
 ## Commands
 
 ```bash
-forge build              # compile (optimizer + via_ir enabled)
-forge test               # run all tests
-forge test -vvvv         # verbose with traces
-forge fmt                # format
-anvil                    # local chain
-./bin/run-all.sh         # deploy all contracts (18-step orchestration)
-./bin/export-abi.sh      # export ABIs to abi/
+forge build                # compile (optimizer + via_ir enabled)
+forge test                 # run all tests
+forge test -vvvv           # verbose with traces
+forge fmt                  # format
+anvil                      # local chain
+./bin/run-all.sh           # deploy all contracts (18-step orchestration); auto-runs export-abi + sync-to-services unless SKIP_SYNC=1
+./bin/export-abi.sh        # export ABIs from out/ → abi/
+./bin/sync-to-services.sh  # propagate abi/ + deployments/*.json into backend-v2, settlement-engine, indexer-v3, frontend-revamp
 ```
 
 ## Architecture
@@ -140,9 +141,10 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 
 - `run-all.sh` orchestrates the full deployment in 18 steps — maintain this order
 - Each script is idempotent where possible — re-running should not break state
-- Deployment output goes to `deployments/deploy-<network>-latest.json`
-- After deployment, run `export-abi.sh` to update ABI files for off-chain services
+- Deployment output goes to `deployments/deploy-<network>-latest.json` (hub) and `deployments/deploy-spoke-<chainId>-latest.json` (spokes)
 - BalanceLedger writer registration uses a two-phase approach: `ConfigureBalanceLedger.s.sol` adds Centuari + HubDepositor first, then Settlement after it's deployed
+- **Post-deploy propagation is automatic**: after the last contract step, `run-all.sh` invokes `./bin/export-abi.sh` (refreshes `abi/`) then `./bin/sync-to-services.sh --network=<slug>` (copies `abi/*.json` and writes a regenerated `.env.contracts` / `.env.local` into every consumer service — `backend-v2`, `settlement-engine`, `indexer-v3`, `frontend-revamp`). Set `SKIP_SYNC=1` to opt out for partial / debug runs.
+- The generated `.env.contracts` / `.env.local` files are gitignored in each service. The hand-edited `.env` keeps secrets (RPC URLs, private keys, DATABASE_URL). Contract addresses live exclusively in the synced file.
 
 ### Testing Rules
 

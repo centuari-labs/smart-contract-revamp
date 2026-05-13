@@ -229,9 +229,9 @@ The `selectedCollaterals` multi-select stays — it's still a per-order convenie
 
 Race note: the order may fill before the queue write commits — see "End-to-end behaviour" → "race window" in `~/.claude/plans/help-me-check-the-rustling-pinwheel.md` (or talk to the Phase 3 implementer). Acceptable in practice — the window is ~tens of milliseconds, and the user's intent at submit time was to flag.
 
-## End-to-end test scenarios
+## End-to-end test scenarios (✓ implemented in `frontend-revamp/e2e/collateral-toggle.spec.ts`)
 
-Add `frontend-revamp/e2e/collateral-toggle.spec.ts` covering:
+`frontend-revamp/e2e/collateral-toggle.spec.ts` covers:
 
 1. Toggle "Flag as collateral" on an asset → "Pending" badge appears, no wagmi prompt, HF unchanged.
 2. Click "Flag now (urgent)" → wagmi popup → user signs → tx confirms → badge transitions Pending → "Collateral" with countdown → HF improves.
@@ -241,6 +241,18 @@ Add `frontend-revamp/e2e/collateral-toggle.spec.ts` covering:
 6. Spam 11× any flag/unflag combo within 60s → 11th returns 429 `RATE_LIMITED` toast with retry-after seconds.
 7. Flag 21 distinct assets via the cheap path → 21st returns 400 `COLLATERAL_LIMIT_EXCEEDED` toast.
 8. Race scenario: queue an asset, place a borrow, immediately call `Remove pending` before the match settles → asset still ends up on-chain flagged from the in-flight order; user can on-chain unflag after the 24h lock.
+
+## Phase 4 follow-up — Privy session bypass for e2e tests
+
+The 8 e2e scenarios in `frontend-revamp/e2e/collateral-toggle.spec.ts` are wired and biome-clean, but currently skip at runtime via `preflightOrSkip(page)` because Privy SDK 3.10.0 cryptographically validates session tokens against `auth.privy.io`. Stub JWTs in cookies/localStorage are rejected, so the asset table never renders and there is nothing to assert against. Three remediation paths (documented in detail in the leading comment of the e2e spec file, lines 11–37):
+
+1. **Capture a real Privy session.** One-time interactive login, persist with `await context.storageState({ path: 'e2e/.auth/privy.json' })`, then add `test.use({ storageState: 'e2e/.auth/privy.json' })` to the spec and drop the `test.fixme()` / skip calls. Lowest-touch but the auth artifact has a TTL — re-capture cadence TBD.
+
+2. **Extend the `**/auth.privy.io/**` route mock.** The current fallback mock returns a generic success payload that does not match the SDK's session-refresh response shape. Match the real shape exactly and the SDK will accept stub sessions. Most fragile path — couples test infra to Privy SDK internals.
+
+3. **Window-level test bypass in `useAuthToken.ts`.** Return a stub `getToken()` + `authFetch()` when a window-level test flag is present. Requires touching app code (out of original Phase 4 scope) and explicit approval. Cleanest runtime model but largest surface to gate.
+
+Path (1) is the recommended starting point. None of the three has been picked up yet — needs its own scoped task with explicit approval before implementation. Until then, the e2e spec serves as locked-in regression coverage that activates the moment one of the three paths lands.
 
 ## Open questions / future enhancements
 
