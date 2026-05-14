@@ -31,6 +31,7 @@ Centuari is launching **hub-only on Arbitrum** first, then adding cross-chain in
 | **Indexer-v3 hub processors** | ✅ DONE | BalanceLedger, Centuari, HubDepositor, WithdrawalRegistry, CollateralManager all wired against 5-param `CollateralFlagSet(writer, user, asset, used, flaggedAt)` event. Phase A `apply-on-chain-effect ^0.2.0` shared helper with `receipt` + `logIndex` overloads. |
 | **Order lock lifecycle (Phase 1A + 1B)** | ✅ DONE 2026-05-10 | Settlement-engine writeback (PENDING → SETTLED + locked_amount decrement); backend HF buffer (`risk.borrow_buffer_bps`, default 100); FILLED-but-unsettled HF gap closure via `MatchRepository.getPendingBorrowMatches`. Reference: [`order-lock-lifecycle-followups.md`](./archive/order-lock-lifecycle-followups.md). |
 | **Frontend M10 Phase 1 collateral toggle** | ✅ MOSTLY DONE | 3 hooks (`use-flag-collateral`, `use-flag-collateral-direct`, `use-unflag-collateral`), CollateralBadge + CollateralActions, centuari-hf-banner, use-asset-as-collateral-dialog, borrow-form collateral multi-select. **E2E gated** — see Track B1. |
+| **Portfolio "Remove as collateral" + 24h countdown (Track B2)** | ✅ DONE | Button in [`data-table-assets.tsx:137`](../../frontend-revamp/src/components/centuari-portfolio/data-table-assets.tsx) → `RemoveCollateralDialog` → [`use-unflag-collateral.ts`](../../frontend-revamp/src/hooks/use-unflag-collateral.ts) (handles `FlagLockActive` with `unlocksAt`). Countdown via [`use-countdown.ts:23-43`](../../frontend-revamp/src/hooks/use-countdown.ts) ticks every second; badge renders as `"Collateral · 23h 45m 12s"` and disables when locked. |
 | **Eager-write pattern (Phase A)** | ✅ DONE | Settlement-engine `apply-settlement.ts`, backend `apply-repay.ts`/`apply-withdraw-lend.ts`. Both writers stay byte-for-byte identical with indexer-v3 processors for C10 idempotency. |
 
 **What this means:** the hub stack is functionally complete. Hub-only launch needs **polish + hardening + a few decisions**, not feature work.
@@ -49,8 +50,8 @@ Three lenses: pentest-style security audit, React 19 + Next 15 best-practices, C
 
 | # | Severity | File | Description |
 |---|---|---|---|
-| 15 | **Critical operational** | `.github/workflows/deploy.yml` | Resolve unresolved git merge conflict markers in deploy.yml |
-| 16 | **High** | CI + Dockerfile | Re-enable ESLint + TypeScript checks in CI and Docker build. Would have caught #18 (APR 100×), #22 (HF Infinity), #23 (viem dedupe), #25 (price 16 000×) |
+| 15 | ✅ DONE 2026-05-14 | `.github/workflows/deploy.yml` | All 8 conflict blocks (24 markers) resolved. Resolution: `branches: [staging, testnet, main]`; test job always runs (no testnet skip); `SERVICE_NAME: frontend-${env}` uniform; force-remove kept. YAML parses cleanly. |
+| 16 | ⚠️ INFRA DONE 2026-05-14 / baseline cleanup pending | CI + Dockerfile | Scripts `pnpm run lint` (`biome check src/`) + `pnpm run typecheck` (`tsc --noEmit`) added; deploy.yml `test` job runs them before unit tests; `NEXT_DISABLE_ESLINT` + `NEXT_DISABLE_TYPECHECK` removed from Dockerfile. **Baseline cleanup follow-up:** 141 lint errors + 199 warnings (biome lint) and 35 typecheck errors (all in test fixtures — production code clean) need to land before next staging/main deploy. |
 
 #### A2. Critical security — deposit-flow trust gap (epic #0)
 
@@ -104,7 +105,7 @@ User-visible breakage on launch.
 | # | Status | Description |
 |---|---|---|
 | B1 | NOT STARTED | Unblock 8 skipped E2E collateral scenarios. Privy SDK 3.10.0 rejects stub JWTs → `preflightOrSkip()` in `frontend-revamp/e2e/collateral-toggle.spec.ts` skips all 8 cases at runtime. Three documented paths: (1) capture real Privy session via interactive login + `storageState`, (2) extend `**/auth.privy.io/**` route mock to match SDK session-refresh shape, (3) window-level test bypass in `useAuthToken.ts`. Path 1 recommended. See [`collateral-frontend-implementation.md`](./archive/collateral-frontend-implementation.md) "Privy session bypass for e2e tests" §. |
-| B2 | NOT STARTED | Portfolio "Remove as collateral" button + 24h flag-lock countdown. CollateralManager.unflagFor works on hub today. Hook + UI both unbuilt. |
+| B2 | ✅ DONE | Portfolio "Remove as collateral" button + 24h flag-lock countdown — already shipped. See §2 row "Portfolio Remove as collateral + 24h countdown". |
 | B3 | DECISION | Launch with RiskModuleStub (rejects all unflag while debt > 0) or ship real RiskModule first. Stub means users can only unflag after full repay. See "Open Decisions" §5. |
 
 ### Track C — Order-lock lifecycle followups
