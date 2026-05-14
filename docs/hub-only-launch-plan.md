@@ -32,7 +32,7 @@ Centuari is launching **hub-only on Arbitrum** first, then adding cross-chain in
 | **Order lock lifecycle (Phase 1A + 1B)** | ✅ DONE 2026-05-10 | Settlement-engine writeback (PENDING → SETTLED + locked_amount decrement); backend HF buffer (`risk.borrow_buffer_bps`, default 100); FILLED-but-unsettled HF gap closure via `MatchRepository.getPendingBorrowMatches`. Reference: [`order-lock-lifecycle-followups.md`](./archive/order-lock-lifecycle-followups.md). |
 | **Frontend M10 Phase 1 collateral toggle** | ✅ MOSTLY DONE | 3 hooks (`use-flag-collateral`, `use-flag-collateral-direct`, `use-unflag-collateral`), CollateralBadge + CollateralActions, centuari-hf-banner, use-asset-as-collateral-dialog, borrow-form collateral multi-select. **E2E gated** — see Track B1. |
 | **Portfolio "Remove as collateral" + 24h countdown (Track B2)** | ✅ DONE | Button in [`data-table-assets.tsx:137`](../../frontend-revamp/src/components/centuari-portfolio/data-table-assets.tsx) → `RemoveCollateralDialog` → [`use-unflag-collateral.ts`](../../frontend-revamp/src/hooks/use-unflag-collateral.ts) (handles `FlagLockActive` with `unlocksAt`). Countdown via [`use-countdown.ts:23-43`](../../frontend-revamp/src/hooks/use-countdown.ts) ticks every second; badge renders as `"Collateral · 23h 45m 12s"` and disables when locked. |
-| **Eager-write pattern (Phase A)** | ✅ DONE | Settlement-engine `apply-settlement.ts`, backend `apply-repay.ts`/`apply-withdraw-lend.ts`. Both writers stay byte-for-byte identical with indexer-v3 processors for C10 idempotency. |
+| **Eager-write pattern (Phase A)** | 🟡 PARTIAL | Settlement-engine `apply-settlement.ts`, backend `apply-repay.ts`/`apply-withdraw-lend.ts` shipped. `/portfolio/*` reads migrated to `OnChainStateRepository`. **Outstanding:** `/withdraw` + `/market` still read legacy `portfolio` table (see Track C3). A6 (DROP TABLE) deferred to cross-chain phase. |
 
 **What this means:** the hub stack is functionally complete. Hub-only launch needs **polish + hardening + a few decisions**, not feature work.
 
@@ -51,7 +51,7 @@ Three lenses: pentest-style security audit, React 19 + Next 15 best-practices, C
 | # | Severity | File | Description |
 |---|---|---|---|
 | 15 | ✅ DONE 2026-05-14 | `.github/workflows/deploy.yml` | All 8 conflict blocks (24 markers) resolved. Resolution: `branches: [staging, testnet, main]`; test job always runs (no testnet skip); `SERVICE_NAME: frontend-${env}` uniform; force-remove kept. YAML parses cleanly. |
-| 16 | ⚠️ INFRA DONE 2026-05-14 / baseline cleanup pending | CI + Dockerfile | Scripts `pnpm run lint` (`biome check src/`) + `pnpm run typecheck` (`tsc --noEmit`) added; deploy.yml `test` job runs them before unit tests; `NEXT_DISABLE_ESLINT` + `NEXT_DISABLE_TYPECHECK` removed from Dockerfile. **Baseline cleanup follow-up:** 141 lint errors + 199 warnings (biome lint) and 35 typecheck errors (all in test fixtures — production code clean) need to land before next staging/main deploy. |
+| 16 | ✅ DONE 2026-05-14 | CI + Dockerfile | Scripts `pnpm run lint` (`biome check src/`) + `pnpm run typecheck` (`tsc --noEmit`) added; deploy.yml `test` job runs them before unit tests; `NEXT_DISABLE_ESLINT` + `NEXT_DISABLE_TYPECHECK` removed from Dockerfile. Baseline cleared: `biome check` exits 0 (105 warnings remain, no errors); `tsc --noEmit` exits 0; 510/510 vitest tests pass; dev server boots. biome.json overrides demote `useUniqueElementIds`, `noArrayIndexKey`, `noSvgWithoutTitle` to "warn", carve out icons/sandbox/example + shadcn ui. **Tracked follow-up:** 105 warnings (a11y `useSemanticElements`, `noImgElement` → Next.js `<Image>` migration, residual `noNonNullAssertion`/`noExplicitAny`/`useUniqueElementIds`/`noArrayIndexKey`) are design-decisions for a post-launch a11y/perf pass. |
 
 #### A2. Critical security — deposit-flow trust gap (epic #0)
 
@@ -116,6 +116,7 @@ Reference: [`order-lock-lifecycle-followups.md`](./archive/order-lock-lifecycle-
 |---|---|---|---|
 | C1 | NOT STARTED | UX-only, no fund loss | **Engine-coordinated cancel** — eliminates ~10ms cancel-during-match race. Backend → engine NATS request/reply for cancel; engine pauses order in book; backend writes CANCELLED only on OK reply. **Optional pre-launch.** |
 | C2 | NOT STARTED | Operational | **24h sweeper for stuck `matches.settlement_status='PENDING'`** — if settlement never lands (engine crash mid-batch, RPC outage exhausting retries), the match row is stuck PENDING and `portfolio.locked_amount` stays inflated forever. User's available balance under-counted until manual intervention. **RECOMMEND PRE-LAUNCH** — RPC outages happen. |
+| C3 | NOT STARTED | Operational / data-correctness | **Migrate `/withdraw` + `GET /market` off legacy `portfolio` table onto `user_balance`** (read path only). Today `POST /withdraw` locks and mutates `LegacyPortfolio` rows ([withdraw.service.ts:17,77](../../backend-v2/src/withdraw/withdraw.service.ts)) and `GET /market` aggregates `SUM(portfolio.amount)` ([market.repository.ts:25-26](../../backend-v2/src/market/repository/market.repository.ts)). Risk: once any new code path writes `user_balance` without mirror-writing `portfolio`, withdraw + market totals diverge from on-chain `BalanceLedger` truth. **Pre-mainnet blocker.** Does NOT include the `DROP TABLE` migration — that stays in cross-chain plan A6. |
 
 ### Track D — Mainnet hardening (new work, not yet specced)
 
@@ -142,7 +143,7 @@ Per the user's "phased execution across services — one phase at a time for rev
 | **1. Critical security** | A2 (#1–#6) | Real fund-loss vector pre-launch (deposit-flow trust gap) |
 | **2. Correctness bugs** | A3 (#7, #18, #22, #25) | User-visible breakage — 100× / 16 000× wrong numbers |
 | **3. M10 close-out** | B1, B2, B3 decision | Closes collateral UX cleanly without touching cross-chain UI |
-| **4. Lock safety net** | C2 (stuck-PENDING sweeper) | Pre-launch operational requirement; RPC outages happen |
+| **4. Lock safety net** | C2 (stuck-PENDING sweeper) + C3 (legacy portfolio read migration) | Pre-launch operational requirement; RPC outages happen; and avoid balance divergence between legacy `portfolio` + new `user_balance` |
 | **5. Mainnet hardening** | D1–D8 | Deploy plan + monitoring + RPC + audit decision |
 | **6. Medium polish** | A4 (10 items) | Pre-launch cleanup — can run async with phase 5 |
 | **Async / post-launch** | A5, C1, A4 #26 | Low-severity + leaderboard-only |
@@ -185,7 +186,7 @@ Hub-only launch is shipped when:
 
 - [ ] All Track A critical/high issues closed (Phase 0–2): #15, #16, #1–#7, #18, #22, #25
 - [ ] Track B M10 close-out done: B1 (E2E unblocked), B2 (Remove as collateral button + countdown), B3 decision recorded
-- [ ] Track C2 stuck-PENDING sweeper deployed
+- [ ] Track C2 stuck-PENDING sweeper deployed; Track C3 `/withdraw` + `/market` migrated off legacy `portfolio` reads
 - [ ] Track D mainnet hardening complete: contracts deployed to Arbitrum One under multisig (D1), indexer hub-only configured (D2), RPC failover verified (D3), Grafana + alerts live (D4), Privy/Wagmi mainnet (D5), faucet disabled (D6), mainnet token allowlist set (D7), audit decision recorded (D8)
 - [ ] End-to-end smoke test on Arbitrum One:
   - Deposit USDC via HubDepositor → `user_balance.available` increments → portfolio UI reflects within 2s
