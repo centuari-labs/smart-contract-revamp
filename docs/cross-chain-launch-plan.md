@@ -409,7 +409,7 @@ Status from `phase-a-settlement-engine-eager-writes.md`:
 | A2 — Add shared helper dep (`@centuari-labs/on-chain-effects ^0.2.0`) | ✅ DONE |
 | A3 — Schema audit + migration (none needed) | ✅ DONE |
 | A4 — Rewrite settlement-engine persistence onto `applyOnChainEffect` | ✅ DONE |
-| A5 — Migrate backend-v2 onto shared on-chain-state schema | 🟡 PARTIAL — `/portfolio/*` reads on shared schema via `OnChainStateRepository`. `POST /withdraw` + `GET /market` still on legacy `portfolio` table; tracked in hub-only-launch-plan.md Track C3. A6 cannot start until C3 lands. |
+| A5 — Migrate backend-v2 onto shared on-chain-state schema | 🟡 PARTIAL — `/portfolio/*` reads on shared schema via `OnChainStateRepository`. Outstanding: legacy `portfolio` + `lend_positions` reads (hub-only Track C3, pre-mainnet blocker); legacy `markets` UUID reads in `/market` + repay + withdraw-lend-position + `/orders/*` + workers (hub-only Track C4, matching-engine coupling). A6 (DROP TABLE) cannot start until C3 + C4 land; C5 (drop dead tables) is independent and safe today. |
 | A6 — Delete legacy backend-v2 UUID tables + entities + DROP TABLE migration | ⚪ NOT STARTED |
 
 **Key invariant for cross-chain:** the helper's 0.2.0 added `receipt` (skip refetch when caller has receipt) + `logIndex` (select specific log when one tx emits multiple matching events). **Required** because a `settleMatches(batch)` tx can emit multiple `LendPositionCreated`/`BorrowPositionCreated` logs sharing the same `(marketId, lender|borrower)` key; without `logIndex` the helper would apply only the first and silently drop the rest.
