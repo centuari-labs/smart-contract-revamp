@@ -231,9 +231,58 @@ if [[ -d "$FRONTEND_DIR" ]]; then
     emit NEXT_PUBLIC_CENTUARI_ADDRESS           "$CENTUARI"
     emit NEXT_PUBLIC_COLLATERAL_MANAGER_ADDRESS "$COLLATERAL_MANAGER"
     emit "NEXT_PUBLIC_FAUCET_ADDRESS_${HUB_CHAIN_ID}" "$FAUCET"
-    emit "NEXT_PUBLIC_FAUCET_TOKENS_${HUB_CHAIN_ID}"  "$FAUCET_TOKENS_CSV"
   } >> "$out"
   echo "  wrote ${out#$REPO_ROOT/}"
+
+  # Token allowlist — write addresses-only JSON consumed by src/lib/token-config.ts.
+  # Trust anchor for "which ERC20 contracts the frontend will touch"; symbol keys are
+  # for human review only, runtime trust is address-only.
+  tokens_json="$FRONTEND_DIR/config/tokens.json"
+  mkdir -p "$(dirname "$tokens_json")"
+  existing="{}"
+  if [[ -f "$tokens_json" ]]; then
+    existing=$(cat "$tokens_json")
+  fi
+  mock_tokens=$(jq '.mockTokens // {}' "$HUB_DEPLOY_FILE")
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Build the new content with a placeholder timestamp first, so we can detect
+  # whether the substantive payload actually changed and avoid timestamp churn.
+  build_payload() {
+    local stamp="$1"
+    jq -n \
+      --argjson existing "$existing" \
+      --argjson mock_tokens "$mock_tokens" \
+      --arg chain_id "$HUB_CHAIN_ID" \
+      --arg network "$NETWORK" \
+      --arg stamp "$stamp" \
+      '
+      ($existing // {}) as $base
+      | $base
+      | ._meta = {
+          "generated_by": "smart-contract-revamp/bin/sync-to-services.sh",
+          "source": ("smart-contract-revamp/deployments/deploy-" + $network + "-latest.json (mockTokens)"),
+          "last_updated": $stamp,
+          "warning": "Auto-generated. Review the diff before committing. Symbol keys exist for human review only — runtime trust is address-only."
+        }
+      | .[$chain_id] = $mock_tokens
+      '
+  }
+
+  new_compare=$(build_payload "PLACEHOLDER")
+  old_compare=""
+  if [[ -f "$tokens_json" ]]; then
+    old_compare=$(jq '._meta.last_updated = "PLACEHOLDER"' "$tokens_json" 2>/dev/null || echo "")
+  fi
+  if [[ "$new_compare" != "$old_compare" ]]; then
+    build_payload "$now" > "$tokens_json"
+    echo "  wrote ${tokens_json#$REPO_ROOT/} (updated)"
+    if git -C "$FRONTEND_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      git -C "$FRONTEND_DIR" --no-pager diff -- config/tokens.json || true
+    fi
+  else
+    echo "  ${tokens_json#$REPO_ROOT/} unchanged"
+  fi
   echo ""
 else
   echo "Skipping frontend-revamp (directory not found: $FRONTEND_DIR)"
