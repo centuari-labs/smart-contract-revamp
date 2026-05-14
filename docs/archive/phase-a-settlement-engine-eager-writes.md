@@ -1,5 +1,7 @@
 # Phase A — Settlement-Engine Eager Writes (indexer-v3 schema)
 
+> **2026-05-14.** The eager-write pattern (`applyOnChainEffect` from `@centuari-labs/on-chain-effects` ^0.2.0) is shipped and applies to both hub-only and cross-chain. Summarized in [`cross-chain-launch-plan.md`](../cross-chain-launch-plan.md) §4.5 and §C10. A6 (drop legacy backend-v2 UUID tables) remains the only outstanding item from this phase. This doc is kept as the deep reference for A1–A6 step details.
+
 ## Status (as of 2026-04-27)
 
 | Step | Status | Evidence |
@@ -173,9 +175,9 @@ at `backend-v2/src/core/on-chain-state/`):
 - `POST /portfolio/repay` — `Centuari.repay` → loops `Repaid` + `Debited`
   logs, one `applyOnChainEffect` per parsed event with its own
   `logIndex`. SQL mutations mirror
-  [indexer-v3/src/processors/centuari.processor.ts:handleRepaid](../../indexer-v3/src/processors/centuari.processor.ts)
+  [indexer-v3/src/processors/centuari.processor.ts:handleRepaid](../../../indexer-v3/src/processors/centuari.processor.ts)
   and
-  [balance-ledger.processor.ts:handleBalanceDelta](../../indexer-v3/src/processors/balance-ledger.processor.ts)
+  [balance-ledger.processor.ts:handleBalanceDelta](../../../indexer-v3/src/processors/balance-ledger.processor.ts)
   byte-for-byte. Drops the on-chain pre-check + `syncAllPositionsToZero`
   fallback — both obsoleted by stamp idempotency.
 - `POST /portfolio/withdraw-lend-position` — same pattern for

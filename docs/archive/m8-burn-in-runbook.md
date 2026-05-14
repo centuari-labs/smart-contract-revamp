@@ -1,5 +1,7 @@
 # M8 Burn-in Runbook — Real Testnet Deploy + Indexer Validation
 
+> **2026-05-14 — consolidated into [`cross-chain-launch-plan.md`](../cross-chain-launch-plan.md) §6.** Operator runbook + Phase 0 prereq checklist + Phase A–G invocation are all summarized in that doc. Re-running burn-in for additional spokes (Eth Sepolia, BNB Testnet, Polygon Amoy) should still start here for the full step-by-step. Cross-chain launch is deferred behind the hub-only launch ([`hub-only-launch-plan.md`](../hub-only-launch-plan.md)).
+
 > **Purpose:** Stand up the Phase 1 cross-chain stack on real testnets (Arbitrum Sepolia hub + 4 spokes), then run indexer-v3 against live events to validate the spoke processors, the LayerZero `HubIntentSettler.confirmDeposit` path, and the Centuari positions processor — closing M8.
 >
 > **Audience:** You (the operator) running deploys with a fresh testing key, and Claude orchestrating commands per phase.
@@ -8,7 +10,7 @@
 
 ## Phases at a glance
 
-Phases A–F are wrapped in a single resumable orchestrator: [bin/run-all-cross-chain.sh](../bin/run-all-cross-chain.sh). Each phase writes a marker file under `.run-all-cross-chain-state/` so reruns skip completed phases.
+Phases A–F are wrapped in a single resumable orchestrator: [bin/run-all-cross-chain.sh](../../bin/run-all-cross-chain.sh). Each phase writes a marker file under `.run-all-cross-chain-state/` so reruns skip completed phases.
 
 | Phase | What | Driver | Time | Output |
 |---|---|---|---|---|

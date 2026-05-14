@@ -1,12 +1,14 @@
 # Order Lock Lifecycle — Known Issues + Planned Followups
 
+> **2026-05-14.** This doc is hub-only — both followups (engine-coordinated cancel, stuck-PENDING sweeper) apply to the hub launch. Checklisted as Track C in [`hub-only-launch-plan.md`](../hub-only-launch-plan.md). Recommendation: ship C2 (24h sweeper for stuck PENDING matches) pre-launch; C1 (engine-coordinated cancel) is optional. Cross-chain summary in [`cross-chain-launch-plan.md`](../cross-chain-launch-plan.md) §9.
+
 **Status:** Created 2026-05-10 as part of Phase 1C documentation close-out for the order-lock lifecycle (Phase 1A settlement-engine writeback + Phase 1B backend HF buffer/pending-match counting). Each item below is a known issue or planned improvement that is **not** in Phase 1 scope.
 
 For the shipped Phase 1A + 1B model itself (HF buffer config, lock-increment-on-match, lock-decrement-on-settlement, FILLED-but-unsettled HF gap closure) see the relevant service `CLAUDE.md` files:
 
-- [backend-v2/CLAUDE.md](../../backend-v2/CLAUDE.md) — HF buffer + lock lifecycle + pending-match HF
-- [settlement-engine/CLAUDE.md](../../settlement-engine/CLAUDE.md) — settlement writeback contract
-- [matching-engine/CLAUDE.md](../../matching-engine/CLAUDE.md) — db-writer match-time lock increment
+- [backend-v2/CLAUDE.md](../../../backend-v2/CLAUDE.md) — HF buffer + lock lifecycle + pending-match HF
+- [settlement-engine/CLAUDE.md](../../../settlement-engine/CLAUDE.md) — settlement writeback contract
+- [matching-engine/CLAUDE.md](../../../matching-engine/CLAUDE.md) — db-writer match-time lock increment
 
 | # | Item | Status | Bound | Planned fix |
 |---|---|---|---|---|
@@ -43,8 +45,8 @@ T=??ms+   db-writer's NATS consumer arrives, runs updateOrderStatus
 
 **Evidence:**
 
-- Backend cancel guard: [backend-v2/src/orders/orders.service.ts:286-287](../../backend-v2/src/orders/orders.service.ts).
-- Db-writer status update with no guard: [matching-engine/src/services/db/postgres-db-client.ts:53-72](../../matching-engine/src/services/db/postgres-db-client.ts).
+- Backend cancel guard: [backend-v2/src/orders/orders.service.ts:286-287](../../../backend-v2/src/orders/orders.service.ts).
+- Db-writer status update with no guard: [matching-engine/src/services/db/postgres-db-client.ts:53-72](../../../matching-engine/src/services/db/postgres-db-client.ts).
 
 ---
 

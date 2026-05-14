@@ -1,5 +1,7 @@
 # M8 Burn-in — Completion Handoff
 
+> **2026-05-14 — consolidated into [`cross-chain-launch-plan.md`](../cross-chain-launch-plan.md) §5.** The summary, the 5 bugs, the verification evidence, and the follow-up PRs all live there now. This doc is kept as the deep reference. Cross-chain launch is deferred behind the hub-only launch ([`hub-only-launch-plan.md`](../hub-only-launch-plan.md)).
+
 > **Status:** ✅ DONE (2026-05-06). End-to-end LZ V2 spoke→hub round-trip verified live on testnet. 5 contract bugs surfaced + patched. Indexer-v3 captured all 3 critical processors against real events.
 >
 > **Audience:** anyone reviewing M8 completion or merging the contract patches through normal review.
@@ -37,7 +39,7 @@ All bugs are real production issues, not testnet-only. Each was upstream of the 
 
 ### Bug 1 — `SpokeDepositGateway` empty LayerZero options
 
-**File:** [src/core/cross-chain/spoke/SpokeDepositGateway.sol](../src/core/cross-chain/spoke/SpokeDepositGateway.sol) — `_lzSend` AND `quoteDeposit`.
+**File:** [src/core/cross-chain/spoke/SpokeDepositGateway.sol](../../src/core/cross-chain/spoke/SpokeDepositGateway.sol) — `_lzSend` AND `quoteDeposit`.
 
 **Symptom:** `LZ_ULN_InvalidWorkerOptions(uint256)` revert at the first byte of options blob during `endpoint.quote()`. Every deposit attempt reverted before tokens could even be approved.
 
@@ -61,7 +63,7 @@ All bugs are real production issues, not testnet-only. Each was upstream of the 
 
 ### Bug 3 — `HubIntentSettler` + `SpokePayout` missing `allowInitializePath()`
 
-**Files:** [src/core/cross-chain/HubIntentSettler.sol](../src/core/cross-chain/HubIntentSettler.sol), [src/core/cross-chain/spoke/SpokePayout.sol](../src/core/cross-chain/spoke/SpokePayout.sol).
+**Files:** [src/core/cross-chain/HubIntentSettler.sol](../../src/core/cross-chain/HubIntentSettler.sol), [src/core/cross-chain/spoke/SpokePayout.sol](../../src/core/cross-chain/spoke/SpokePayout.sol).
 
 **Symptom:** LZ scanner reported `BLOCKED: Not Initializable` for every cross-chain message. DVN never even started verification.
 
@@ -77,7 +79,7 @@ function allowInitializePath(Origin calldata origin) external view returns (bool
 
 ### Bug 4 — `lzReceive` arg order doesn't match LZ V2 standard
 
-**Files:** [src/core/cross-chain/HubIntentSettler.sol](../src/core/cross-chain/HubIntentSettler.sol), [src/core/cross-chain/spoke/SpokePayout.sol](../src/core/cross-chain/spoke/SpokePayout.sol), [test/mocks/MockLZEndpoint.sol](../test/mocks/MockLZEndpoint.sol).
+**Files:** [src/core/cross-chain/HubIntentSettler.sol](../../src/core/cross-chain/HubIntentSettler.sol), [src/core/cross-chain/spoke/SpokePayout.sol](../../src/core/cross-chain/spoke/SpokePayout.sol), [test/mocks/MockLZEndpoint.sol](../../test/mocks/MockLZEndpoint.sol).
 
 **Symptom:** LZ scanner: `FAILED — Executor transaction simulation reverted` with empty revert data. Multiple retries all failed identically.
 
@@ -115,10 +117,10 @@ ProxyAdmin owners are still the burn-in deployer. Storage layouts unchanged (onl
 
 | File | Purpose |
 |---|---|
-| [bin/run-all-cross-chain.sh](../bin/run-all-cross-chain.sh) | Master orchestrator. 6 resumable phases (A hub deploy → B spoke deploys → C spoke wiring → D hub wiring → E unified summary → F indexer env). `--phase=` to run subsets. Idempotency markers + dry-run + private-key redaction. |
-| [bin/lz-testnet-config.sh](../bin/lz-testnet-config.sh) | Sourceable bash with verified LZ V2 endpoint addresses + EIDs for all 5 testnets. |
-| [script/ConfigureSpokeForM5.s.sol](../script/ConfigureSpokeForM5.s.sol) | Mirror of `ConfigureHubForM5.s.sol`. Sets spoke-side LZ peers + BRIDGED/SPOKE_NATIVE asset classifications on the gateway and vault. |
-| [script/BurnInSpokeDeposit.s.sol](../script/BurnInSpokeDeposit.s.sol) | Burn-in trigger: approve + `quoteDeposit` + `deposit{value: fee}`. Reads SPOKE_GATEWAY / BURN_IN_ASSET / BURN_IN_AMOUNT from env. |
+| [bin/run-all-cross-chain.sh](../../bin/run-all-cross-chain.sh) | Master orchestrator. 6 resumable phases (A hub deploy → B spoke deploys → C spoke wiring → D hub wiring → E unified summary → F indexer env). `--phase=` to run subsets. Idempotency markers + dry-run + private-key redaction. |
+| [bin/lz-testnet-config.sh](../../bin/lz-testnet-config.sh) | Sourceable bash with verified LZ V2 endpoint addresses + EIDs for all 5 testnets. |
+| [script/ConfigureSpokeForM5.s.sol](../../script/ConfigureSpokeForM5.s.sol) | Mirror of `ConfigureHubForM5.s.sol`. Sets spoke-side LZ peers + BRIDGED/SPOKE_NATIVE asset classifications on the gateway and vault. |
+| [script/BurnInSpokeDeposit.s.sol](../../script/BurnInSpokeDeposit.s.sol) | Burn-in trigger: approve + `quoteDeposit` + `deposit{value: fee}`. Reads SPOKE_GATEWAY / BURN_IN_ASSET / BURN_IN_AMOUNT from env. |
 | [docs/m8-burn-in-runbook.md](m8-burn-in-runbook.md) | Phase 0 prereqs runbook (key generation, RPC URLs, faucets, sanity checks) + phases A–G overview. |
 | [docs/m8-burn-in-completion.md](m8-burn-in-completion.md) | This doc. |
 

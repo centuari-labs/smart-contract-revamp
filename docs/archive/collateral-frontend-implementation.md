@@ -1,5 +1,7 @@
 # Frontend — Collateral Flag UX & Hooks
 
+> **2026-05-14.** Frontend collateral toggle work (Track B in [`hub-only-launch-plan.md`](../hub-only-launch-plan.md)) is mostly shipped — only E2E unblock (Privy SDK 3.10 JWT) + "Remove as collateral" button + 24h countdown remain. The B3 launch decision (RiskModuleStub vs real RiskModule) lives in `hub-only-launch-plan.md` §5. Cross-chain UI implications are summarized in [`cross-chain-launch-plan.md`](../cross-chain-launch-plan.md) §7.
+
 ## Status
 
 | Step | Status | Notes |
