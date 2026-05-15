@@ -85,7 +85,7 @@ User-visible breakage on launch.
 | 9 | Medium | Fee logic divergence — dialogs over-display limit fees by 2× |
 | 10 | Medium | Make wallet selection explicit (silent fallback to embedded in useDeposit) |
 | 11 | Medium | Migrate 3 endpoints to apiClient (consistency + AuthError retry) |
-| 12 | Medium | Validate Privy-sourced wallet addresses with isAddress() in useWalletAddress |
+| 12 | ✅ DONE 2026-05-15 | All 3 return sites in [`use-wallet-address.ts`](../../frontend-revamp/src/hooks/use-wallet-address.ts) now run viem's `isAddress` + `getAddress` via a `toCheckedAddress` helper; malformed inputs return `undefined` and the next source is tried. Vitest coverage in [`__tests__/use-wallet-address.test.ts`](../../frontend-revamp/src/hooks/__tests__/use-wallet-address.test.ts). |
 | 17 | Medium + Low | Docker / CI hardening bundle (`.dockerignore`, USE_MOCK guard, USER node, digest pin, EIP-6963 rdns, e2e dedup) |
 | 19 | Medium | mapStatus silently coerces unknown order statuses to "OPEN" — fail loud |
 | 21 | Medium | useOrderbook / useRecentTrades should not render with default decimals = 6 |
