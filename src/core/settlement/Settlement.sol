@@ -13,13 +13,7 @@ import {SettlementStorage} from "./SettlementStorage.sol";
 /// @notice Processes batch settlements from the matching engine
 /// @dev This contract validates matches, prevents double-settlement, and calls Centuari for position updates.
 ///      It is designed to be deployed behind an ERC1967 proxy for upgradeability.
-contract Settlement is
-    Initializable,
-    OwnableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    SettlementStorage,
-    ISettlement
-{
+contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, SettlementStorage, ISettlement {
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -34,11 +28,7 @@ contract Settlement is
     /// @param owner_ The owner address (can update operator and Centuari)
     /// @param operator_ The settlement engine operator address
     /// @param centuari_ The Centuari contract address
-    function initialize(
-        address owner_,
-        address operator_,
-        address centuari_
-    ) external initializer {
+    function initialize(address owner_, address operator_, address centuari_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (operator_ == address(0)) revert ZeroAddress();
         if (centuari_ == address(0)) revert ZeroAddress();
@@ -71,12 +61,7 @@ contract Settlement is
     // ============ Core Settlement Functions ============
 
     /// @inheritdoc ISettlement
-    function settleMatches(MatchData[] calldata matches)
-        external
-        onlyOperator
-        whenNotPaused
-        nonReentrant
-    {
+    function settleMatches(MatchData[] calldata matches) external onlyOperator whenNotPaused nonReentrant {
         uint256 matchCount = matches.length;
         if (matchCount == 0) revert EmptyBatch();
 
@@ -85,7 +70,7 @@ contract Settlement is
         // Cache Centuari address to save gas on repeated reads
         address centuariAddr = _centuari;
 
-        for (uint256 i; i < matchCount; ) {
+        for (uint256 i; i < matchCount;) {
             MatchData calldata matchData = matches[i];
 
             // Process the match
@@ -103,12 +88,7 @@ contract Settlement is
     }
 
     /// @inheritdoc ISettlement
-    function settleMatch(MatchData calldata matchData)
-        external
-        onlyOperator
-        whenNotPaused
-        nonReentrant
-    {
+    function settleMatch(MatchData calldata matchData) external onlyOperator whenNotPaused nonReentrant {
         _processMatch(matchData, _centuari);
 
         emit BatchSettlementCompleted(1, matchData.matchedAmount);
@@ -119,10 +99,7 @@ contract Settlement is
     /// @notice Process a single match - validate, mark as settled, and call Centuari
     /// @param matchData The match data to process
     /// @param centuariAddr The cached Centuari contract address
-    function _processMatch(
-        MatchData calldata matchData,
-        address centuariAddr
-    ) internal {
+    function _processMatch(MatchData calldata matchData, address centuariAddr) internal {
         // Validate match data
         _validateMatchData(matchData);
 
@@ -146,7 +123,8 @@ contract Settlement is
             matchData.lenderSettlementFee,
             matchData.borrowerSettlementFee,
             matchData.makerFeeAmount,
-            matchData.takerFeeAmount
+            matchData.takerFeeAmount,
+            matchData.collateralAssets
         );
 
         // Emit individual match event

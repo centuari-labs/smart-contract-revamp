@@ -1,0 +1,147 @@
+{
+  "$schema": "./token-chain-matrix.schema.json",
+  "description": "Canonical routing matrix for the Centuari cross-chain BalanceLedger (M5). Every off-chain service (matching-engine, settlement-engine, indexer-v2, backend-v2, frontend-revamp) and every on-chain spoke deployment reads this file. Keys use EIP-155 chain IDs. Addresses are lowercase. Protocols: LAYERZERO_V2 = messaging only; CCTP_V2 = USDC burn/mint (zero fee); STARGATE_V2 = pool-based (~0.06% fee).",
+  "hubChainId": 42161,
+  "hubChainIdTestnet": 421614,
+  "spokeChains": {
+    "mainnet": [
+      { "chainId": 1, "name": "ethereum", "shortName": "eth" },
+      { "chainId": 8453, "name": "base", "shortName": "base" },
+      { "chainId": 56, "name": "bnb", "shortName": "bnb" },
+      { "chainId": 137, "name": "polygon", "shortName": "polygon" }
+    ],
+    "testnet": [
+      { "chainId": 11155111, "name": "ethereum-sepolia", "shortName": "eth-sep" },
+      { "chainId": 84532, "name": "base-sepolia", "shortName": "base-sep" },
+      { "chainId": 97, "name": "bnb-testnet", "shortName": "bnb-tn" },
+      { "chainId": 80002, "name": "polygon-amoy", "shortName": "polygon-amoy" }
+    ]
+  },
+  "tokens": {
+    "USDC": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "routing": {
+        "1": { "classification": "BRIDGED", "protocol": "CCTP_V2" },
+        "8453": { "classification": "BRIDGED", "protocol": "CCTP_V2" },
+        "56": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "137": { "classification": "BRIDGED", "protocol": "CCTP_V2" },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "USDT": {
+      "symbol": "USDT",
+      "decimals": 6,
+      "routing": {
+        "1": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "8453": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "56": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "137": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "WETH": {
+      "symbol": "WETH",
+      "decimals": 18,
+      "routing": {
+        "1": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "8453": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "56": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "137": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "WBTC": {
+      "symbol": "WBTC",
+      "decimals": 8,
+      "routing": {
+        "1": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "8453": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "137": { "classification": "BRIDGED", "protocol": "STARGATE_V2" },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "XSGD": {
+      "symbol": "XSGD",
+      "decimals": 6,
+      "routing": {
+        "8453": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "IDRX": {
+      "symbol": "IDRX",
+      "decimals": 6,
+      "routing": {
+        "137": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "42161": { "classification": "HUB_NATIVE", "protocol": null }
+      }
+    },
+    "XAUT": {
+      "symbol": "XAUT",
+      "decimals": 6,
+      "description": "Tether Gold — spoke-native on Ethereum only.",
+      "routing": {
+        "1": { "classification": "SPOKE_NATIVE", "protocol": null }
+      }
+    },
+    "SLVon": {
+      "symbol": "SLVon",
+      "decimals": 18,
+      "description": "Silver RWA — spoke-native on Ethereum and BNB.",
+      "routing": {
+        "1": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "56": { "classification": "SPOKE_NATIVE", "protocol": null }
+      }
+    },
+    "NVDAon": {
+      "symbol": "NVDAon",
+      "decimals": 18,
+      "description": "NVIDIA stock RWA — spoke-native on Ethereum and BNB.",
+      "routing": {
+        "1": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "56": { "classification": "SPOKE_NATIVE", "protocol": null }
+      }
+    },
+    "AAPLon": {
+      "symbol": "AAPLon",
+      "decimals": 18,
+      "description": "Apple stock RWA — spoke-native on Ethereum and BNB.",
+      "routing": {
+        "1": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "56": { "classification": "SPOKE_NATIVE", "protocol": null }
+      }
+    },
+    "TLTon": {
+      "symbol": "TLTon",
+      "decimals": 18,
+      "description": "TLT treasury bond RWA — spoke-native on Ethereum and BNB.",
+      "routing": {
+        "1": { "classification": "SPOKE_NATIVE", "protocol": null },
+        "56": { "classification": "SPOKE_NATIVE", "protocol": null }
+      }
+    }
+  },
+  "classifications": {
+    "BRIDGED": "Tokens escrow on the spoke, LayerZero message immediately credits hub BalanceLedger; Sweeper Bot (M7) later bridges liquidity via CCTP or Stargate.",
+    "SPOKE_NATIVE": "Tokens that never bridge. Stay in permanent spoke custody (SpokeVaultStable). Hub credits BalanceLedger AND increments WithdrawalRegistry._chainLiquidity so withdrawals back to that chain are capacity-gated.",
+    "HUB_NATIVE": "Tokens deposited directly on the hub via HubDepositor (not routed through any spoke contract)."
+  },
+  "protocols": {
+    "LAYERZERO_V2": {
+      "role": "messaging",
+      "movesTokens": false,
+      "feeModel": "gas only"
+    },
+    "CCTP_V2": {
+      "role": "liquidity",
+      "movesTokens": true,
+      "feeModel": "zero"
+    },
+    "STARGATE_V2": {
+      "role": "liquidity",
+      "movesTokens": true,
+      "feeModel": "~0.06% pool fee"
+    }
+  }
+}

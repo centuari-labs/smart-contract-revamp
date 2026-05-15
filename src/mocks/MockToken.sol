@@ -17,12 +17,9 @@ contract MockToken is ERC20, AccessControl {
     /// @param symbol_ Token symbol (e.g. "USDC")
     /// @param decimals_ Number of decimals (e.g. 6 for USDC)
     /// @param initialSupply_ Initial supply to mint to deployer (use 0 for none)
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_,
-        uint256 initialSupply_
-    ) ERC20(name_, symbol_) {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_, uint256 initialSupply_)
+        ERC20(name_, symbol_)
+    {
         _decimals = decimals_;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);

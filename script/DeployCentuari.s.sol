@@ -7,14 +7,14 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 
 /// @title DeployCentuari
 /// @notice Deployment script for Centuari (implementation + TransparentUpgradeableProxy).
-/// @dev Pass the Treasury address from DeployTreasury. After this, run DeployTreasury.run(treasury, centuariProxy)
-///      to call setCentuariContract on Treasury. Use settlementPlaceholder = owner when deploying before
-///      Settlement; then deploy Settlement with this proxy and call Centuari.setSettlement(settlementProxy).
+/// @dev Pass the BalanceLedger address from DeployBalanceLedger. Use settlementPlaceholder = owner when deploying
+///      before Settlement; then deploy Settlement with this proxy and call Centuari.setSettlement(settlementProxy).
 contract DeployCentuari is Script {
-    /// @notice Deploy Centuari (impl + proxy). Then run DeployTreasury.run(treasury, centuariProxy) to set Centuari on Treasury.
+    /// @notice Deploy Centuari (impl + proxy).
     /// @param owner Centuari owner
     /// @param settlementPlaceholder Address for Centuari.initialize settlement_ (use owner if Settlement not yet deployed)
-    /// @param treasury Treasury contract address (from DeployTreasury)
+    /// @param balanceLedger BalanceLedger contract address
+    /// @param feeCollector Address that receives protocol fee credits
     /// @param proxyAdminOwner Owner of the ProxyAdmin (e.g. multisig)
     /// @return centuariProxy Centuari proxy address (use as CENTUARI_ADDRESS for DeploySettlement)
     /// @return centuariImpl Centuari implementation address
@@ -22,24 +22,14 @@ contract DeployCentuari is Script {
     function run(
         address owner,
         address settlementPlaceholder,
-        address treasury,
+        address balanceLedger,
+        address feeCollector,
         address proxyAdminOwner
-    )
-        external
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) external returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         vm.startBroadcast();
 
-        (centuariProxy, centuariImpl, proxyAdmin) = deploy(
-            owner,
-            settlementPlaceholder,
-            treasury,
-            proxyAdminOwner
-        );
+        (centuariProxy, centuariImpl, proxyAdmin) =
+            deploy(owner, settlementPlaceholder, balanceLedger, feeCollector, proxyAdminOwner);
 
         vm.stopBroadcast();
 
@@ -49,43 +39,34 @@ contract DeployCentuari is Script {
         console.log("ProxyAdmin:", proxyAdmin);
         console.log("Owner:", owner);
         console.log("Settlement placeholder:", settlementPlaceholder);
-        console.log("Treasury:", treasury);
+        console.log("BalanceLedger:", balanceLedger);
+        console.log("Fee Collector:", feeCollector);
         console.log("ProxyAdmin Owner:", proxyAdminOwner);
 
         return (centuariProxy, centuariImpl, proxyAdmin);
     }
 
-    /// @notice Deploy Centuari impl + proxy (no setCentuariContract; use DeployTreasury.run(treasury, centuariProxy) after).
+    /// @notice Deploy Centuari impl + proxy.
     /// @param owner Centuari owner
     /// @param settlementPlaceholder Address for Centuari.initialize settlement_
-    /// @param treasury Treasury contract address
+    /// @param balanceLedger BalanceLedger contract address
+    /// @param feeCollector Address that receives protocol fee credits
     /// @param proxyAdminOwner Owner of the ProxyAdmin
     function deploy(
         address owner,
         address settlementPlaceholder,
-        address treasury,
+        address balanceLedger,
+        address feeCollector,
         address proxyAdminOwner
-    )
-        public
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) public returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         Centuari centuariImplContract = new Centuari();
         centuariImpl = address(centuariImplContract);
 
-        bytes memory initData = abi.encodeCall(
-            Centuari.initialize,
-            (owner, settlementPlaceholder, treasury)
-        );
+        bytes memory initData =
+            abi.encodeCall(Centuari.initialize, (owner, settlementPlaceholder, balanceLedger, feeCollector));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            centuariImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(centuariImpl, proxyAdminOwner, initData);
         centuariProxy = address(transparentProxy);
 
         proxyAdmin = _getProxyAdmin(centuariProxy);

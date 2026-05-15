@@ -21,9 +21,9 @@ abstract contract CentuariStorage {
     /// @dev Only Settlement can call settleMatch
     address internal _settlement;
 
-    /// @notice The address of the Treasury contract
-    /// @dev Centuari calls Treasury for token transfers
-    address internal _treasury;
+    /// @notice The BalanceLedger contract for balance accounting
+    /// @dev Centuari calls BalanceLedger for all credit/debit operations
+    address internal _balanceLedger;
 
     /// @notice Whether the contract is paused
     /// @dev When paused, settlement functions are disabled
@@ -49,11 +49,22 @@ abstract contract CentuariStorage {
     /// @dev Only the operator can call repay
     address internal _operator;
 
+    /// @notice Count of markets where a user has non-zero debt
+    /// @dev Incremented when _borrowDebt[marketId][user] goes 0→non-zero,
+    ///      decremented when it goes non-zero→0. Used by repay() to trigger
+    ///      auto-unflag of all collateral when user is fully debt-free.
+    mapping(address => uint256) internal _activeDebtCount;
+
+    /// @notice Address that receives protocol fee credits in BalanceLedger
+    /// @dev Settlement fees and trade fees are credited to this address
+    address internal _feeCollector;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 42 slots for future storage variables.
+    /// @dev Provides 40 slots for future storage variables.
     ///      When adding new variables, reduce this gap accordingly.
-    ///      Current usage: 5 slots (settlement, treasury, paused, bondTokenFactory, operator) + 3 mappings
-    uint256[42] private __gap;
+    ///      Current usage: 5 slots (settlement, balanceLedger, paused, bondTokenFactory, operator, feeCollector)
+    ///      + 4 mappings (marketTotalCbt, lendPositionCbtAmount, borrowDebt, activeDebtCount)
+    uint256[40] private __gap;
 }

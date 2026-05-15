@@ -1,0 +1,114 @@
+{
+  "description": "LayerZero V2 DVN (Decentralized Verifier Network) stack configuration per spoke <-> hub pathway. Testnet uses 1-of-1 (LayerZero Labs only). Mainnet uses 2-of-2 (LayerZero Labs + Google Cloud). 3-of-3 liquidation pathway is deferred to Phase 2. Consumed by script/ConfigureDVN.s.sol which calls EndpointV2.setConfig + OAppOptionsType3.setEnforcedOptions per pathway. DVN addresses must be verified against https://docs.layerzero.network/v2/deployments/dvn-addresses before use.",
+  "testnet": {
+    "stack": "1-of-1",
+    "required": ["LAYERZERO_LABS"],
+    "optional": [],
+    "threshold": 1,
+    "pathways": {
+      "421614_84532": {
+        "hub": "arbitrum-sepolia",
+        "spoke": "base-sepolia",
+        "hubEid": 40231,
+        "spokeEid": 40245,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "0x53f488e93b4f1b60e8e83aa374dbe1780a1ee8a8",
+          "LAYERZERO_LABS_ON_SPOKE": "0xe1a12515f9ab2764b887bf60b923ca494ebbb2d6"
+        },
+        "sendLibVersion": "SendUln302",
+        "receiveLibVersion": "ReceiveUln302"
+      },
+      "421614_11155111": {
+        "hub": "arbitrum-sepolia",
+        "spoke": "ethereum-sepolia",
+        "hubEid": 40231,
+        "spokeEid": 40161,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "0x53f488e93b4f1b60e8e83aa374dbe1780a1ee8a8",
+          "LAYERZERO_LABS_ON_SPOKE": "0x8eebf8b423b73bfca51a1db4b7354aa0bfca9193"
+        }
+      },
+      "421614_97": {
+        "hub": "arbitrum-sepolia",
+        "spoke": "bnb-testnet",
+        "hubEid": 40231,
+        "spokeEid": 40102,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "0x53f488e93b4f1b60e8e83aa374dbe1780a1ee8a8",
+          "LAYERZERO_LABS_ON_SPOKE": "0x0ee552262f7b562efced6dd4a7e2878ab897d405"
+        }
+      },
+      "421614_80002": {
+        "hub": "arbitrum-sepolia",
+        "spoke": "polygon-amoy",
+        "hubEid": 40231,
+        "spokeEid": 40267,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "0x53f488e93b4f1b60e8e83aa374dbe1780a1ee8a8",
+          "LAYERZERO_LABS_ON_SPOKE": "0x55c175dd5b039331db251424538169d8495c18d1"
+        }
+      }
+    }
+  },
+  "mainnet": {
+    "stack": "2-of-2",
+    "required": ["LAYERZERO_LABS", "GOOGLE_CLOUD"],
+    "optional": [],
+    "threshold": 2,
+    "pathways": {
+      "42161_1": {
+        "hub": "arbitrum",
+        "spoke": "ethereum",
+        "hubEid": 30110,
+        "spokeEid": 30101,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "LAYERZERO_LABS_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY"
+        }
+      },
+      "42161_8453": {
+        "hub": "arbitrum",
+        "spoke": "base",
+        "hubEid": 30110,
+        "spokeEid": 30184,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "LAYERZERO_LABS_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY"
+        }
+      },
+      "42161_56": {
+        "hub": "arbitrum",
+        "spoke": "bnb",
+        "hubEid": 30110,
+        "spokeEid": 30102,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "LAYERZERO_LABS_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY"
+        }
+      },
+      "42161_137": {
+        "hub": "arbitrum",
+        "spoke": "polygon",
+        "hubEid": 30110,
+        "spokeEid": 30109,
+        "dvnAddresses": {
+          "LAYERZERO_LABS_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "LAYERZERO_LABS_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_HUB": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY",
+          "GOOGLE_CLOUD_ON_SPOKE": "PLACEHOLDER_VERIFY_BEFORE_DEPLOY"
+        }
+      }
+    }
+  },
+  "enforcedOptions": {
+    "lzReceiveGas": 200000,
+    "lzComposeGas": 0,
+    "notes": "Enforced on the send side per pathway via OAppOptionsType3.setEnforcedOptions. lzReceiveGas covers HubIntentSettler.confirmDeposit + BalanceLedger.credit + optional ChainLiquidity bump. Revisit after gas profiling in fork tests."
+  }
+}

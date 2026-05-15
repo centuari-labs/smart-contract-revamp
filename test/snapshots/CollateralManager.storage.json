@@ -1,0 +1,67 @@
+{
+  "storage": [
+    {
+      "astId": 933,
+      "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
+      "label": "_balanceLedger",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 936,
+      "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
+      "label": "_riskModule",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "astId": 939,
+      "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
+      "label": "_operator",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_address"
+    },
+    {
+      "astId": 942,
+      "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
+      "label": "_flagLock",
+      "offset": 20,
+      "slot": "2",
+      "type": "t_uint64"
+    },
+    {
+      "astId": 947,
+      "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_array(t_uint256)46_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)46_storage": {
+      "encoding": "inplace",
+      "label": "uint256[46]",
+      "numberOfBytes": "1472",
+      "base": "t_uint256"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
+}

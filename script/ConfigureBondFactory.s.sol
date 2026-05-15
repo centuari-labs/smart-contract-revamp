@@ -23,4 +23,3 @@ contract ConfigureBondFactory is Script {
         console.log("BondFactory:", factory);
     }
 }
-
