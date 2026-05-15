@@ -72,10 +72,10 @@ User-visible breakage on launch.
 
 | # | Severity | Description |
 |---|---|---|
-| 7 | **High** | Tighten proxy path allowlist — `market`/`deposit`/`withdraw` allow arbitrary suffix |
-| 18 | **High** | APR units inconsistent across normalizer / display / updater — likely live 100× bug |
-| 22 | Medium (soft #16) | Health-factor Infinity-from-API + borrow/repay formula divergence bundle |
-| 25 | **High** | Hardcoded prices: IDRX 16 000× wrong, XSGD 35% off; plus `amend-dialog.tsx` second source-of-truth |
+| 7 | ✅ DONE 2026-05-15 | Tighten proxy path allowlist — split `ALLOWED_PATH_PREFIXES` (trailing `/`) from `ALLOWED_EXACT_PATHS` (`Set`); 10 negative-test cases for prefix collisions added. |
+| 18 | ✅ DONE 2026-05-15 | APR units — added `basisPointsToApr(rateBps) = rateBps / 10000` helper; WS orderbook + recent-trades use it (was `÷100`, now `÷10000`). REST positions adapter keeps `÷100` (backend converts bps→pct for REST). Tests fixed. |
+| 22 | ✅ DONE 2026-05-15 | Health-factor bundle — new `src/lib/health-factor.ts` with `classifyHealthFactor` discriminated union + `projectHealthFactorForBorrow/ForRepay`; `healthFactor: number \| null` in API type; `centuari-health-factor.tsx` renders "No debt" for null; 3 inline HF copies removed; 16+ vitest cases. |
+| 25 | ✅ DONE 2026-05-15 | Hardcoded prices — removed `price` field from `TokenInfo` (was IDRX=$1, XSGD=$1); `use-borrow-portfolio-data.ts` no longer writes it; `amend-dialog.tsx` `defaultTokenList` deleted, silent `\|\| tokenList[0]` replaced with explicit null-guard. |
 
 #### A4. Medium-severity polish (10 items)
 
@@ -143,7 +143,7 @@ Per the user's "phased execution across services — one phase at a time for rev
 |---|---|---|
 | **0. CI floor** ✅ DONE 2026-05-14 | A1 (#15, #16) | Unblocks every PR below — typecheck would have caught #18 / #22 / #25 |
 | **1. Critical security** ✅ DONE 2026-05-15 | A2 (#1–#6) | Real fund-loss vector pre-launch (deposit-flow trust gap) |
-| **2. Correctness bugs** | A3 (#7, #18, #22, #25) | User-visible breakage — 100× / 16 000× wrong numbers |
+| **2. Correctness bugs** ✅ DONE 2026-05-15 | A3 (#7, #18, #22, #25) | User-visible breakage — 100× / 16 000× wrong numbers |
 | **3. M10 close-out** | B1, B2, B3 decision | Closes collateral UX cleanly without touching cross-chain UI |
 | **4. Lock safety net** | C2 (stuck-PENDING sweeper) + C3 (legacy portfolio + lend_positions read migration) | Pre-launch operational requirement; RPC outages happen; and avoid balance divergence between legacy + new schema |
 | **5. Mainnet hardening** | D1–D8 | Deploy plan + monitoring + RPC + audit decision |
