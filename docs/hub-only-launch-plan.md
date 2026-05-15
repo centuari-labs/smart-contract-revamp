@@ -59,12 +59,12 @@ Real fund-loss vector: a backend-served bad `decimals` value can drain a user's 
 
 | # | Severity | Description |
 |---|---|---|
-| 1 | foundation | Add hardcoded token allowlist module (`lib/token-allowlist.ts`) |
-| 2 | **Critical** | Reject invalid ERC20 `decimals` from API |
-| 3 | **Critical** | Validate `tokenAddress` with `viem.isAddress()` |
-| 4 | **Critical** | Reject `tokenAddress` not in allowlist (deps #1 + #3) |
-| 5 | **High** | Cross-check on-chain `decimals()` before approve (deps #2 + #3) |
-| 6 | **High** | In-app pre-signature confirmation dialog (deps #1–#5) |
+| 1 | ✅ DONE | Token allowlist module shipped at [`config/tokens.json`](../../frontend-revamp/config/tokens.json) + [`src/lib/token-config.ts`](../../frontend-revamp/src/lib/token-config.ts) (`assertAllowlistedAddress` returns checksummed `0x${string}`). |
+| 2 | ✅ DONE | `assertValidDecimals` in [`src/lib/erc20-decimals.ts`](../../frontend-revamp/src/lib/erc20-decimals.ts) rejects null/non-integer/out-of-range from API, called at [`use-deposit.ts:73`](../../frontend-revamp/src/hooks/use-deposit.ts). |
+| 3 | ✅ DONE | Folded into `assertAllowlistedAddress` ([token-config.ts:37-57](../../frontend-revamp/src/lib/token-config.ts)) — runs `isAddress()` + `getAddress()` before allowlist check. |
+| 4 | ✅ DONE | Filters in [`use-deposit-tokens.ts:25-34`](../../frontend-revamp/src/hooks/use-deposit-tokens.ts); asserts at signing time in [`use-deposit.ts:74-78`](../../frontend-revamp/src/hooks/use-deposit.ts). |
+| 5 | ✅ DONE 2026-05-15 | `useDeposit` reads on-chain `decimals()` after the allowance read and before approve; throws `DecimalsMismatchError` ([`src/lib/errors.ts`](../../frontend-revamp/src/lib/errors.ts)) on divergence and uses on-chain value for `parseUnits`. |
+| 6 | ✅ DONE 2026-05-15 | [`CentuariTxConfirmDialog`](../../frontend-revamp/src/components/centuari-tx-confirm-dialog.tsx) gates both approve and deposit signs. Hook accepts `confirmTransaction` callback; cancellation throws `UserCancelledError` and returns the dialog to idle. |
 
 #### A3. High-severity correctness bugs
 
@@ -141,8 +141,8 @@ Per the user's "phased execution across services — one phase at a time for rev
 
 | Phase | Scope | Why first |
 |---|---|---|
-| **0. CI floor** | A1 (#15, #16) | Unblocks every PR below — typecheck would have caught #18 / #22 / #25 |
-| **1. Critical security** | A2 (#1–#6) | Real fund-loss vector pre-launch (deposit-flow trust gap) |
+| **0. CI floor** ✅ DONE 2026-05-14 | A1 (#15, #16) | Unblocks every PR below — typecheck would have caught #18 / #22 / #25 |
+| **1. Critical security** ✅ DONE 2026-05-15 | A2 (#1–#6) | Real fund-loss vector pre-launch (deposit-flow trust gap) |
 | **2. Correctness bugs** | A3 (#7, #18, #22, #25) | User-visible breakage — 100× / 16 000× wrong numbers |
 | **3. M10 close-out** | B1, B2, B3 decision | Closes collateral UX cleanly without touching cross-chain UI |
 | **4. Lock safety net** | C2 (stuck-PENDING sweeper) + C3 (legacy portfolio + lend_positions read migration) | Pre-launch operational requirement; RPC outages happen; and avoid balance divergence between legacy + new schema |
