@@ -247,6 +247,134 @@ contract WithdrawalRegistryTest is Test {
         assertTrue(id1 != id2);
     }
 
+    // ============ requestWithdrawalFor (operator-initiated) ============
+
+    function _requestForHubNative(address forUser, uint256 amount) internal returns (bytes32) {
+        vm.prank(operator);
+        return registry.requestWithdrawalFor(forUser, address(usdc), amount, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_HubNative_CompletesAndTransfers() public {
+        uint256 amount = 1000e6;
+        uint256 userTokensBefore = usdc.balanceOf(user);
+        uint256 ledgerBefore = ledger.available(user, address(usdc));
+
+        bytes32 requestId = _requestForHubNative(user, amount);
+
+        IWithdrawalRegistry.WithdrawalRequest memory req = registry.getRequest(requestId);
+        assertEq(req.user, user);
+        assertEq(req.amount, amount);
+        assertEq(uint8(req.status), uint8(IWithdrawalRegistry.WithdrawalStatus.COMPLETED));
+        // Tokens delivered to the user; ledger debited
+        assertEq(usdc.balanceOf(user), userTokensBefore + amount);
+        assertEq(ledger.available(user, address(usdc)), ledgerBefore - amount);
+    }
+
+    function test_RequestWithdrawalFor_DebitsTargetUserNotOperator() public {
+        uint256 amount = 1000e6;
+        uint256 operatorLedgerBefore = ledger.available(operator, address(usdc));
+        uint256 userLedgerBefore = ledger.available(user, address(usdc));
+
+        _requestForHubNative(user, amount);
+
+        // Operator's ledger untouched; the named user is debited
+        assertEq(ledger.available(operator, address(usdc)), operatorLedgerBefore);
+        assertEq(ledger.available(user, address(usdc)), userLedgerBefore - amount);
+    }
+
+    function test_RequestWithdrawalFor_EmitsLifecycleEvents() public {
+        uint256 amount = 1000e6;
+
+        vm.recordLogs();
+        vm.prank(operator);
+        bytes32 requestId = registry.requestWithdrawalFor(user, address(usdc), amount, block.chainid);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool requested;
+        bool authorized;
+        bool completed;
+        for (uint256 i = 0; i < entries.length; i++) {
+            bytes32 sig = entries[i].topics[0];
+            if (sig == IWithdrawalRegistry.WithdrawalRequested.selector && entries[i].topics[1] == requestId) {
+                requested = true;
+            } else if (sig == IWithdrawalRegistry.WithdrawalAuthorized.selector && entries[i].topics[1] == requestId) {
+                authorized = true;
+            } else if (sig == IWithdrawalRegistry.WithdrawalCompleted.selector && entries[i].topics[1] == requestId) {
+                completed = true;
+            }
+        }
+        assertTrue(requested, "WithdrawalRequested not emitted");
+        assertTrue(authorized, "WithdrawalAuthorized not emitted");
+        assertTrue(completed, "WithdrawalCompleted not emitted");
+    }
+
+    function test_RequestWithdrawalFor_RevertNonOperator() public {
+        vm.prank(outsider);
+        vm.expectRevert(IWithdrawalRegistry.Unauthorized.selector);
+        registry.requestWithdrawalFor(user, address(usdc), 1000e6, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertZeroUser() public {
+        vm.prank(operator);
+        vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
+        registry.requestWithdrawalFor(address(0), address(usdc), 1000e6, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertZeroAsset() public {
+        vm.prank(operator);
+        vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
+        registry.requestWithdrawalFor(user, address(0), 1000e6, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertZeroAmount() public {
+        vm.prank(operator);
+        vm.expectRevert(IWithdrawalRegistry.ZeroAmount.selector);
+        registry.requestWithdrawalFor(user, address(usdc), 0, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertBlockedByHF() public {
+        // Flag USDC as collateral → RiskModuleStub.canWithdraw rejects. This is
+        // the stub restriction the real RiskModule (Phase 3) later relaxes to HF>=1.
+        vm.prank(owner);
+        ledger.forceAddWriter(address(this));
+        ledger.markCollateral(user, address(usdc));
+
+        vm.prank(operator);
+        vm.expectRevert(IWithdrawalRegistry.WithdrawalBlockedByHF.selector);
+        registry.requestWithdrawalFor(user, address(usdc), 1000e6, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertInsufficientBalance() public {
+        vm.prank(operator);
+        vm.expectRevert(); // BalanceLedger InsufficientBalance
+        registry.requestWithdrawalFor(user, address(usdc), DEPOSIT_AMOUNT + 1, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_RevertWhenPaused() public {
+        vm.prank(owner);
+        registry.pause();
+
+        vm.prank(operator);
+        vm.expectRevert(IWithdrawalRegistry.ContractPaused.selector);
+        registry.requestWithdrawalFor(user, address(usdc), 1000e6, block.chainid);
+    }
+
+    function test_RequestWithdrawalFor_CrossChain_StaysPending() public {
+        // Cross-chain target: request created + debited but NOT auto-completed —
+        // a separate authorize() drives the LZ dispatch (deferred to cross-chain).
+        uint256 amount = 1000e6;
+        uint256 ledgerBefore = ledger.available(user, address(usdc));
+
+        vm.prank(operator);
+        bytes32 requestId = registry.requestWithdrawalFor(user, address(usdc), amount, 8453);
+
+        IWithdrawalRegistry.WithdrawalRequest memory req = registry.getRequest(requestId);
+        assertEq(uint8(req.status), uint8(IWithdrawalRegistry.WithdrawalStatus.PENDING));
+        assertEq(req.user, user);
+        assertEq(req.targetChainId, 8453);
+        assertEq(ledger.available(user, address(usdc)), ledgerBefore - amount);
+    }
+
     // ============ authorize (hub-native) ============
 
     function test_Authorize_HubNative_CompletesDirectly() public {

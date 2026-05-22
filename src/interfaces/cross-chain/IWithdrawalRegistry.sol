@@ -154,6 +154,24 @@ interface IWithdrawalRegistry {
 
     // ============ Operator Actions ============
 
+    /// @notice Operator-initiated withdrawal on behalf of `user`.
+    /// @dev Same HF gate + ledger debit as `requestWithdrawal`, but the operator
+    ///      supplies `user` (the "user signs deposits only, backend signs
+    ///      everything else" model). For a hub-native target
+    ///      (`targetChainId == block.chainid`) it settles in the same tx — debit
+    ///      + `HubDepositor.payoutDirect` + COMPLETED — emitting the same
+    ///      `WithdrawalRequested` + `WithdrawalAuthorized` + `WithdrawalCompleted`
+    ///      sequence as `requestWithdrawal` followed by `authorize`. A
+    ///      cross-chain target stays PENDING for a separate `authorize()`.
+    /// @param user The account to withdraw for
+    /// @param asset The ERC20 token to withdraw
+    /// @param amount The amount to withdraw
+    /// @param targetChainId The destination chain (use block.chainid for hub)
+    /// @return requestId Unique identifier for tracking this withdrawal
+    function requestWithdrawalFor(address user, address asset, uint256 amount, uint256 targetChainId)
+        external
+        returns (bytes32 requestId);
+
     /// @notice Authorize a pending withdrawal for processing.
     /// @dev Hub-native (targetChainId == block.chainid): calls
     ///      `HubDepositor.payoutDirect` and transitions directly to COMPLETED.

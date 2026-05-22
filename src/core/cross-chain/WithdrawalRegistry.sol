@@ -124,52 +124,31 @@ contract WithdrawalRegistry is
         nonReentrant
         returns (bytes32 requestId)
     {
-        if (asset == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-
-        // ---- HF GATE (first action) ----
-        // This is the single uniform check that applies to every caller.
-        // Phase 1 stub: rejects if asset is flagged as collateral.
-        // Phase 2 real: rejects if post-withdrawal HF < 1.
-        if (!IRiskModule(_riskModule).canWithdraw(msg.sender, asset, amount)) {
-            revert WithdrawalBlockedByHF();
-        }
-
-        // Debit the user's available balance (reverts with
-        // InsufficientBalance if not enough)
-        IBalanceLedger(_balanceLedger).debit(msg.sender, asset, amount);
-
-        // ---- CHAIN-LIQUIDITY GATE (M5) ----
-        // For SPOKE_NATIVE routes, enforce that sufficient physical liquidity
-        // exists on the target chain. Decrement atomically with the debit.
-        if (_isSpokeNativeRoute[asset][targetChainId]) {
-            uint256 available = _chainLiquidity[asset][targetChainId];
-            if (available < amount) {
-                revert InsufficientChainLiquidity(asset, targetChainId, available, amount);
-            }
-            _chainLiquidity[asset][targetChainId] = available - amount;
-
-            emit ChainLiquidityDecremented(asset, targetChainId, amount, available - amount);
-        }
-
-        // Generate unique requestId
-        requestId = keccak256(abi.encode(msg.sender, asset, amount, targetChainId, _requestCounter++));
-
-        // Store the request
-        _requests[requestId] = WithdrawalRequest({
-            user: msg.sender,
-            asset: asset,
-            amount: amount,
-            targetChainId: targetChainId,
-            status: WithdrawalStatus.PENDING,
-            createdAt: uint64(block.timestamp),
-            updatedAt: uint64(block.timestamp)
-        });
-
-        emit WithdrawalRequested(requestId, msg.sender, asset, amount, targetChainId);
+        return _request(msg.sender, asset, amount, targetChainId);
     }
 
     // ============ Operator Actions ============
+
+    /// @inheritdoc IWithdrawalRegistry
+    function requestWithdrawalFor(address user, address asset, uint256 amount, uint256 targetChainId)
+        external
+        onlyOperator
+        whenNotPaused
+        nonReentrant
+        returns (bytes32 requestId)
+    {
+        if (user == address(0)) revert ZeroAddress();
+
+        requestId = _request(user, asset, amount, targetChainId);
+
+        // Hub-native: settle in the same operator tx. The debit already
+        // happened in `_request`, so release tokens via payoutDirect and mark
+        // COMPLETED now, emitting the same event set as `authorize`. A
+        // cross-chain target stays PENDING for a separate `authorize()`.
+        if (targetChainId == block.chainid) {
+            _completeHubNative(requestId, _requests[requestId]);
+        }
+    }
 
     /// @inheritdoc IWithdrawalRegistry
     function authorize(bytes32 requestId) external payable onlyOperator whenNotPaused nonReentrant {
@@ -184,12 +163,7 @@ contract WithdrawalRegistry is
 
         if (request.targetChainId == block.chainid) {
             // Hub-native shortcut: release tokens directly and complete
-            request.status = WithdrawalStatus.COMPLETED;
-
-            IHubDepositor(_hubDepositor).payoutDirect(request.user, request.asset, request.amount);
-
-            emit WithdrawalAuthorized(requestId);
-            emit WithdrawalCompleted(requestId);
+            _completeHubNative(requestId, request);
         } else {
             // Cross-chain: dispatch payout via LayerZero to SpokePayout.
             if (_payoutEndpoint == address(0)) revert PayoutEndpointNotSet();
@@ -345,6 +319,76 @@ contract WithdrawalRegistry is
     function unpause() external onlyOwner {
         _paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    // ============ Internal ============
+
+    /// @dev Shared request-creation logic for `requestWithdrawal` (user-signed,
+    ///      `user == msg.sender`) and `requestWithdrawalFor` (operator-signed on
+    ///      behalf of `user`). The HF gate via `IRiskModule.canWithdraw` is the
+    ///      FIRST action for every caller — the single enforcement point that
+    ///      closes the collateral-flag loophole.
+    function _request(address user, address asset, uint256 amount, uint256 targetChainId)
+        internal
+        returns (bytes32 requestId)
+    {
+        if (asset == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        // ---- HF GATE (first action) ----
+        // Phase 1 stub: rejects if asset is flagged as collateral.
+        // Phase 2 real: rejects if post-withdrawal HF < 1.
+        if (!IRiskModule(_riskModule).canWithdraw(user, asset, amount)) {
+            revert WithdrawalBlockedByHF();
+        }
+
+        // Debit the user's available balance (reverts with
+        // InsufficientBalance if not enough)
+        IBalanceLedger(_balanceLedger).debit(user, asset, amount);
+
+        // ---- CHAIN-LIQUIDITY GATE (M5) ----
+        // For SPOKE_NATIVE routes, enforce that sufficient physical liquidity
+        // exists on the target chain. Decrement atomically with the debit.
+        if (_isSpokeNativeRoute[asset][targetChainId]) {
+            uint256 available = _chainLiquidity[asset][targetChainId];
+            if (available < amount) {
+                revert InsufficientChainLiquidity(asset, targetChainId, available, amount);
+            }
+            _chainLiquidity[asset][targetChainId] = available - amount;
+
+            emit ChainLiquidityDecremented(asset, targetChainId, amount, available - amount);
+        }
+
+        // Generate unique requestId
+        requestId = keccak256(abi.encode(user, asset, amount, targetChainId, _requestCounter++));
+
+        // Store the request
+        _requests[requestId] = WithdrawalRequest({
+            user: user,
+            asset: asset,
+            amount: amount,
+            targetChainId: targetChainId,
+            status: WithdrawalStatus.PENDING,
+            createdAt: uint64(block.timestamp),
+            updatedAt: uint64(block.timestamp)
+        });
+
+        emit WithdrawalRequested(requestId, user, asset, amount, targetChainId);
+    }
+
+    /// @dev Hub-native completion: mark COMPLETED and release tokens via
+    ///      `HubDepositor.payoutDirect` (the debit already happened in
+    ///      `_request`). Shared by the operator two-step (`authorize`) and
+    ///      one-shot (`requestWithdrawalFor`) hub-native paths so both emit an
+    ///      identical `WithdrawalAuthorized` + `WithdrawalCompleted` sequence.
+    function _completeHubNative(bytes32 requestId, WithdrawalRequest storage request) internal {
+        request.status = WithdrawalStatus.COMPLETED;
+        request.updatedAt = uint64(block.timestamp);
+
+        IHubDepositor(_hubDepositor).payoutDirect(request.user, request.asset, request.amount);
+
+        emit WithdrawalAuthorized(requestId);
+        emit WithdrawalCompleted(requestId);
     }
 
     // ============ Views ============
