@@ -135,7 +135,7 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 - Always maintain the `__gap` array and reduce its size when adding new variables
 - Test upgrades with `UpgradeSettlement.s.sol` pattern — deploy new implementation, call `upgradeAndCall`
 - ProxyAdmin controls upgrades — separate from contract owner
-- Storage layout snapshots committed in `test/snapshots/` — verify after any storage change
+- Storage layout snapshots committed in `test/snapshots/<Contract>.storage.json` — enforced by `bin/check-storage-layout.sh` (runs in CI via `.github/workflows/test.yml`). It diffs `forge inspect <C> storage-layout` against each snapshot (ignoring volatile astIds) for all upgradeable contracts. After an intentional, upgrade-safe storage change, regenerate with `bin/check-storage-layout.sh --update` and commit the updated snapshot(s)
 
 ### Deployment Rules
 

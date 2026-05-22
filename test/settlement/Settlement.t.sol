@@ -114,6 +114,20 @@ contract MockCentuari is ICentuari {
     function setBalanceLedger(address) external pure override {}
 
     function setFeeCollector(address) external pure override {}
+
+    function getBorrowerMarkets(address) external pure returns (bytes32[] memory) {
+        return new bytes32[](0);
+    }
+
+    function marketLoanToken(bytes32) external pure returns (address) {
+        return address(0);
+    }
+
+    function getBorrowerDebts(address) external pure returns (address[] memory, uint256[] memory) {
+        return (new address[](0), new uint256[](0));
+    }
+
+    function seedBorrowerMarkets(address, address[] calldata, uint256[] calldata) external pure override {}
 }
 
 /// @title SettlementV2

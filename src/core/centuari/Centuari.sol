@@ -12,6 +12,7 @@ import {CentuariBondERC20Factory} from "./CentuariBondERC20Factory.sol";
 import {CentuariBondERC20} from "./CentuariBondERC20.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /// @title Centuari
 /// @notice Manages lending and borrowing positions for fixed-rate markets
@@ -19,6 +20,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///      It is designed to be deployed behind an ERC1967 proxy for upgradeability.
 ///      Markets are identified by (loanToken, maturity) pairs.
 contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, CentuariStorage, ICentuari {
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -101,6 +104,12 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
             emit MarketCreated(marketId, loanToken, maturity);
         }
 
+        // Persist marketId → loanToken so getBorrowerDebts() can resolve a
+        // borrower's markets back to loan tokens on-chain (Phase 3, C6).
+        if (_marketLoanToken[marketId] == address(0)) {
+            _marketLoanToken[marketId] = loanToken;
+        }
+
         // Determine lender and borrower fees based on maker/taker roles
         uint256 lenderFee;
         uint256 borrowerFee;
@@ -124,9 +133,11 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
 
         _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
-        // Track active debt count (used for debt-state views/health checks)
+        // Track active debt count + enumerable market set (used for debt-state
+        // views and the RiskModule's on-chain HF computation, Phase 3 C6).
         if (isNewDebtMarket) {
             _activeDebtCount[borrower]++;
+            _borrowerMarkets[borrower].add(marketId);
         }
 
         // Balance mutations via BalanceLedger
@@ -225,9 +236,11 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
 
         _borrowDebt[marketId][borrower] = debt - repayAmount;
 
-        // Track active debt count: decrement when this market's debt hits zero
+        // Track active debt count + enumerable market set: drop this market when
+        // its debt hits zero (keeps _borrowerMarkets in lockstep, Phase 3 C6).
         if (debt - repayAmount == 0) {
             _activeDebtCount[borrower]--;
+            _borrowerMarkets[borrower].remove(marketId);
         }
 
         // Debit borrower's available balance (no credit — repaid tokens are protocol-unallocated)
@@ -427,5 +440,79 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
     /// @inheritdoc ICentuari
     function operator() external view returns (address) {
         return _operator;
+    }
+
+    /// @inheritdoc ICentuari
+    function getBorrowerMarkets(address user) external view returns (bytes32[] memory) {
+        return _borrowerMarkets[user].values();
+    }
+
+    /// @inheritdoc ICentuari
+    function marketLoanToken(bytes32 marketId) external view returns (address) {
+        return _marketLoanToken[marketId];
+    }
+
+    /// @inheritdoc ICentuari
+    function getBorrowerDebts(address user)
+        external
+        view
+        returns (address[] memory loanTokens, uint256[] memory amounts)
+    {
+        bytes32[] memory mids = _borrowerMarkets[user].values();
+
+        // Aggregate per loan token (a user may owe across multiple maturities of
+        // the same loan token). O(n^2) over the small active-debt-market count.
+        address[] memory tmpTokens = new address[](mids.length);
+        uint256[] memory tmpAmounts = new uint256[](mids.length);
+        uint256 n = 0;
+
+        for (uint256 i = 0; i < mids.length; ++i) {
+            uint256 d = _borrowDebt[mids[i]][user];
+            if (d == 0) continue; // defensive: set should only hold non-zero debt
+            address lt = _marketLoanToken[mids[i]];
+
+            uint256 j = 0;
+            bool found = false;
+            for (; j < n; ++j) {
+                if (tmpTokens[j] == lt) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                tmpAmounts[j] += d;
+            } else {
+                tmpTokens[n] = lt;
+                tmpAmounts[n] = d;
+                ++n;
+            }
+        }
+
+        loanTokens = new address[](n);
+        amounts = new uint256[](n);
+        for (uint256 k = 0; k < n; ++k) {
+            loanTokens[k] = tmpTokens[k];
+            amounts[k] = tmpAmounts[k];
+        }
+    }
+
+    /// @inheritdoc ICentuari
+    function seedBorrowerMarkets(address borrower, address[] calldata loanTokens, uint256[] calldata maturities)
+        external
+        onlyOperator
+    {
+        if (loanTokens.length != maturities.length) revert InvalidAmount();
+
+        for (uint256 i = 0; i < loanTokens.length; ++i) {
+            bytes32 mid = _getMarketId(loanTokens[i], maturities[i]);
+            // Only reconcile markets where the borrower already has real debt:
+            // this can never fabricate debt, it only repopulates the enumerable
+            // set + loanToken map for positions that predate the upgrade.
+            if (_borrowDebt[mid][borrower] == 0) continue;
+            if (_borrowerMarkets[borrower].add(mid)) {
+                _marketLoanToken[mid] = loanTokens[i];
+                emit BorrowerMarketSeeded(borrower, mid, loanTokens[i]);
+            }
+        }
     }
 }

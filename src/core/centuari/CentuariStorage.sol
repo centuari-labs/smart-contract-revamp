@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
 /// @title CentuariStorage
 /// @notice Storage layout for the upgradeable Centuari contract
 /// @dev This contract defines the storage layout for Centuari.
@@ -59,12 +61,28 @@ abstract contract CentuariStorage {
     /// @dev Settlement fees and trade fees are credited to this address
     address internal _feeCollector;
 
+    /// @notice Markets where a borrower currently has non-zero debt
+    /// @dev borrower => set of marketIds. Maintained in lockstep with
+    ///      `_activeDebtCount` (add on debt 0→non-zero in settleMatch, remove on
+    ///      non-zero→0 in repay) so the RiskModule can enumerate and value a
+    ///      user's total debt across markets on-chain. Append-only (Phase 3, C6).
+    mapping(address => EnumerableSet.Bytes32Set) internal _borrowerMarkets;
+
+    /// @notice Loan token for a given marketId (= keccak256(loanToken, maturity))
+    /// @dev Set when a market is first seen post-upgrade; lets `getBorrowerDebts`
+    ///      resolve a marketId back to its loan token without off-chain data.
+    ///      Append-only (Phase 3, C6).
+    mapping(bytes32 => address) internal _marketLoanToken;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 40 slots for future storage variables.
-    ///      When adding new variables, reduce this gap accordingly.
-    ///      Current usage: 5 slots (settlement, balanceLedger, paused, bondTokenFactory, operator, feeCollector)
-    ///      + 4 mappings (marketTotalCbt, lendPositionCbtAmount, borrowDebt, activeDebtCount)
-    uint256[40] private __gap;
+    /// @dev Reduced 40 → 38 in Phase 3 (C6) when `_borrowerMarkets` +
+    ///      `_marketLoanToken` were appended (2 mapping slots). When adding new
+    ///      variables, reduce this gap accordingly.
+    ///      Current usage: address/bool slots (settlement, balanceLedger+paused,
+    ///      bondTokenFactory, operator, feeCollector) + 6 mappings (marketTotalCbt,
+    ///      lendPositionCbtAmount, borrowDebt, activeDebtCount, borrowerMarkets,
+    ///      marketLoanToken).
+    uint256[38] private __gap;
 }

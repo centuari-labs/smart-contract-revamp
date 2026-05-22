@@ -2546,4 +2546,161 @@ contract CentuariTest is Test {
         assertEq(bondToken.balanceOf(address(centuari)), expectedCbtMinted);
         assertEq(bondToken.balanceOf(lender), 0);
     }
+
+    // ============ Debt Enumeration Tests (Phase 3, C6) ============
+
+    function test_borrowerMarkets_addedOnSettle() public {
+        address lender = makeAddr("lenderE1");
+        address borrower = makeAddr("borrowerE1");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 amount = 1000 ether;
+        uint256 rate = 1000;
+
+        bytes32 mid = _settleMatchWithFunding(lender, borrower, amount, rate, maturity, false, 0, 0, 0, 0);
+
+        bytes32[] memory mkts = centuari.getBorrowerMarkets(borrower);
+        assertEq(mkts.length, 1);
+        assertEq(mkts[0], mid);
+        assertEq(centuari.activeDebtCount(borrower), 1);
+        assertEq(centuari.marketLoanToken(mid), loanToken);
+
+        (address[] memory tokens, uint256[] memory amounts) = centuari.getBorrowerDebts(borrower);
+        assertEq(tokens.length, 1);
+        assertEq(tokens[0], loanToken);
+        assertEq(amounts[0], _expectedDebt(amount, rate, maturity));
+    }
+
+    function test_borrowerMarkets_removedOnFullRepay() public {
+        address lender = makeAddr("lenderE2");
+        address borrower = makeAddr("borrowerE2");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 amount = 1000 ether;
+        uint256 rate = 1000;
+
+        bytes32 mid = _settleMatchWithFunding(lender, borrower, amount, rate, maturity, false, 0, 0, 0, 0);
+        uint256 debt = centuari.getBorrowPosition(mid, borrower);
+
+        _fundUser(borrower, loanToken, debt); // ensure enough available to repay
+        vm.prank(owner);
+        centuari.setOperator(operator);
+        vm.prank(operator);
+        centuari.repay(mid, borrower, loanToken, debt);
+
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 0);
+        assertEq(centuari.activeDebtCount(borrower), 0);
+        (address[] memory tokens,) = centuari.getBorrowerDebts(borrower);
+        assertEq(tokens.length, 0);
+    }
+
+    function test_getBorrowerDebts_aggregatesSameLoanTokenAcrossMaturities() public {
+        address lender = makeAddr("lenderE3");
+        address borrower = makeAddr("borrowerE3");
+        uint256 m1 = block.timestamp + 180 days;
+        uint256 m2 = block.timestamp + 365 days;
+        uint256 a1 = 1000 ether;
+        uint256 a2 = 500 ether;
+        uint256 rate = 1000;
+
+        _settleMatchWithFunding(lender, borrower, a1, rate, m1, false, 0, 0, 0, 0);
+        _settleMatchWithFunding(lender, borrower, a2, rate, m2, false, 0, 0, 0, 0);
+
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 2);
+        assertEq(centuari.activeDebtCount(borrower), 2);
+
+        (address[] memory tokens, uint256[] memory amounts) = centuari.getBorrowerDebts(borrower);
+        // two markets, same loan token → aggregated into a single entry
+        assertEq(tokens.length, 1);
+        assertEq(tokens[0], loanToken);
+        assertEq(amounts[0], _expectedDebt(a1, rate, m1) + _expectedDebt(a2, rate, m2));
+    }
+
+    function test_seedBorrowerMarkets_noDebtIsNoop() public {
+        address borrower = makeAddr("borrowerE4");
+        uint256 maturity = block.timestamp + 365 days;
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address[] memory lts = new address[](1);
+        lts[0] = loanToken;
+        uint256[] memory mats = new uint256[](1);
+        mats[0] = maturity;
+
+        vm.prank(operator);
+        centuari.seedBorrowerMarkets(borrower, lts, mats);
+
+        // no real debt for this (loanToken, maturity) → guard makes it a no-op
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 0);
+    }
+
+    function test_seedBorrowerMarkets_reconcilesLegacyDebt() public {
+        address borrower = makeAddr("borrowerE5");
+        uint256 maturity = block.timestamp + 365 days;
+        bytes32 mid = _getMarketId(loanToken, maturity);
+
+        // Simulate a pre-upgrade position: debt present in _borrowDebt (slot 4),
+        // but absent from the new enumerable set.
+        bytes32 innerSlot = keccak256(abi.encode(mid, uint256(4)));
+        bytes32 valueSlot = keccak256(abi.encode(borrower, innerSlot));
+        vm.store(address(centuari), valueSlot, bytes32(uint256(1234 ether)));
+
+        assertEq(centuari.getBorrowPosition(mid, borrower), 1234 ether);
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 0); // not enumerated yet
+
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address[] memory lts = new address[](1);
+        lts[0] = loanToken;
+        uint256[] memory mats = new uint256[](1);
+        mats[0] = maturity;
+        vm.prank(operator);
+        centuari.seedBorrowerMarkets(borrower, lts, mats);
+
+        bytes32[] memory mkts = centuari.getBorrowerMarkets(borrower);
+        assertEq(mkts.length, 1);
+        assertEq(mkts[0], mid);
+        assertEq(centuari.marketLoanToken(mid), loanToken);
+
+        (address[] memory tokens, uint256[] memory amounts) = centuari.getBorrowerDebts(borrower);
+        assertEq(tokens.length, 1);
+        assertEq(tokens[0], loanToken);
+        assertEq(amounts[0], 1234 ether);
+    }
+
+    function test_seedBorrowerMarkets_onlyOperator() public {
+        address[] memory lts = new address[](1);
+        lts[0] = loanToken;
+        uint256[] memory mats = new uint256[](1);
+        mats[0] = block.timestamp + 365 days;
+
+        vm.expectRevert(ICentuari.Unauthorized.selector);
+        centuari.seedBorrowerMarkets(makeAddr("borrowerE6"), lts, mats);
+    }
+
+    function test_upgradeRoundTrip_preservesDebtEnumeration() public {
+        address lender = makeAddr("lenderE7");
+        address borrower = makeAddr("borrowerE7");
+        uint256 maturity = block.timestamp + 365 days;
+        uint256 amount = 1000 ether;
+        uint256 rate = 1000;
+        bytes32 mid = _settleMatchWithFunding(lender, borrower, amount, rate, maturity, false, 0, 0, 0, 0);
+
+        uint256 debtBefore = centuari.getBorrowPosition(mid, borrower);
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 1);
+
+        // Upgrade the proxy to a V2 impl that extends the new Centuari
+        CentuariV2 newImpl = new CentuariV2();
+        vm.prank(proxyAdminOwner);
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
+        CentuariV2 v2 = CentuariV2(address(proxy));
+
+        // Appended storage + pre-existing debt survive the upgrade intact
+        assertEq(v2.getBorrowPosition(mid, borrower), debtBefore);
+        bytes32[] memory mktsAfter = v2.getBorrowerMarkets(borrower);
+        assertEq(mktsAfter.length, 1);
+        assertEq(mktsAfter[0], mid);
+        (address[] memory tokens, uint256[] memory amounts) = v2.getBorrowerDebts(borrower);
+        assertEq(tokens.length, 1);
+        assertEq(amounts[0], debtBefore);
+    }
 }

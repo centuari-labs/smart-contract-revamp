@@ -88,6 +88,14 @@ interface ICentuari {
         bytes32 indexed marketId, address indexed lender, uint256 cbtBurned, uint256 amountWithdrawn
     );
 
+    /// @notice Emitted when the operator backfills a borrower's market into the
+    ///         enumerable debt set, reconciling positions that predate the
+    ///         Phase 3 (C6) debt-enumeration upgrade
+    /// @param borrower The borrower address
+    /// @param marketId The market identifier seeded
+    /// @param loanToken The loan token resolved for the market
+    event BorrowerMarketSeeded(address indexed borrower, bytes32 indexed marketId, address indexed loanToken);
+
     // ============ Errors ============
 
     /// @notice Thrown when caller is not authorized
@@ -204,6 +212,26 @@ interface ICentuari {
     /// @return The count of active debt markets
     function activeDebtCount(address user) external view returns (uint256);
 
+    /// @notice Enumerate the marketIds where `user` currently has non-zero debt
+    /// @param user The borrower address
+    /// @return The marketIds in the user's active-debt set
+    function getBorrowerMarkets(address user) external view returns (bytes32[] memory);
+
+    /// @notice Resolve a marketId to its loan token (0 if unknown / unset)
+    /// @param marketId The market identifier
+    /// @return The loan token address for the market
+    function marketLoanToken(bytes32 marketId) external view returns (address);
+
+    /// @notice Aggregate a borrower's total debt across all markets, grouped by
+    ///         loan token (the on-chain primitive a RiskModule sums for HF)
+    /// @param user The borrower address
+    /// @return loanTokens The distinct loan tokens the user owes in
+    /// @return amounts The total debt per loan token (principal + interest)
+    function getBorrowerDebts(address user)
+        external
+        view
+        returns (address[] memory loanTokens, uint256[] memory amounts);
+
     /// @notice Get the fee collector address
     /// @return The fee collector address
     function feeCollector() external view returns (address);
@@ -231,4 +259,16 @@ interface ICentuari {
     /// @notice Set the fee collector address. Only owner.
     /// @param newFeeCollector The new fee collector address
     function setFeeCollector(address newFeeCollector) external;
+
+    /// @notice Backfill a borrower's enumerable debt-market set for positions
+    ///         that predate the Phase 3 (C6) upgrade. Only callable by operator.
+    /// @dev Self-validating: a (loanToken, maturity) pair derives a marketId, and
+    ///      the entry is added ONLY if `getBorrowPosition(marketId, borrower) > 0`.
+    ///      It can therefore never fabricate debt — it only reconciles the set +
+    ///      loanToken map with debt that already exists on-chain.
+    /// @param borrower The borrower whose markets are being reconciled
+    /// @param loanTokens The loan tokens of the borrower's pre-existing markets
+    /// @param maturities The maturities (paired with loanTokens) of those markets
+    function seedBorrowerMarkets(address borrower, address[] calldata loanTokens, uint256[] calldata maturities)
+        external;
 }

@@ -1,0 +1,100 @@
+{
+  "storage": [
+    {
+      "astId": 4679,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_oracle",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_contract(IPriceOracle)5333"
+    },
+    {
+      "astId": 4683,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_centuari",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_contract(ICentuari)5317"
+    },
+    {
+      "astId": 4687,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_balanceLedger",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_contract(IBalanceLedger)4985"
+    },
+    {
+      "astId": 4692,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_ltvBps",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "astId": 4697,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_bufferBps",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "astId": 4700,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "_defaultBufferBps",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 4705,
+      "contract": "src/core/risk/RiskModule.sol:RiskModule",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_array(t_uint256)44_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)44_storage": {
+      "encoding": "inplace",
+      "label": "uint256[44]",
+      "numberOfBytes": "1408",
+      "base": "t_uint256"
+    },
+    "t_contract(IBalanceLedger)4985": {
+      "encoding": "inplace",
+      "label": "contract IBalanceLedger",
+      "numberOfBytes": "20"
+    },
+    "t_contract(ICentuari)5317": {
+      "encoding": "inplace",
+      "label": "contract ICentuari",
+      "numberOfBytes": "20"
+    },
+    "t_contract(IPriceOracle)5333": {
+      "encoding": "inplace",
+      "label": "contract IPriceOracle",
+      "numberOfBytes": "20"
+    },
+    "t_mapping(t_address,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}
