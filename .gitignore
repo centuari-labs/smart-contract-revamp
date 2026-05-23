@@ -27,3 +27,6 @@ config/*
 !config/layerzero-dvn.json
 
 output/
+
+# dev docs
+dev-docs

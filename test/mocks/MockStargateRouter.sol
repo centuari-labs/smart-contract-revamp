@@ -102,7 +102,11 @@ contract MockStargateRouter {
     // ============ Stargate-like Surface ============
 
     /// @notice Mirrors `IStargate.quoteSend`.
-    function quoteSend(SendParam calldata, /* params */ bool /* payInLzToken */ )
+    function quoteSend(
+        SendParam calldata,
+        /* params */
+        bool /* payInLzToken */
+    )
         external
         view
         returns (MessagingFee memory fee)
@@ -113,7 +117,11 @@ contract MockStargateRouter {
     /// @notice Mirrors `IStargate.send`. The return name drops the `LD`
     ///         suffix (vs. the `OFTSent` event) to satisfy mixedCase lint;
     ///         semantics are identical (Local Decimals).
-    function send(SendParam calldata params, MessagingFee calldata fee, address /* refundAddress */ )
+    function send(
+        SendParam calldata params,
+        MessagingFee calldata fee,
+        address /* refundAddress */
+    )
         external
         payable
         returns (bytes32 guid, uint256 amountReceived)

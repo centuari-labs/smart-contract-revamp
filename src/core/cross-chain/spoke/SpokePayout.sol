@@ -91,7 +91,11 @@ contract SpokePayout is
         bytes calldata message,
         address, // executor — unused
         bytes calldata // extraData — unused
-    ) external payable nonReentrant {
+    )
+        external
+        payable
+        nonReentrant
+    {
         if (msg.sender != _lzEndpoint) revert InvalidLzEndpoint();
         bytes32 expectedPeer = _peers[origin.srcEid];
         if (expectedPeer == bytes32(0) || origin.sender != expectedPeer) {
