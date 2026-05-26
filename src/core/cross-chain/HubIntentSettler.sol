@@ -168,7 +168,12 @@ contract HubIntentSettler is
         bytes calldata message,
         address, // executor — unused
         bytes calldata // extraData — unused
-    ) external payable whenNotPaused nonReentrant {
+    )
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
         // Gate 1: only accept calls from the LZ endpoint.
         if (msg.sender != _lzEndpoint) revert InvalidLzEndpoint();
 

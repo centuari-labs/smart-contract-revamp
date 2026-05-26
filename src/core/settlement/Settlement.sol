@@ -111,21 +111,22 @@ contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
         _settledMatches[matchId] = true;
 
         // Call Centuari to handle positions and token transfers
-        ICentuari(centuariAddr).settleMatch(
-            matchData.marketId,
-            matchData.lender,
-            matchData.borrower,
-            matchData.loanToken,
-            matchData.matchedAmount,
-            matchData.rate,
-            matchData.maturity,
-            matchData.borrowerIsTaker,
-            matchData.lenderSettlementFee,
-            matchData.borrowerSettlementFee,
-            matchData.makerFeeAmount,
-            matchData.takerFeeAmount,
-            matchData.collateralAssets
-        );
+        ICentuari(centuariAddr)
+            .settleMatch(
+                matchData.marketId,
+                matchData.lender,
+                matchData.borrower,
+                matchData.loanToken,
+                matchData.matchedAmount,
+                matchData.rate,
+                matchData.maturity,
+                matchData.borrowerIsTaker,
+                matchData.lenderSettlementFee,
+                matchData.borrowerSettlementFee,
+                matchData.makerFeeAmount,
+                matchData.takerFeeAmount,
+                matchData.collateralAssets
+            );
 
         // Emit individual match event
         emit MatchSettled(
