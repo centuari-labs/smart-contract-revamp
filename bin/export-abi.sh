@@ -34,6 +34,10 @@ CONTRACTS=(
   "SpokeVaultStable.sol:SpokeVaultStable"
   "SpokeDepositGateway.sol:SpokeDepositGateway"
   "SpokePayout.sol:SpokePayout"
+  "OracleRouter.sol:OracleRouter"
+  "RiskModule.sol:RiskModule"
+  "PushOracle.sol:PushOracle"
+  "ChainlinkPriceFeed.sol:ChainlinkPriceFeed"
 )
 
 # Ensure artifacts exist
