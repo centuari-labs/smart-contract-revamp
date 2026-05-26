@@ -27,6 +27,8 @@ contract OracleRouter is Initializable, OwnableUpgradeable, OracleRouterStorage,
     event MaxStalenessUpdated(address indexed asset, uint256 oldSeconds, uint256 newSeconds);
 
     error ZeroAddress();
+    /// @notice Thrown when a zero staleness window is configured for an asset (SC-3)
+    error ZeroStaleness();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -49,9 +51,13 @@ contract OracleRouter is Initializable, OwnableUpgradeable, OracleRouterStorage,
         emit FeedUpdated(asset, old, feed);
     }
 
-    /// @notice Set the max acceptable price age for `asset` (0 = no staleness gate).
+    /// @notice Set the max acceptable price age for `asset` (must be non-zero).
+    /// @dev SC-3: a zero window is rejected. A priced asset always carries an
+    ///      explicit staleness window; an unconfigured window fail-closes at read
+    ///      time rather than silently disabling the staleness gate.
     function setMaxStaleness(address asset, uint256 maxSeconds) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
+        if (maxSeconds == 0) revert ZeroStaleness();
         uint256 old = _maxStaleness[asset];
         _maxStaleness[asset] = maxSeconds;
         emit MaxStalenessUpdated(asset, old, maxSeconds);
@@ -67,8 +73,13 @@ contract OracleRouter is Initializable, OwnableUpgradeable, OracleRouterStorage,
         try feed.latestPriceUsd() returns (uint256 price1e18, uint256 updatedAt) {
             if (price1e18 == 0 || updatedAt == 0) return (0, false);
 
+            // SC-3: an unset staleness window (0) means the asset is unconfigured
+            // for pricing — fail-closed rather than treating it as "no staleness
+            // gate". setMaxStaleness rejects 0, so a properly priced asset always
+            // has an explicit window here.
             uint256 maxAge = _maxStaleness[asset];
-            if (maxAge != 0 && block.timestamp > updatedAt + maxAge) return (0, false);
+            if (maxAge == 0) return (0, false);
+            if (block.timestamp > updatedAt + maxAge) return (0, false);
 
             try IERC20Metadata(asset).decimals() returns (uint8 dec) {
                 if (dec > MAX_TOKEN_DECIMALS) return (0, false);
@@ -88,7 +99,7 @@ contract OracleRouter is Initializable, OwnableUpgradeable, OracleRouterStorage,
         return address(_feeds[asset]);
     }
 
-    /// @notice The max price age for `asset` in seconds (0 = disabled).
+    /// @notice The max price age for `asset` in seconds (0 = unconfigured → reads fail-closed).
     function maxStalenessOf(address asset) external view returns (uint256) {
         return _maxStaleness[asset];
     }

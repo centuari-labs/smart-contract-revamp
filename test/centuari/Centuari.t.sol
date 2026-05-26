@@ -2660,6 +2660,10 @@ contract CentuariTest is Test {
         assertEq(mkts.length, 1);
         assertEq(mkts[0], mid);
         assertEq(centuari.marketLoanToken(mid), loanToken);
+        // SC-8: activeDebtCount now derives from the enumerable set, so seeding a
+        // pre-upgrade position reconciles the count too (the old parallel counter
+        // was never bumped by seedBorrowerMarkets and would have stayed at 0).
+        assertEq(centuari.activeDebtCount(borrower), 1);
 
         (address[] memory tokens, uint256[] memory amounts) = centuari.getBorrowerDebts(borrower);
         assertEq(tokens.length, 1);
@@ -2702,5 +2706,111 @@ contract CentuariTest is Test {
         (address[] memory tokens, uint256[] memory amounts) = v2.getBorrowerDebts(borrower);
         assertEq(tokens.length, 1);
         assertEq(amounts[0], debtBefore);
+    }
+
+    // ============ SC-5: debt-market cap ============
+
+    function test_settleMatch_capsDebtMarketsAt64() public {
+        address lender = makeAddr("capLender");
+        address borrower = makeAddr("capBorrower");
+        uint256 rate = 500;
+        uint256 base = block.timestamp + 30 days;
+
+        // Fill exactly MAX_DEBT_MARKETS (64) distinct markets (distinct maturities).
+        for (uint256 i = 0; i < 64; ++i) {
+            _settleMatchWithFunding(lender, borrower, 1_000 ether, rate, base + i * 1 days, false, 0, 0, 0, 0);
+        }
+        assertEq(centuari.activeDebtCount(borrower), 64);
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 64);
+
+        // The 65th distinct debt market must revert.
+        uint256 maturity65 = base + 64 * 1 days;
+        _fundUser(lender, loanToken, 1_000 ether);
+        vm.prank(settlement);
+        vm.expectRevert(ICentuari.TooManyDebtMarkets.selector);
+        centuari.settleMatch(
+            _getMarketId(loanToken, maturity65),
+            lender,
+            borrower,
+            loanToken,
+            1_000 ether,
+            rate,
+            maturity65,
+            false,
+            0,
+            0,
+            0,
+            0,
+            new address[](0)
+        );
+    }
+
+    /// @dev Re-settling into an EXISTING debt market (same maturity) never counts
+    ///      against the cap — only brand-new markets do.
+    function test_settleMatch_existingMarketDoesNotConsumeCap() public {
+        address lender = makeAddr("capLender2");
+        address borrower = makeAddr("capBorrower2");
+        uint256 rate = 500;
+        uint256 maturity = block.timestamp + 30 days;
+
+        _settleMatchWithFunding(lender, borrower, 1_000 ether, rate, maturity, false, 0, 0, 0, 0);
+        _settleMatchWithFunding(lender, borrower, 1_000 ether, rate, maturity, false, 0, 0, 0, 0);
+        assertEq(centuari.activeDebtCount(borrower), 1);
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 1);
+    }
+
+    // ============ SC-1 / SC-8: debt-market set invariant ============
+
+    function _contains(bytes32[] memory arr, bytes32 v) internal pure returns (bool) {
+        for (uint256 i = 0; i < arr.length; ++i) {
+            if (arr[i] == v) return true;
+        }
+        return false;
+    }
+
+    /// @dev Invariant: _borrowerMarkets[u] == { m : _borrowDebt[m][u] > 0 }, and
+    ///      activeDebtCount(u) == set length (SC-8 single source of truth).
+    function _assertDebtMarketInvariant(address borrower, bytes32[] memory allMids) internal view {
+        bytes32[] memory set = centuari.getBorrowerMarkets(borrower);
+        assertEq(centuari.activeDebtCount(borrower), set.length);
+        // Every market in the set has strictly positive debt.
+        for (uint256 i = 0; i < set.length; ++i) {
+            assertGt(centuari.getBorrowPosition(set[i], borrower), 0);
+        }
+        // Every known market with positive debt is enumerated in the set.
+        for (uint256 i = 0; i < allMids.length; ++i) {
+            if (centuari.getBorrowPosition(allMids[i], borrower) > 0) {
+                assertTrue(_contains(set, allMids[i]), "debt market missing from set");
+            }
+        }
+    }
+
+    /// forge-config: default.fuzz.runs = 25
+    function testFuzz_debtMarketSetInvariant(uint8 nRaw, uint8 repayMask) public {
+        uint256 n = bound(nRaw, 1, 8);
+        address lender = makeAddr("invLender");
+        address borrower = makeAddr("invBorrower");
+        uint256 rate = 500;
+        uint256 base = block.timestamp + 30 days;
+
+        bytes32[] memory mids = new bytes32[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            mids[i] = _settleMatchWithFunding(lender, borrower, 1_000 ether, rate, base + i * 1 days, false, 0, 0, 0, 0);
+        }
+        _assertDebtMarketInvariant(borrower, mids);
+
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        // Fully repay a random subset → those markets must leave the set.
+        for (uint256 i = 0; i < n; ++i) {
+            if ((uint256(repayMask) >> i) & 1 == 1) {
+                uint256 debt = centuari.getBorrowPosition(mids[i], borrower);
+                _fundUser(borrower, loanToken, debt);
+                vm.prank(operator);
+                centuari.repay(mids[i], borrower, loanToken, debt);
+            }
+        }
+        _assertDebtMarketInvariant(borrower, mids);
     }
 }

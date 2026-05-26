@@ -2,8 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {TransparentUpgradeableProxy} from
-    "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
@@ -65,9 +64,11 @@ contract RiskModuleIntegrationTest is Test {
         usdc = new MockToken("USD Coin", "USDC", 6, 0);
         usdt = new MockToken("Tether USD", "USDT", 6, 0);
 
-        ledger = BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
-        depositor =
-            HubDepositor(_proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)))));
+        ledger =
+            BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
+        depositor = HubDepositor(
+            _proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger))))
+        );
         router = OracleRouter(_proxy(address(new OracleRouter()), abi.encodeCall(OracleRouter.initialize, (owner))));
         debtSrc = new MockCentuariDebt();
 
@@ -104,6 +105,9 @@ contract RiskModuleIntegrationTest is Test {
         depositor.setAuthorizedCaller(address(registry), true);
         router.setFeed(address(usdc), address(pushUsdc));
         router.setFeed(address(usdt), address(pushUsdt));
+        // SC-3: priced assets require an explicit staleness window (0 fail-closes).
+        router.setMaxStaleness(address(usdc), 86400);
+        router.setMaxStaleness(address(usdt), 86400);
         rm.setDefaultBuffer(0);
         rm.setLtv(address(usdc), 8000);
         rm.setLtv(address(usdt), 8000);
@@ -201,5 +205,51 @@ contract RiskModuleIntegrationTest is Test {
         vm.prank(operator);
         cm.unflagFor(user, address(usdc));
         assertFalse(ledger.usedAsCollateral(user, address(usdc)));
+    }
+
+    // ---- SC-6: no-debt user must not be blocked by a stale collateral price ----
+
+    /// @dev SC-6: with zero debt the HF is always healthy, so withdraw/unflag must
+    ///      succeed even when the collateral price feed is stale (debt is read
+    ///      first and short-circuits before any collateral is priced).
+    function test_riskModule_noDebt_staleCollateral_stillHealthy() public {
+        debtSrc.setDebts(user, new address[](0), new uint256[](0)); // no debt
+        vm.warp(block.timestamp + 86400 + 1); // age collateral price past its window
+
+        // Sanity: the collateral oracle now reads stale / fail-closed.
+        (, bool ok) = router.tryGetUsdValue(address(usdc), 1e6);
+        assertFalse(ok, "collateral should read stale/fail-closed");
+
+        // Yet a debt-free user can still withdraw and unflag.
+        assertTrue(rm.canWithdraw(user, address(usdc), 5_000e6));
+        assertTrue(rm.canUnflag(user, address(usdc)));
+
+        // And the end-to-end unflag path succeeds.
+        vm.prank(operator);
+        cm.unflagFor(user, address(usdc));
+        assertFalse(ledger.usedAsCollateral(user, address(usdc)));
+    }
+
+    /// @dev SC-6 guard: a user WITH debt and a stale *collateral* price is still
+    ///      fail-closed — the debt prices fine, but the collateral cannot be valued
+    ///      so the HF is unknown.
+    function test_riskModule_withDebt_staleCollateral_failsClosed() public {
+        // Move debt to USDT so it can stay fresh while USDC collateral goes stale.
+        address[] memory dt = new address[](1);
+        dt[0] = address(usdt);
+        uint256[] memory da = new uint256[](1);
+        da[0] = DEBT;
+        debtSrc.setDebts(user, dt, da);
+
+        vm.warp(block.timestamp + 86400 + 1);
+        vm.prank(operator);
+        pushUsdt.setPrice(1e18); // refresh ONLY the debt price; collateral stays stale
+
+        (, bool okColl) = router.tryGetUsdValue(address(usdc), 1e6);
+        assertFalse(okColl, "collateral stale");
+        (, bool okDebt) = router.tryGetUsdValue(address(usdt), 1e6);
+        assertTrue(okDebt, "debt fresh");
+
+        assertFalse(rm.canWithdraw(user, address(usdc), 5_000e6));
     }
 }

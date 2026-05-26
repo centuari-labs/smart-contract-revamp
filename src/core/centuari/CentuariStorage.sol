@@ -17,6 +17,13 @@ abstract contract CentuariStorage {
     /// @notice Seconds in a year (365 days)
     uint256 internal constant SECONDS_PER_YEAR = 365 days;
 
+    /// @notice Max distinct debt markets a single borrower may hold (SC-5)
+    /// @dev Bounds the RiskModule's on-chain HF loop (one oracle call per market)
+    ///      so a borrower can never push their own withdraw/unflag gas past the
+    ///      block limit. The (MAX_DEBT_MARKETS+1)th new-market settlement reverts
+    ///      with TooManyDebtMarkets.
+    uint256 internal constant MAX_DEBT_MARKETS = 64;
+
     // ============ Storage Variables ============
 
     /// @notice The address of the Settlement contract
@@ -51,10 +58,15 @@ abstract contract CentuariStorage {
     /// @dev Only the operator can call repay
     address internal _operator;
 
-    /// @notice Count of markets where a user has non-zero debt
-    /// @dev Incremented when _borrowDebt[marketId][user] goes 0→non-zero,
-    ///      decremented when it goes non-zero→0. Used by repay() to trigger
-    ///      auto-unflag of all collateral when user is fully debt-free.
+    /// @notice DEPRECATED (SC-8) — retained only to preserve the storage layout
+    /// @dev Was a hand-maintained parallel counter of a borrower's non-zero-debt
+    ///      markets. It is no longer read or written: activeDebtCount() now derives
+    ///      from `_borrowerMarkets[user].length()` (single source of truth), which
+    ///      seedBorrowerMarkets keeps correct automatically. The slot stays declared
+    ///      because storage is append-only — do not remove it.
+    ///      NOTE: an earlier comment here claimed repay() auto-unflags collateral
+    ///      when debt-free. That was never true — repay() never touches collateral
+    ///      flags; users unflag explicitly via CollateralManager.unflagFor.
     mapping(address => uint256) internal _activeDebtCount;
 
     /// @notice Address that receives protocol fee credits in BalanceLedger
@@ -62,10 +74,12 @@ abstract contract CentuariStorage {
     address internal _feeCollector;
 
     /// @notice Markets where a borrower currently has non-zero debt
-    /// @dev borrower => set of marketIds. Maintained in lockstep with
-    ///      `_activeDebtCount` (add on debt 0→non-zero in settleMatch, remove on
-    ///      non-zero→0 in repay) so the RiskModule can enumerate and value a
-    ///      user's total debt across markets on-chain. Append-only (Phase 3, C6).
+    /// @dev borrower => set of marketIds. Single source of truth for a borrower's
+    ///      active debt markets: add on debt 0→non-zero in settleMatch, remove on
+    ///      non-zero→0 in repay, and reconcile pre-upgrade positions via
+    ///      seedBorrowerMarkets. The RiskModule enumerates and values a user's
+    ///      total debt across markets on-chain from this set, and activeDebtCount()
+    ///      returns its length (SC-8). Append-only (Phase 3, C6).
     mapping(address => EnumerableSet.Bytes32Set) internal _borrowerMarkets;
 
     /// @notice Loan token for a given marketId (= keccak256(loanToken, maturity))

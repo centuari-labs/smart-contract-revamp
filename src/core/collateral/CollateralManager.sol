@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable.sol";
 
 import {ICollateralManager} from "../../interfaces/ICollateralManager.sol";
 import {IBalanceLedger} from "../../interfaces/IBalanceLedger.sol";
@@ -32,7 +33,13 @@ import {CollateralManagerStorage} from "./CollateralManagerStorage.sol";
 ///      Both families call the same internal `_flag` / `_unflag` helpers, so
 ///      the 24h flag-lock and `IRiskModule.canUnflag` gate cannot be bypassed
 ///      by picking a different entry point.
-contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManagerStorage, ICollateralManager {
+contract CollateralManager is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable,
+    CollateralManagerStorage,
+    ICollateralManager
+{
     // ============ Constants ============
 
     /// @notice Ceiling on `_flagLock` to prevent governance from bricking the
@@ -69,6 +76,7 @@ contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManag
         if (riskModule_ == address(0)) revert ZeroAddress();
 
         __Ownable_init(owner_);
+        __ReentrancyGuard_init();
 
         _balanceLedger = balanceLedger_;
         _riskModule = riskModule_;
@@ -91,24 +99,24 @@ contract CollateralManager is Initializable, OwnableUpgradeable, CollateralManag
     // ============ Operator actions ============
 
     /// @inheritdoc ICollateralManager
-    function flagFor(address user, address asset) external onlyOperator {
+    function flagFor(address user, address asset) external onlyOperator nonReentrant {
         _flag(user, asset);
     }
 
     /// @inheritdoc ICollateralManager
-    function unflagFor(address user, address asset) external onlyOperator {
+    function unflagFor(address user, address asset) external onlyOperator nonReentrant {
         _unflag(user, asset);
     }
 
     // ============ Direct-caller actions ============
 
     /// @inheritdoc ICollateralManager
-    function flag(address asset) external {
+    function flag(address asset) external nonReentrant {
         _flag(msg.sender, asset);
     }
 
     /// @inheritdoc ICollateralManager
-    function unflag(address asset) external {
+    function unflag(address asset) external nonReentrant {
         _unflag(msg.sender, asset);
     }
 

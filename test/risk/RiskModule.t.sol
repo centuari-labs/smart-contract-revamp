@@ -2,8 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {TransparentUpgradeableProxy} from
-    "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {RiskModule} from "../../src/core/risk/RiskModule.sol";
 import {IPriceOracle} from "../../src/interfaces/IPriceOracle.sol";
@@ -93,11 +92,9 @@ contract RiskModuleTest is Test {
         px = new MockPriceOracle();
 
         RiskModule impl = new RiskModule();
-        bytes memory initData = abi.encodeCall(
-            RiskModule.initialize, (owner, address(px), address(centuari), address(ledger))
-        );
-        TransparentUpgradeableProxy proxy =
-            new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
+        bytes memory initData =
+            abi.encodeCall(RiskModule.initialize, (owner, address(px), address(centuari), address(ledger)));
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
         rm = RiskModule(address(proxy));
 
         // Deterministic math: zero buffer unless a test sets it.
@@ -269,7 +266,8 @@ contract RiskModuleTest is Test {
 
     function test_initialize_rejectsZeroDeps() public {
         RiskModule impl = new RiskModule();
-        bytes memory bad = abi.encodeCall(RiskModule.initialize, (owner, address(0), address(centuari), address(ledger)));
+        bytes memory bad =
+            abi.encodeCall(RiskModule.initialize, (owner, address(0), address(centuari), address(ledger)));
         vm.expectRevert(RiskModule.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, bad);
     }

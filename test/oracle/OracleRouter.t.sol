@@ -2,8 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {TransparentUpgradeableProxy} from
-    "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {OracleRouter} from "../../src/core/oracle/OracleRouter.sol";
 import {IPriceFeed} from "../../src/interfaces/IPriceFeed.sol";
@@ -53,8 +52,7 @@ contract OracleRouterTest is Test {
     function setUp() public {
         OracleRouter impl = new OracleRouter();
         bytes memory initData = abi.encodeCall(OracleRouter.initialize, (owner));
-        TransparentUpgradeableProxy proxy =
-            new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(address(impl), proxyAdminOwner, initData);
         router = OracleRouter(address(proxy));
 
         usdc = new MockToken("USD Coin", "USDC", 6, 0);
@@ -74,8 +72,10 @@ contract OracleRouterTest is Test {
         vm.prank(operator);
         feed.setPrice(2e18); // $2.00 per whole token
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         router.setFeed(address(rwa), address(feed));
+        router.setMaxStaleness(address(rwa), 3600);
+        vm.stopPrank();
 
         // 5 whole tokens @ $2 = $10
         (uint256 v, bool ok) = router.tryGetUsdValue(address(rwa), 5e18);
@@ -85,10 +85,12 @@ contract OracleRouterTest is Test {
 
     function test_chainlinkBacked_valuation8decAsset() public {
         MockAggregatorV3 agg = new MockAggregatorV3(8, 60_000e8, 1000);
-        ChainlinkPriceFeed feed = new ChainlinkPriceFeed(address(agg));
+        ChainlinkPriceFeed feed = new ChainlinkPriceFeed(address(agg), address(0));
         vm.warp(1000);
-        vm.prank(owner);
+        vm.startPrank(owner);
         router.setFeed(address(btc), address(feed));
+        router.setMaxStaleness(address(btc), 3600);
+        vm.stopPrank();
 
         // 1 BTC (1e8) @ $60,000 = $60,000
         (uint256 v, bool ok) = router.tryGetUsdValue(address(btc), 1e8);
@@ -100,8 +102,10 @@ contract OracleRouterTest is Test {
         // Neither Chainlink nor PushOracle — a bespoke in-house source.
         vm.warp(1000);
         CustomPriceFeed feed = new CustomPriceFeed(1e18, 1000); // $1.00
-        vm.prank(owner);
+        vm.startPrank(owner);
         router.setFeed(address(usdc), address(feed));
+        router.setMaxStaleness(address(usdc), 3600);
+        vm.stopPrank();
 
         // 1000 USDC (1000e6) @ $1 = $1000
         (uint256 v, bool ok) = router.tryGetUsdValue(address(usdc), 1_000e6);
@@ -148,17 +152,24 @@ contract OracleRouterTest is Test {
         assertFalse(ok);
     }
 
-    function test_staleness_zeroWindow_neverStale() public {
+    /// @dev SC-3: an asset whose staleness window was never configured (==0) is
+    ///      treated as unconfigured for pricing → fail-closed, NOT "no staleness gate".
+    function test_staleness_zeroWindow_failsClosed() public {
         vm.warp(1000);
         CustomPriceFeed feed = new CustomPriceFeed(1e18, 1000);
         vm.prank(owner);
         router.setFeed(address(usdc), address(feed));
-        // no maxStaleness set (==0)
+        // maxStaleness deliberately left unset (==0)
 
-        vm.warp(1_000_000_000);
         (uint256 v, bool ok) = router.tryGetUsdValue(address(usdc), 1_000e6);
-        assertTrue(ok);
-        assertEq(v, 1_000e18);
+        assertEq(v, 0);
+        assertFalse(ok);
+    }
+
+    function test_setMaxStaleness_zeroReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(OracleRouter.ZeroStaleness.selector);
+        router.setMaxStaleness(address(usdc), 0);
     }
 
     function test_setFeed_onlyOwner() public {

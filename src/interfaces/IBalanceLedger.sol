@@ -111,6 +111,9 @@ interface IBalanceLedger {
     ///         BalanceLedger that was initialized with force-registration disabled
     error ForceRegistrationDisabled();
 
+    /// @notice Thrown when a user would exceed MAX_FLAGGED_ASSETS flagged collateral assets (SC-5)
+    error TooManyFlaggedAssets();
+
     // ============ Balance Mutators (authorized writers only) ============
 
     /// @notice Credit a user's available balance

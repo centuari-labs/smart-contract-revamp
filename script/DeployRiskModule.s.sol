@@ -69,10 +69,8 @@ contract DeployRiskModule is Script {
 
         // 3. Real RiskModule (upgradeable), wired to oracle + centuari + ledger.
         RiskModule rmImpl = new RiskModule();
-        bytes memory rmInit =
-            abi.encodeCall(RiskModule.initialize, (owner, oracleRouterProxy, centuari, balanceLedger));
-        TransparentUpgradeableProxy rmProxy =
-            new TransparentUpgradeableProxy(address(rmImpl), proxyAdminOwner, rmInit);
+        bytes memory rmInit = abi.encodeCall(RiskModule.initialize, (owner, oracleRouterProxy, centuari, balanceLedger));
+        TransparentUpgradeableProxy rmProxy = new TransparentUpgradeableProxy(address(rmImpl), proxyAdminOwner, rmInit);
         riskModuleProxy = address(rmProxy);
         riskModuleProxyAdmin = _getProxyAdmin(riskModuleProxy);
 

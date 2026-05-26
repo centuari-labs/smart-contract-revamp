@@ -127,6 +127,12 @@ contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorag
 
         if (used) {
             if (_usedAsCollateral[user][asset]) return;
+            // SC-5: bound the per-user flagged-collateral set. The RiskModule's HF
+            // gate prices every flagged asset (one oracle call each); an unbounded
+            // set lets a user push their own withdraw/unflag past the block gas
+            // limit. Re-flagging an already-flagged asset (early-returned above)
+            // never counts against the cap.
+            if (_flaggedAssets[user].length() >= MAX_FLAGGED_ASSETS) revert TooManyFlaggedAssets();
             _usedAsCollateral[user][asset] = true;
             _flaggedAssets[user].add(asset);
             uint64 ts = uint64(block.timestamp);

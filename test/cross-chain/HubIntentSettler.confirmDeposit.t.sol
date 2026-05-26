@@ -156,7 +156,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         HubIntentSettler.Origin memory origin =
             HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 2});
         vm.prank(address(hubEndpoint));
-        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("sn-2"), user, address(xsgd), 30e6, SPOKE_NATIVE, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(keccak256("sn-2"), user, address(xsgd), 30e6, SPOKE_NATIVE, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
 
         assertEq(ledger.available(user, address(xsgd)), 80e6);
         assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 80e6);
@@ -172,7 +178,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
             HubIntentSettler.Origin({srcEid: SPOKE_EID, sender: bytes32(uint256(uint160(spokeGateway))), nonce: 2});
         vm.prank(address(hubEndpoint));
         vm.expectRevert(abi.encodeWithSelector(IHubIntentSettler.DepositAlreadyProcessed.selector, depositId));
-        settler.lzReceive(origin, bytes32(0), _buildPayload(depositId, user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(depositId, user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
     }
 
     // ============ Access control ============
@@ -183,7 +195,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
 
         vm.prank(outsider); // not the LZ endpoint
         vm.expectRevert(IHubIntentSettler.InvalidLzEndpoint.selector);
-        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("no-ep"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(keccak256("no-ep"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
     }
 
     function test_ConfirmDeposit_RevertUntrustedRemote() public {
@@ -199,7 +217,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
                 IHubIntentSettler.UntrustedRemote.selector, SPOKE_EID, bytes32(uint256(uint160(outsider)))
             )
         );
-        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("untrusted"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(keccak256("untrusted"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
     }
 
     function test_ConfirmDeposit_RevertUnregisteredEid() public {
@@ -213,7 +237,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
                 IHubIntentSettler.UntrustedRemote.selector, unknownEid, bytes32(uint256(uint160(spokeGateway)))
             )
         );
-        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("unknown-eid"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(keccak256("unknown-eid"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
     }
 
     // ============ Paused ============
@@ -227,7 +257,13 @@ contract HubIntentSettlerConfirmDepositTest is Test {
 
         vm.prank(address(hubEndpoint));
         vm.expectRevert(IHubIntentSettler.ContractPaused.selector);
-        settler.lzReceive(origin, bytes32(0), _buildPayload(keccak256("paused"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID), address(settler), bytes(""));
+        settler.lzReceive(
+            origin,
+            bytes32(0),
+            _buildPayload(keccak256("paused"), user, address(usdc), 100e6, BRIDGED, BASE_CHAIN_ID),
+            address(settler),
+            bytes("")
+        );
     }
 
     // ============ Admin ============

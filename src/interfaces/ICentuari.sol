@@ -116,6 +116,9 @@ interface ICentuari {
     /// @notice Thrown when withdrawal is attempted before maturity has passed
     error NotYetMatured();
 
+    /// @notice Thrown when a borrower would exceed MAX_DEBT_MARKETS distinct debt markets (SC-5)
+    error TooManyDebtMarkets();
+
     /// @notice Thrown when bond token does not exist for the market (factory not set or market not settled)
     error BondTokenNotFound();
 

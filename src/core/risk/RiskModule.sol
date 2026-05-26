@@ -129,6 +129,27 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
         IBalanceLedger bl = _balanceLedger;
         IPriceOracle px = _oracle;
 
+        // SC-6: read debt FIRST. A user with no active debt is always healthy and
+        // must never be fail-closed out of withdraw/unflag by a stale/unpriced
+        // *collateral* feed. Pricing collateral first (the old order) blocked
+        // debt-free users whenever a collateral price was stale. Reading debt up
+        // front is also the gas fast-path — it skips every collateral oracle call
+        // for the common no-debt case. Debt is already deduped per loan token by
+        // getBorrowerDebts (one oracle call per distinct loan token), which covers
+        // the SC-5 "dedup oracle calls per loan token" recommendation.
+        (address[] memory debtTokens, uint256[] memory debtAmounts) = _centuari.getBorrowerDebts(user);
+        if (debtTokens.length == 0) return true; // no active debt markets → healthy
+
+        uint256 debtUsd;
+        for (uint256 j = 0; j < debtTokens.length; ++j) {
+            if (debtAmounts[j] == 0) continue;
+            (uint256 dVal, bool ok2) = px.tryGetUsdValue(debtTokens[j], debtAmounts[j]);
+            if (!ok2) return false; // fail-closed: unpriced/stale debt
+            debtUsd += dVal;
+        }
+        if (debtUsd == 0) return true; // no debt → always healthy
+
+        // There IS debt: now value the post-action flagged collateral.
         address[] memory flagged = bl.flaggedAssetsOf(user);
 
         uint256 collateralUsd; // Σ cVal (1e18)
@@ -156,16 +177,6 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
             if (b > maxBufferBps) maxBufferBps = b;
         }
 
-        (address[] memory debtTokens, uint256[] memory debtAmounts) = _centuari.getBorrowerDebts(user);
-        uint256 debtUsd;
-        for (uint256 j = 0; j < debtTokens.length; ++j) {
-            if (debtAmounts[j] == 0) continue;
-            (uint256 dVal, bool ok2) = px.tryGetUsdValue(debtTokens[j], debtAmounts[j]);
-            if (!ok2) return false; // fail-closed: unpriced/stale debt
-            debtUsd += dVal;
-        }
-
-        if (debtUsd == 0) return true; // no debt → always healthy
         if (collateralUsd <= debtUsd) return false; // net ≤ 0 → HF ≤ 0 < threshold
 
         uint256 net = collateralUsd - debtUsd;

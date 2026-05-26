@@ -133,10 +133,14 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
 
         _processBorrowPosition(marketId, borrower, matchedAmount, rate, maturity);
 
-        // Track active debt count + enumerable market set (used for debt-state
-        // views and the RiskModule's on-chain HF computation, Phase 3 C6).
+        // Enumerable debt-market set: the source of truth for debt-state views and
+        // the RiskModule's on-chain HF computation (Phase 3 C6). activeDebtCount()
+        // derives from this set's length — no parallel counter to keep in sync (SC-8).
         if (isNewDebtMarket) {
-            _activeDebtCount[borrower]++;
+            // SC-5: bound the per-borrower debt-market set so the RiskModule's HF
+            // loop (one oracle call per market) can never be pushed past the block
+            // gas limit — otherwise a borrower could self-DoS their own exits.
+            if (_borrowerMarkets[borrower].length() >= MAX_DEBT_MARKETS) revert TooManyDebtMarkets();
             _borrowerMarkets[borrower].add(marketId);
         }
 
@@ -236,10 +240,9 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
 
         _borrowDebt[marketId][borrower] = debt - repayAmount;
 
-        // Track active debt count + enumerable market set: drop this market when
-        // its debt hits zero (keeps _borrowerMarkets in lockstep, Phase 3 C6).
+        // Drop this market from the borrower's enumerable debt set when its debt
+        // hits zero (Phase 3 C6). activeDebtCount() derives from the set length (SC-8).
         if (debt - repayAmount == 0) {
-            _activeDebtCount[borrower]--;
             _borrowerMarkets[borrower].remove(marketId);
         }
 
@@ -419,7 +422,11 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
 
     /// @inheritdoc ICentuari
     function activeDebtCount(address user) external view returns (uint256) {
-        return _activeDebtCount[user];
+        // SC-8: single source of truth — derive from the enumerable debt-market set
+        // rather than a hand-maintained parallel counter. The old _activeDebtCount
+        // mapping was not updated by seedBorrowerMarkets, so a seeded borrower's
+        // counter could under-report; the set length never can.
+        return _borrowerMarkets[user].length();
     }
 
     /// @inheritdoc ICentuari

@@ -35,6 +35,13 @@ abstract contract BalanceLedgerStorage {
     /// @dev 48 hours per the Phase 1 plan (C2). Cannot be bypassed in production.
     uint256 internal constant WRITER_TIMELOCK = 48 hours;
 
+    /// @notice Max distinct flagged collateral assets a single user may hold (SC-5)
+    /// @dev Bounds the RiskModule's on-chain HF loop, which prices every flagged
+    ///      asset (one oracle call each). An unbounded set would let a user push
+    ///      their own withdraw/unflag gas past the block limit. The mark that would
+    ///      exceed this cap reverts with TooManyFlaggedAssets.
+    uint256 internal constant MAX_FLAGGED_ASSETS = 32;
+
     // ============ Structs ============
 
     /// @notice Per-(user, asset) balance with three sub-states

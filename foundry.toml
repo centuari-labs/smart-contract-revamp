@@ -5,6 +5,9 @@ libs = ["lib"]
 via_ir = true
 optimizer = true
 
+# Allow tests to read shared fixtures (e.g. the SC-9 HF cross-check vectors).
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 [lint]
