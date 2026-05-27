@@ -138,132 +138,50 @@ contract HubDepositorTest is Test {
         assertEq(usdc.balanceOf(address(depositor)), first + second);
     }
 
-    // ============ Payout ============
+    // ============ Payout (removed in Track C6) ============
 
-    function test_Payout_ReleasesTokens() public {
-        uint256 depositAmount = 100e6;
-        uint256 payoutAmount = 50e6;
+    /// @dev `payout(address,address,uint256)` was the gate-bypassing debit+transfer
+    ///      path. It was permanently removed in C6, so its selector must no longer be
+    ///      callable by ANY caller — owner, authorized caller, or outsider alike.
+    ///      Withdrawals now route through WithdrawalRegistry -> payoutDirect.
+    function test_Payout_SelectorRemovedForAllCallers() public {
+        // payout(address,address,uint256) == 0x20f801d4. Computed here so the test
+        // does not depend on the (now-deleted) interface declaration.
+        bytes4 sel = bytes4(keccak256("payout(address,address,uint256)"));
+        bytes memory cd = abi.encodeWithSelector(sel, user, address(usdc), uint256(1e6));
 
-        // First deposit
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
-        uint256 userBalanceAfterDeposit = usdc.balanceOf(user);
-
-        // Payout (owner calls)
+        // The impl has no matching function and no fallback, so the proxy's
+        // delegatecall reverts (call returns false) regardless of who calls.
         vm.prank(owner);
-        depositor.payout(user, address(usdc), payoutAmount);
+        (bool okOwner,) = address(depositor).call(cd);
+        assertFalse(okOwner, "payout selector must be uncallable (owner)");
 
-        // User should receive tokens back
-        assertEq(usdc.balanceOf(user), userBalanceAfterDeposit + payoutAmount);
-        assertEq(usdc.balanceOf(address(depositor)), depositAmount - payoutAmount);
-    }
-
-    function test_Payout_DebitsBalanceLedger() public {
-        uint256 depositAmount = 100e6;
-        uint256 payoutAmount = 50e6;
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
+        address authorizedCaller = address(0xCAFE);
         vm.prank(owner);
-        depositor.payout(user, address(usdc), payoutAmount);
-
-        assertEq(ledger.available(user, address(usdc)), depositAmount - payoutAmount);
-    }
-
-    function test_Payout_EmitsEvent() public {
-        uint256 depositAmount = 100e6;
-        uint256 payoutAmount = 50e6;
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
-        vm.prank(owner);
-        vm.expectEmit(true, true, false, true);
-        emit IHubDepositor.PayoutReleased(user, address(usdc), payoutAmount);
-        depositor.payout(user, address(usdc), payoutAmount);
-    }
-
-    function test_Payout_RevertZeroAmount() public {
-        vm.prank(owner);
-        vm.expectRevert(IHubDepositor.ZeroAmount.selector);
-        depositor.payout(user, address(usdc), 0);
-    }
-
-    function test_Payout_RevertZeroUser() public {
-        vm.prank(owner);
-        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
-        depositor.payout(address(0), address(usdc), 100e6);
-    }
-
-    function test_Payout_RevertZeroAsset() public {
-        vm.prank(owner);
-        vm.expectRevert(IHubDepositor.ZeroAddress.selector);
-        depositor.payout(user, address(0), 100e6);
-    }
-
-    function test_Payout_RevertNonOwner() public {
-        uint256 depositAmount = 100e6;
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
+        depositor.setAuthorizedCaller(authorizedCaller, true);
+        vm.prank(authorizedCaller);
+        (bool okAuthorized,) = address(depositor).call(cd);
+        assertFalse(okAuthorized, "payout selector must be uncallable (authorized caller)");
 
         vm.prank(outsider);
-        vm.expectRevert(IHubDepositor.Unauthorized.selector);
-        depositor.payout(user, address(usdc), depositAmount);
-    }
-
-    function test_Payout_RevertInsufficientLedgerBalance() public {
-        // User has no balance, payout should revert at BalanceLedger.debit
-        vm.prank(owner);
-        vm.expectRevert(); // BalanceLedger will revert with InsufficientBalance
-        depositor.payout(user, address(usdc), 100e6);
-    }
-
-    function test_Payout_FullBalance() public {
-        uint256 depositAmount = 100e6;
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
-        vm.prank(owner);
-        depositor.payout(user, address(usdc), depositAmount);
-
-        assertEq(ledger.available(user, address(usdc)), 0);
-        assertEq(usdc.balanceOf(address(depositor)), 0);
-        assertEq(usdc.balanceOf(user), INITIAL_MINT);
+        (bool okOutsider,) = address(depositor).call(cd);
+        assertFalse(okOutsider, "payout selector must be uncallable (outsider)");
     }
 
     // ============ Fuzz ============
 
-    function testFuzz_DepositAndPayout(uint256 depositAmount, uint256 payoutAmount) public {
-        // Bound to reasonable amounts
+    function testFuzz_Deposit(uint256 depositAmount) public {
         depositAmount = bound(depositAmount, 1, INITIAL_MINT);
-        payoutAmount = bound(payoutAmount, 1, depositAmount);
 
         vm.startPrank(user);
         usdc.approve(address(depositor), depositAmount);
         depositor.deposit(address(usdc), depositAmount);
         vm.stopPrank();
 
-        vm.prank(owner);
-        depositor.payout(user, address(usdc), payoutAmount);
-
-        // Invariants
-        assertEq(ledger.available(user, address(usdc)), depositAmount - payoutAmount);
-        assertEq(usdc.balanceOf(address(depositor)), depositAmount - payoutAmount);
-        assertEq(usdc.balanceOf(user), INITIAL_MINT - depositAmount + payoutAmount);
+        // Invariants: ledger credited, tokens custodied here, user debited exactly.
+        assertEq(ledger.available(user, address(usdc)), depositAmount);
+        assertEq(usdc.balanceOf(address(depositor)), depositAmount);
+        assertEq(usdc.balanceOf(user), INITIAL_MINT - depositAmount);
     }
 
     // ============ Supported Asset Whitelist ============
@@ -459,40 +377,5 @@ contract HubDepositorTest is Test {
         vm.prank(owner);
         vm.expectRevert(IHubDepositor.ZeroAmount.selector);
         depositor.payoutDirect(user, address(usdc), 0);
-    }
-
-    // ============ payout with authorized callers ============
-
-    function test_Payout_AuthorizedCallerCanCall() public {
-        uint256 depositAmount = 100e6;
-        address authorizedCaller = address(0xCAFE);
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
-        vm.prank(owner);
-        depositor.setAuthorizedCaller(authorizedCaller, true);
-
-        vm.prank(authorizedCaller);
-        depositor.payout(user, address(usdc), depositAmount);
-
-        assertEq(ledger.available(user, address(usdc)), 0);
-        assertEq(usdc.balanceOf(user), INITIAL_MINT);
-    }
-
-    function test_Payout_OwnerStillWorks() public {
-        uint256 depositAmount = 100e6;
-
-        vm.startPrank(user);
-        usdc.approve(address(depositor), depositAmount);
-        depositor.deposit(address(usdc), depositAmount);
-        vm.stopPrank();
-
-        vm.prank(owner);
-        depositor.payout(user, address(usdc), depositAmount);
-
-        assertEq(ledger.available(user, address(usdc)), 0);
     }
 }

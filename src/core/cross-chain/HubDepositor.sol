@@ -15,9 +15,14 @@ import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable
 /// @notice Hub-native (Arbitrum) entry point for direct deposit and withdrawal.
 /// @dev Users on the hub chain call `deposit` to lock ERC20 tokens in this
 ///      contract and credit their `BalanceLedger.available`. No solver, no
-///      bridge, no LayerZero — single-tx, same-chain. `payout` releases tokens
-///      back to the user (hub-native withdrawal path, called by
-///      WithdrawalRegistry in M4; onlyOwner in M3).
+///      bridge, no LayerZero — single-tx, same-chain. `payoutDirect` releases
+///      tokens back to the user on the hub-native withdrawal path, called by
+///      WithdrawalRegistry after its on-chain HF gate has already debited the
+///      ledger.
+///
+///      The gate-bypassing `payout` (debit + transfer in one authorized call)
+///      was permanently removed in Track C6 — every withdrawal now flows through
+///      `WithdrawalRegistry.requestWithdrawalFor`.
 ///
 ///      Token custody: this contract holds the actual ERC20 tokens deposited
 ///      on the hub chain.
@@ -83,21 +88,6 @@ contract HubDepositor is
     }
 
     // ============ Authorized actions ============
-
-    /// @inheritdoc IHubDepositor
-    function payout(address user, address asset, uint256 amount) external onlyAuthorized nonReentrant {
-        if (user == address(0)) revert ZeroAddress();
-        if (asset == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-
-        // Debit the user's available balance on the ledger
-        IBalanceLedger(_balanceLedger).debit(user, asset, amount);
-
-        // Release tokens to the user
-        IERC20(asset).safeTransfer(user, amount);
-
-        emit PayoutReleased(user, asset, amount);
-    }
 
     /// @inheritdoc IHubDepositor
     function payoutDirect(address user, address asset, uint256 amount) external onlyAuthorized nonReentrant {

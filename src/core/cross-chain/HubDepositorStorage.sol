@@ -18,7 +18,7 @@ abstract contract HubDepositorStorage {
     ///      Managed by the owner via `addSupportedAsset` / `removeSupportedAsset`.
     mapping(address => bool) internal _supportedAssets;
 
-    /// @notice Authorized callers that can invoke `payout` and `payoutDirect`
+    /// @notice Authorized callers that can invoke `payoutDirect`
     /// @dev Managed by the owner via `setAuthorizedCaller`. In M4,
     ///      WithdrawalRegistry is added as an authorized caller so it can
     ///      release tokens for hub-native withdrawals.

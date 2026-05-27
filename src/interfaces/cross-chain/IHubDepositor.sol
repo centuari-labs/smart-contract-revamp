@@ -6,10 +6,16 @@ pragma solidity ^0.8.20;
 ///         entry point for direct deposit and withdrawal of assets.
 /// @dev HubDepositor is the token custodian on the hub chain. Users on Arbitrum
 ///      call `deposit` to lock tokens and credit their BalanceLedger.available;
-///      `payout` is called by WithdrawalRegistry (M4) when a withdrawal targets
-///      Arbitrum directly (no LayerZero, no bridge). Cross-chain deposits from
-///      spoke chains go through `SpokeDepositGateway` + `HubIntentSettler`
-///      instead — those are separate M4/M5 contracts.
+///      `payoutDirect` is called by WithdrawalRegistry when a hub-native
+///      withdrawal completes — the registry runs the on-chain HF gate and debits
+///      the ledger first, then HubDepositor releases the tokens (no LayerZero, no
+///      bridge). Cross-chain deposits from spoke chains go through
+///      `SpokeDepositGateway` + `HubIntentSettler` instead — those are separate
+///      M4/M5 contracts.
+///
+///      The gate-bypassing `payout(address,address,uint256)` was permanently
+///      removed in Track C6; every withdrawal now routes through
+///      `WithdrawalRegistry.requestWithdrawalFor`.
 interface IHubDepositor {
     // ============ Events ============
 
@@ -62,16 +68,6 @@ interface IHubDepositor {
     function deposit(address asset, uint256 amount) external;
 
     // ============ Authorized actions ============
-
-    /// @notice Release tokens to a user (hub-native withdrawal payout)
-    /// @dev Called by WithdrawalRegistry (M4) when the withdrawal target chain
-    ///      is Arbitrum itself. Debits BalanceLedger.available then transfers
-    ///      tokens to the user. Access: onlyOwner in M3 (WithdrawalRegistry
-    ///      takes over in M4).
-    /// @param user The recipient of the payout
-    /// @param asset The ERC20 token to release
-    /// @param amount The amount to release
-    function payout(address user, address asset, uint256 amount) external;
 
     /// @notice Release tokens to a user WITHOUT debiting BalanceLedger
     /// @dev Used by WithdrawalRegistry for hub-native withdrawals where the
