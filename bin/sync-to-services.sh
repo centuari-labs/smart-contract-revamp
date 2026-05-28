@@ -253,8 +253,16 @@ copy_abis() {
   echo "  copied $n ABI files → ${dst#$REPO_ROOT/}"
 }
 
-# Compare a service's ABI dir against the canonical abi/ (json-only, matching
-# copy_abis semantics: same set of *.json, identical contents).
+# Two ABI JSON files are "equal" if their normalized (key-sorted, compact) form
+# matches — i.e. content-equal regardless of indentation / whitespace / key order.
+# Consumers may reformat synced ABIs (e.g. backend-v2 runs Biome with 4-space
+# indent), so a byte compare would false-positive; this compares semantics.
+abi_equal() {
+  [[ "$(jq -Sc . "$1" 2>/dev/null)" == "$(jq -Sc . "$2" 2>/dev/null)" ]]
+}
+
+# Compare a service's ABI dir against the canonical abi/ (json-only, content-equal
+# regardless of formatting — matches the set of *.json copy_abis would install).
 check_abis() {
   local label="$1" dst="$2" f base mism=0
   if [[ ! -d "$dst" ]]; then
@@ -267,8 +275,8 @@ check_abis() {
     if [[ ! -f "$dst/$base" ]]; then
       drift "$label: missing ABI $base"
       mism=1
-    elif ! cmp -s "$f" "$dst/$base"; then
-      drift "$label: ABI $base differs from canonical abi/"
+    elif ! abi_equal "$f" "$dst/$base"; then
+      drift "$label: ABI $base content differs from canonical abi/"
       mism=1
     fi
   done
