@@ -15,6 +15,7 @@ anvil                      # local chain
 ./bin/run-all.sh           # deploy all contracts (18-step orchestration); auto-runs export-abi + sync-to-services unless SKIP_SYNC=1
 ./bin/export-abi.sh        # export ABIs from out/ → abi/
 ./bin/sync-to-services.sh  # propagate abi/ + deployments/*.json into backend-v2, settlement-engine, indexer-v3, frontend-revamp
+./bin/sync-to-services.sh --check  # verify every service is on the latest deployment (no writes); non-zero exit on drift
 ```
 
 ## Architecture
@@ -143,7 +144,8 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 - Each script is idempotent where possible — re-running should not break state
 - Deployment output goes to `deployments/deploy-<network>-latest.json` (hub) and `deployments/deploy-spoke-<chainId>-latest.json` (spokes)
 - BalanceLedger writer registration uses a two-phase approach: `ConfigureBalanceLedger.s.sol` adds Centuari + HubDepositor first, then Settlement after it's deployed
-- **Post-deploy propagation is automatic**: after the last contract step, `run-all.sh` invokes `./bin/export-abi.sh` (refreshes `abi/`) then `./bin/sync-to-services.sh --network=<slug>` (copies `abi/*.json` and writes a regenerated `.env.contracts` / `.env.local` into every consumer service — `backend-v2`, `settlement-engine`, `indexer-v3`, `frontend-revamp`). Set `SKIP_SYNC=1` to opt out for partial / debug runs.
+- **Post-deploy propagation is automatic**: after the last contract step, `run-all.sh` invokes `./bin/export-abi.sh` (refreshes `abi/`) then `./bin/sync-to-services.sh --network=<slug>` (copies `abi/*.json` and writes a regenerated `.env.contracts` / `.env.local` into every consumer service — `backend-v2`, `settlement-engine`, `indexer-v3`, `frontend-revamp`). Set `SKIP_SYNC=1` to opt out for partial / debug runs. Right after, `run-all.sh` re-runs `sync-to-services.sh --network=<slug> --check` as a gate: the deploy fails loudly if any service didn't land on the latest addresses/ABIs.
+- **Verify services are current** with `./bin/sync-to-services.sh --check` (optionally `--network=<slug>`): it regenerates each service's `.env.contracts` / `.env.local` + ABI set in memory, diffs against what's on disk, and exits non-zero (naming the service + key/ABI) if anything is stale, missing, or divergent — the answer to "is every service on the latest deployment?". Each generated file carries a deterministic `# Deployment fingerprint:` stamp identifying which deployment a service is pinned to.
 - The generated `.env.contracts` / `.env.local` files are gitignored in each service. The hand-edited `.env` keeps secrets (RPC URLs, private keys, DATABASE_URL). Contract addresses live exclusively in the synced file.
 
 ### Testing Rules

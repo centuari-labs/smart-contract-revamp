@@ -716,6 +716,9 @@ if [[ "${SKIP_SYNC:-0}" != "1" ]]; then
 
   echo "=== Syncing ABIs + addresses to consumer services (./bin/sync-to-services.sh) ==="
   "$SCRIPT_DIR/sync-to-services.sh" --network="$NETWORK_SLUG"
+
+  echo "=== Verifying services are on the latest deployment (sync-to-services.sh --check) ==="
+  "$SCRIPT_DIR/sync-to-services.sh" --network="$NETWORK_SLUG" --check
 else
   echo "Skipping export-abi + sync-to-services (SKIP_SYNC=1)"
 fi
