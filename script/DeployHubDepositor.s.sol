@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {HubDepositor} from "../src/core/cross-chain/HubDepositor.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
@@ -9,7 +10,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 /// @notice Deployment script for HubDepositor (implementation + TransparentUpgradeableProxy).
 /// @dev Requires a deployed BalanceLedger proxy address. HubDepositor must be
 ///      registered as an authorized writer on BalanceLedger via ConfigureBalanceLedger.
-contract DeployHubDepositor is Script {
+contract DeployHubDepositor is DeployScriptBase {
     /// @notice Deploy HubDepositor (impl + proxy).
     /// @param owner HubDepositor owner (governance / multisig)
     /// @param balanceLedger BalanceLedger proxy address
@@ -58,13 +59,5 @@ contract DeployHubDepositor is Script {
         proxyAdmin = _getProxyAdmin(hubDepositorProxy);
 
         return (hubDepositorProxy, hubDepositorImpl, proxyAdmin);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    /// @dev Reads the admin address from ERC1967 admin slot
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

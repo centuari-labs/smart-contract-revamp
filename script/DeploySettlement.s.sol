@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {Settlement} from "../src/core/settlement/Settlement.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
@@ -12,7 +13,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 ///      2. ProxyAdmin (controlled by deployer/multisig)
 ///      3. TransparentUpgradeableProxy with implementation and admin
 ///      4. Initializes Settlement via proxy
-contract DeploySettlement is Script {
+contract DeploySettlement is DeployScriptBase {
     /// @notice Main deployment function
     /// @param owner The owner address for the Settlement contract
     /// @param operator The settlement engine operator address
@@ -75,16 +76,5 @@ contract DeploySettlement is Script {
         proxyAdmin = _getProxyAdmin(proxy);
 
         return (proxy, proxyAdmin, implementation);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    /// @dev Reads the admin address from ERC1967 admin slot
-    /// @param proxy The proxy address
-    /// @return The ProxyAdmin address
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        // ERC1967 admin slot: bytes32(uint256(keccak256('eip1967.proxy.admin')) - 1)
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

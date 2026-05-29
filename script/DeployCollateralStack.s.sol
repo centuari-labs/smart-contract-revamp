@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {RiskModuleStub} from "../src/core/risk/RiskModuleStub.sol";
@@ -22,7 +23,7 @@ import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 ///
 ///      Output addresses should be merged into
 ///      `deployments/deploy-<network>-latest.json` by the caller.
-contract DeployCollateralStack is Script {
+contract DeployCollateralStack is DeployScriptBase {
     /// @param owner Governance owner of the new CollateralManager
     /// @param operator Protocol settlement key allowed to call flagFor/unflagFor
     /// @param balanceLedger The already-deployed BalanceLedger proxy address
@@ -73,12 +74,5 @@ contract DeployCollateralStack is Script {
         console.log("BalanceLedger:", balanceLedger);
         console.log("Owner:", owner);
         console.log("Operator:", operator);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

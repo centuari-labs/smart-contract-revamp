@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {Centuari} from "../src/core/centuari/Centuari.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
@@ -9,7 +10,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 /// @notice Deployment script for Centuari (implementation + TransparentUpgradeableProxy).
 /// @dev Pass the BalanceLedger address from DeployBalanceLedger. Use settlementPlaceholder = owner when deploying
 ///      before Settlement; then deploy Settlement with this proxy and call Centuari.setSettlement(settlementProxy).
-contract DeployCentuari is Script {
+contract DeployCentuari is DeployScriptBase {
     /// @notice Deploy Centuari (impl + proxy).
     /// @param owner Centuari owner
     /// @param settlementPlaceholder Address for Centuari.initialize settlement_ (use owner if Settlement not yet deployed)
@@ -72,13 +73,5 @@ contract DeployCentuari is Script {
         proxyAdmin = _getProxyAdmin(centuariProxy);
 
         return (centuariProxy, centuariImpl, proxyAdmin);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    /// @dev Reads the admin address from ERC1967 admin slot
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

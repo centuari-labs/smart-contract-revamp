@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
@@ -10,7 +11,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 /// @dev On testnet, forceWriterRegistrationEnabled is set to true so that
 ///      ConfigureBalanceLedger can register writers immediately via forceAddWriter.
 ///      MUST be false for mainnet production deployments.
-contract DeployBalanceLedger is Script {
+contract DeployBalanceLedger is DeployScriptBase {
     /// @notice Deploy BalanceLedger (impl + proxy).
     /// @param owner BalanceLedger owner (can manage writers and pause)
     /// @param forceWriterRegistrationEnabled Whether forceAddWriter is permitted
@@ -60,13 +61,5 @@ contract DeployBalanceLedger is Script {
         proxyAdmin = _getProxyAdmin(balanceLedgerProxy);
 
         return (balanceLedgerProxy, balanceLedgerImpl, proxyAdmin);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    /// @dev Reads the admin address from ERC1967 admin slot
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import {WithdrawalRegistry} from "../src/core/cross-chain/WithdrawalRegistry.sol";
@@ -16,7 +17,7 @@ import {SettlementLedger} from "../src/core/cross-chain/SettlementLedger.sol";
 ///      2. HubIntentSettler (needs BalanceLedger only at init)
 ///      3. SettlementLedger (needs HubIntentSettler address)
 ///      4. Wire: HubIntentSettler.setSettlementLedger(settlementLedger)
-contract DeployCrossChainHub is Script {
+contract DeployCrossChainHub is DeployScriptBase {
     /// @notice Deploy all M4 cross-chain hub contracts.
     /// @param owner Governance owner for all contracts
     /// @param operator Backend operator / settlement key
@@ -68,13 +69,5 @@ contract DeployCrossChainHub is Script {
         console.log("SettlementLedger ProxyAdmin:", _getProxyAdmin(address(slProxy)));
         console.log("Owner:", owner);
         console.log("Operator:", operator);
-    }
-
-    /// @notice Read the ProxyAdmin address from a TransparentUpgradeableProxy's ERC1967 admin slot.
-    /// @dev Mirrors the helper in the single-proxy deploy scripts so run-all.sh can capture each
-    ///      ProxyAdmin into the deployment summary for the D1 multisig handover.
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        return address(uint160(uint256(vm.load(proxy, adminSlot))));
     }
 }
