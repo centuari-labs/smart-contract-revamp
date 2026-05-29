@@ -124,6 +124,8 @@ RISK_MODULE=$(get_addr riskModuleAddress)
 [[ -z "$RISK_MODULE" || "$RISK_MODULE" == "null" ]] && RISK_MODULE=$(get_addr riskModuleStubAddress)
 FAUCET=$(get_addr faucetAddress)
 FAUCET_TOKENS_CSV=$(get_addr faucetTokensRaw)
+# Per-token PushOracle addresses ({symbol: address}); consumed by the backend price keeper.
+PUSH_ORACLES_JSON_VAL=$(jq -c '.pushOracles // {}' "$HUB_DEPLOY_FILE")
 
 # ---------- drift tracking (check mode) ----------
 DRIFT=0
@@ -166,6 +168,7 @@ gen_backend_env() {
   emit CENTUARI_ADDRESS              "$CENTUARI"
   emit COLLATERAL_MANAGER_ADDRESS    "$COLLATERAL_MANAGER"
   emit RISK_MODULE_ADDRESS           "$RISK_MODULE"
+  emit PUSH_ORACLES_JSON             "$PUSH_ORACLES_JSON_VAL"
   emit WITHDRAWAL_REGISTRY_ADDRESS   "$WITHDRAWAL_REGISTRY"
   emit "FAUCET_ADDRESS_${HUB_CHAIN_ID}" "$FAUCET"
   emit "FAUCET_TOKENS_${HUB_CHAIN_ID}"  "$FAUCET_TOKENS_CSV"
