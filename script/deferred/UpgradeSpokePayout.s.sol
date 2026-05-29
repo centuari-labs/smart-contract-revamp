@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {UpgradeScriptBase} from "./timelock/UpgradeScriptBase.sol";
-import {SpokeDepositGateway} from "../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
+import {UpgradeScriptBase} from "../timelock/UpgradeScriptBase.sol";
+import {SpokePayout} from "../../src/core/cross-chain/spoke/SpokePayout.sol";
 
-/// @title UpgradeSpokeDepositGateway
-/// @notice Schedules and executes a SpokeDepositGateway proxy upgrade via TimelockController.
+/// @title UpgradeSpokePayout
+/// @notice Schedules and executes a SpokePayout proxy upgrade via TimelockController.
 /// @dev ProxyAdmin is owned by a per-chain TimelockController — direct upgradeAndCall() is
 ///      no longer possible. Use the two-step flow:
 ///        1. runSchedule: deploys new impl + calls TimeLock.schedule()
@@ -16,21 +16,21 @@ import {SpokeDepositGateway} from "../src/core/cross-chain/spoke/SpokeDepositGat
 ///
 ///      Foundry invocation examples:
 ///        # Schedule
-///        forge script script/UpgradeSpokeDepositGateway.s.sol:UpgradeSpokeDepositGateway \
+///        forge script script/deferred/UpgradeSpokePayout.s.sol:UpgradeSpokePayout \
 ///          --sig "runSchedule(address,address,address,bytes32)" \
 ///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY $SALT --broadcast --rpc-url $SPOKE_RPC_URL
 ///
 ///        # Execute (after minDelay)
-///        forge script script/UpgradeSpokeDepositGateway.s.sol:UpgradeSpokeDepositGateway \
+///        forge script script/deferred/UpgradeSpokePayout.s.sol:UpgradeSpokePayout \
 ///          --sig "runExecute(address,address,address,string)" \
-///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY "deployments/scheduled-upgrade-SpokeDepositGateway-0x....json" \
+///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY "deployments/scheduled-upgrade-SpokePayout-0x....json" \
 ///          --broadcast --rpc-url $SPOKE_RPC_URL
-contract UpgradeSpokeDepositGateway is UpgradeScriptBase {
+contract UpgradeSpokePayout is UpgradeScriptBase {
     function _contractName() internal pure override returns (string memory) {
-        return "SpokeDepositGateway";
+        return "SpokePayout";
     }
 
     function _deployNewImplementation() internal override returns (address) {
-        return address(new SpokeDepositGateway());
+        return address(new SpokePayout());
     }
 }

@@ -38,7 +38,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This script lives in bin/deferred/, so the repo root is two levels up.
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
 
 STATE_DIR="$ROOT_DIR/.run-all-cross-chain-state"
@@ -204,7 +205,7 @@ phase_a() {
   local FORGE_FLAGS="--broadcast"
   [[ "$VERIFY" == "true" ]] && FORGE_FLAGS="$FORGE_FLAGS --verify"
 
-  run_or_echo bash "$SCRIPT_DIR/run-all.sh" $FORGE_FLAGS
+  run_or_echo bash "$ROOT_DIR/bin/run-all.sh" $FORGE_FLAGS
 
   local HUB_FILE="$DEPLOY_DIR/deploy-${NETWORK_NAME}-latest.json"
   if [[ "$DRY_RUN" != "true" && ! -f "$HUB_FILE" ]]; then
@@ -357,7 +358,7 @@ phase_c() {
     HUB_INTENT_SETTLER="$HUB_INTENT_SETTLER" \
     WITHDRAWAL_REGISTRY="$WITHDRAWAL_REGISTRY" \
     BRIDGED_ASSETS="$USDC" \
-      run_or_echo forge script script/ConfigureSpokeForM5.s.sol:ConfigureSpokeForM5 \
+      run_or_echo forge script script/deferred/ConfigureSpokeForM5.s.sol:ConfigureSpokeForM5 \
         --rpc-url "$RPC" \
         --private-key "$PRIVATE_KEY" \
         --broadcast
@@ -419,7 +420,7 @@ phase_d() {
   export HUB_INTENT_SETTLER WITHDRAWAL_REGISTRY
   export LZ_ENDPOINT="$LZ_ENDPOINT_V2_ADDRESS"
 
-  run_or_echo forge script script/ConfigureHubForM5.s.sol:ConfigureHubForM5 \
+  run_or_echo forge script script/deferred/ConfigureHubForM5.s.sol:ConfigureHubForM5 \
     --rpc-url "$ARB_SEPOLIA_RPC_URL_HTTP" \
     --private-key "$PRIVATE_KEY" \
     --broadcast

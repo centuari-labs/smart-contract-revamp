@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {HubIntentSettler} from "../src/core/cross-chain/HubIntentSettler.sol";
-import {WithdrawalRegistry} from "../src/core/cross-chain/WithdrawalRegistry.sol";
+import {HubIntentSettler} from "../../src/core/cross-chain/HubIntentSettler.sol";
+import {WithdrawalRegistry} from "../../src/core/cross-chain/WithdrawalRegistry.sol";
 
 /// @title ConfigureHubForM5
 /// @notice Post-deployment hub-side wiring for M5 spoke contracts. Run on the
@@ -15,7 +15,7 @@ import {WithdrawalRegistry} from "../src/core/cross-chain/WithdrawalRegistry.sol
 ///      ```
 ///      HUB_INTENT_SETTLER=0x... WITHDRAWAL_REGISTRY=0x... \
 ///      LZ_ENDPOINT=0x... SPOKE_GATEWAY_BASE=0x... SPOKE_PAYOUT_BASE=0x... \
-///      forge script script/ConfigureHubForM5.s.sol \
+///      forge script script/deferred/ConfigureHubForM5.s.sol \
 ///        --rpc-url $ARB_SEPOLIA_RPC --broadcast
 ///      ```
 contract ConfigureHubForM5 is Script {

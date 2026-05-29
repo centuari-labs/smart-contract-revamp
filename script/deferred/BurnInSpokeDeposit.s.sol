@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {ISpokeDepositGateway} from "../src/interfaces/cross-chain/spoke/ISpokeDepositGateway.sol";
+import {ISpokeDepositGateway} from "../../src/interfaces/cross-chain/spoke/ISpokeDepositGateway.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title BurnInSpokeDeposit
@@ -27,7 +27,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///                            (e.g. 1000000 = 1 USDC at 6 decimals)
 ///
 /// @dev Usage:
-///        forge script script/BurnInSpokeDeposit.s.sol \
+///        forge script script/deferred/BurnInSpokeDeposit.s.sol \
 ///          --rpc-url $SPOKE_RPC_URL \
 ///          --private-key $PRIVATE_KEY \
 ///          --broadcast --skip-simulation

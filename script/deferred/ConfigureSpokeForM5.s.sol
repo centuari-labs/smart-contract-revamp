@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {ISpokeDepositGateway} from "../src/interfaces/cross-chain/spoke/ISpokeDepositGateway.sol";
-import {ISpokeVaultStable} from "../src/interfaces/cross-chain/spoke/ISpokeVaultStable.sol";
-import {ISpokePayout} from "../src/interfaces/cross-chain/spoke/ISpokePayout.sol";
+import {ISpokeDepositGateway} from "../../src/interfaces/cross-chain/spoke/ISpokeDepositGateway.sol";
+import {ISpokeVaultStable} from "../../src/interfaces/cross-chain/spoke/ISpokeVaultStable.sol";
+import {ISpokePayout} from "../../src/interfaces/cross-chain/spoke/ISpokePayout.sol";
 
 /// @title ConfigureSpokeForM5
 /// @notice Spoke-side counterpart to ConfigureHubForM5. Wires LayerZero peers,
@@ -36,7 +36,7 @@ import {ISpokePayout} from "../src/interfaces/cross-chain/spoke/ISpokePayout.sol
 ///        SPOKE_NATIVE_ASSETS      — assets to register as SPOKE_NATIVE on this spoke
 ///
 /// @dev Usage:
-///        forge script script/ConfigureSpokeForM5.s.sol \
+///        forge script script/deferred/ConfigureSpokeForM5.s.sol \
 ///          --rpc-url $SPOKE_RPC_URL \
 ///          --private-key $PRIVATE_KEY \
 ///          --broadcast

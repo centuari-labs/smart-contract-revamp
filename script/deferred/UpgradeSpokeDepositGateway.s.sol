@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {UpgradeScriptBase} from "./timelock/UpgradeScriptBase.sol";
-import {SpokeVaultStable} from "../src/core/cross-chain/spoke/SpokeVaultStable.sol";
+import {UpgradeScriptBase} from "../timelock/UpgradeScriptBase.sol";
+import {SpokeDepositGateway} from "../../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
 
-/// @title UpgradeSpokeVaultStable
-/// @notice Schedules and executes a SpokeVaultStable proxy upgrade via TimelockController.
+/// @title UpgradeSpokeDepositGateway
+/// @notice Schedules and executes a SpokeDepositGateway proxy upgrade via TimelockController.
 /// @dev ProxyAdmin is owned by a per-chain TimelockController — direct upgradeAndCall() is
 ///      no longer possible. Use the two-step flow:
 ///        1. runSchedule: deploys new impl + calls TimeLock.schedule()
@@ -16,21 +16,21 @@ import {SpokeVaultStable} from "../src/core/cross-chain/spoke/SpokeVaultStable.s
 ///
 ///      Foundry invocation examples:
 ///        # Schedule
-///        forge script script/UpgradeSpokeVaultStable.s.sol:UpgradeSpokeVaultStable \
+///        forge script script/deferred/UpgradeSpokeDepositGateway.s.sol:UpgradeSpokeDepositGateway \
 ///          --sig "runSchedule(address,address,address,bytes32)" \
 ///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY $SALT --broadcast --rpc-url $SPOKE_RPC_URL
 ///
 ///        # Execute (after minDelay)
-///        forge script script/UpgradeSpokeVaultStable.s.sol:UpgradeSpokeVaultStable \
+///        forge script script/deferred/UpgradeSpokeDepositGateway.s.sol:UpgradeSpokeDepositGateway \
 ///          --sig "runExecute(address,address,address,string)" \
-///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY "deployments/scheduled-upgrade-SpokeVaultStable-0x....json" \
+///          $SPOKE_TIMELOCK $PROXY_ADMIN $PROXY "deployments/scheduled-upgrade-SpokeDepositGateway-0x....json" \
 ///          --broadcast --rpc-url $SPOKE_RPC_URL
-contract UpgradeSpokeVaultStable is UpgradeScriptBase {
+contract UpgradeSpokeDepositGateway is UpgradeScriptBase {
     function _contractName() internal pure override returns (string memory) {
-        return "SpokeVaultStable";
+        return "SpokeDepositGateway";
     }
 
     function _deployNewImplementation() internal override returns (address) {
-        return address(new SpokeVaultStable());
+        return address(new SpokeDepositGateway());
     }
 }

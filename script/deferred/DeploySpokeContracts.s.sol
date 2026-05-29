@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
-import {SpokeVaultStable} from "../src/core/cross-chain/spoke/SpokeVaultStable.sol";
-import {SpokePayout} from "../src/core/cross-chain/spoke/SpokePayout.sol";
-import {SpokeDepositGateway} from "../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
+import {SpokeVaultStable} from "../../src/core/cross-chain/spoke/SpokeVaultStable.sol";
+import {SpokePayout} from "../../src/core/cross-chain/spoke/SpokePayout.sol";
+import {SpokeDepositGateway} from "../../src/core/cross-chain/spoke/SpokeDepositGateway.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeploySpokeContracts
@@ -14,7 +14,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 ///         SpokeVaultStable → SpokePayout → SpokeDepositGateway.
 /// @dev Usage:
 ///      ```
-///      forge script script/DeploySpokeContracts.s.sol \
+///      forge script script/deferred/DeploySpokeContracts.s.sol \
 ///        --sig 'run(address,address,uint32,address)' \
 ///        $OWNER $LZ_ENDPOINT $HUB_EID $PROXY_ADMIN_OWNER \
 ///        --rpc-url $SPOKE_RPC --broadcast --verify

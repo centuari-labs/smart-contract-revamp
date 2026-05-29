@@ -22,7 +22,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This script lives in bin/deferred/, so the repo root is two levels up.
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
 
 # Validate required env vars
@@ -50,7 +51,7 @@ echo "ProxyAdmin Owner:  $PROXY_ADMIN_OWNER"
 echo ""
 
 # Run the deploy script
-OUTPUT=$(forge script script/DeploySpokeContracts.s.sol \
+OUTPUT=$(forge script script/deferred/DeploySpokeContracts.s.sol \
   --sig 'run(address,address,uint32,address)' \
   "$OWNER" "$LZ_ENDPOINT" "$HUB_EID" "$PROXY_ADMIN_OWNER" \
   --rpc-url "$SPOKE_RPC_URL" \
@@ -111,5 +112,5 @@ echo "Written to: $DEPLOY_FILE"
 cat "$DEPLOY_FILE"
 echo ""
 echo "Next steps:"
-echo "  1. Run ConfigureHubForM5.s.sol on the hub to register these spoke contracts"
+echo "  1. Run script/deferred/ConfigureHubForM5.s.sol on the hub to register these spoke contracts"
 echo "  2. Run ./bin/export-abi.sh to update ABIs for M8/M9"
