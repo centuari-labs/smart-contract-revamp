@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 1886,
+      "astId": 1951,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_balanceLedger",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1889,
+      "astId": 1954,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_settlementLedger",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1892,
+      "astId": 1957,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_operator",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1895,
+      "astId": 1960,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_paused",
       "offset": 20,
@@ -33,15 +33,15 @@
       "type": "t_bool"
     },
     {
-      "astId": 1901,
+      "astId": 1966,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_depositStatuses",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_bytes32,t_enum(DepositStatus)2206)"
+      "type": "t_mapping(t_bytes32,t_enum(DepositStatus)2277)"
     },
     {
-      "astId": 1904,
+      "astId": 1969,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_lzEndpoint",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1909,
+      "astId": 1974,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_trustedRemotes",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_uint32,t_bytes32)"
     },
     {
-      "astId": 1912,
+      "astId": 1977,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "_withdrawalRegistry",
       "offset": 0,
@@ -65,12 +65,20 @@
       "type": "t_address"
     },
     {
-      "astId": 1917,
+      "astId": 1980,
+      "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_address"
+    },
+    {
+      "astId": 1985,
       "contract": "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler",
       "label": "__gap",
       "offset": 0,
-      "slot": "7",
-      "type": "t_array(t_uint256)42_storage"
+      "slot": "8",
+      "type": "t_array(t_uint256)41_storage"
     }
   ],
   "types": {
@@ -79,10 +87,10 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)42_storage": {
+    "t_array(t_uint256)41_storage": {
       "encoding": "inplace",
-      "label": "uint256[42]",
-      "numberOfBytes": "1344",
+      "label": "uint256[41]",
+      "numberOfBytes": "1312",
       "base": "t_uint256"
     },
     "t_bool": {
@@ -95,17 +103,17 @@
       "label": "bytes32",
       "numberOfBytes": "32"
     },
-    "t_enum(DepositStatus)2206": {
+    "t_enum(DepositStatus)2277": {
       "encoding": "inplace",
       "label": "enum IHubIntentSettler.DepositStatus",
       "numberOfBytes": "1"
     },
-    "t_mapping(t_bytes32,t_enum(DepositStatus)2206)": {
+    "t_mapping(t_bytes32,t_enum(DepositStatus)2277)": {
       "encoding": "mapping",
       "key": "t_bytes32",
       "label": "mapping(bytes32 => enum IHubIntentSettler.DepositStatus)",
       "numberOfBytes": "32",
-      "value": "t_enum(DepositStatus)2206"
+      "value": "t_enum(DepositStatus)2277"
     },
     "t_mapping(t_uint32,t_bytes32)": {
       "encoding": "mapping",

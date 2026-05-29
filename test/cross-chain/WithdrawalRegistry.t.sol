@@ -712,10 +712,57 @@ contract WithdrawalRegistryTest is Test {
         assertFalse(registry.paused());
     }
 
-    function test_Pause_RevertNonOwner() public {
+    function test_Pause_RevertNonPauser() public {
+        vm.prank(outsider);
+        vm.expectRevert(IWithdrawalRegistry.Unauthorized.selector);
+        registry.pause();
+    }
+
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(registry.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit WithdrawalRegistry.PauserUpdated(owner, guardian);
+        registry.setPauser(guardian);
+        assertEq(registry.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
         vm.prank(outsider);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
+        registry.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IWithdrawalRegistry.ZeroAddress.selector);
+        registry.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        registry.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(IWithdrawalRegistry.Unauthorized.selector);
         registry.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        registry.pause();
+        assertTrue(registry.paused());
+
+        vm.prank(guardian);
+        registry.unpause();
+        assertFalse(registry.paused());
     }
 
     // ============ Fuzz ============

@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 1560,
+      "astId": 1495,
       "contract": "src/core/cross-chain/HubDepositor.sol:HubDepositor",
       "label": "_balanceLedger",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1565,
+      "astId": 1500,
       "contract": "src/core/cross-chain/HubDepositor.sol:HubDepositor",
       "label": "_supportedAssets",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 1570,
+      "astId": 1505,
       "contract": "src/core/cross-chain/HubDepositor.sol:HubDepositor",
       "label": "_authorizedCallers",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 1575,
+      "astId": 1510,
       "contract": "src/core/cross-chain/HubDepositor.sol:HubDepositor",
       "label": "__gap",
       "offset": 0,

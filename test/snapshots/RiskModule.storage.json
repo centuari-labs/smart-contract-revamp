@@ -1,31 +1,31 @@
 {
   "storage": [
     {
-      "astId": 4679,
+      "astId": 4686,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_oracle",
       "offset": 0,
       "slot": "0",
-      "type": "t_contract(IPriceOracle)5333"
+      "type": "t_contract(IPriceOracle)5346"
     },
     {
-      "astId": 4683,
+      "astId": 4690,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_centuari",
       "offset": 0,
       "slot": "1",
-      "type": "t_contract(ICentuari)5317"
+      "type": "t_contract(ICentuari)5330"
     },
     {
-      "astId": 4687,
+      "astId": 4694,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_balanceLedger",
       "offset": 0,
       "slot": "2",
-      "type": "t_contract(IBalanceLedger)4985"
+      "type": "t_contract(IBalanceLedger)4995"
     },
     {
-      "astId": 4692,
+      "astId": 4699,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_ltvBps",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 4697,
+      "astId": 4704,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_bufferBps",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 4700,
+      "astId": 4707,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "_defaultBufferBps",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_uint256"
     },
     {
-      "astId": 4705,
+      "astId": 4712,
       "contract": "src/core/risk/RiskModule.sol:RiskModule",
       "label": "__gap",
       "offset": 0,
@@ -69,17 +69,17 @@
       "numberOfBytes": "1408",
       "base": "t_uint256"
     },
-    "t_contract(IBalanceLedger)4985": {
+    "t_contract(IBalanceLedger)4995": {
       "encoding": "inplace",
       "label": "contract IBalanceLedger",
       "numberOfBytes": "20"
     },
-    "t_contract(ICentuari)5317": {
+    "t_contract(ICentuari)5330": {
       "encoding": "inplace",
       "label": "contract ICentuari",
       "numberOfBytes": "20"
     },
-    "t_contract(IPriceOracle)5333": {
+    "t_contract(IPriceOracle)5346": {
       "encoding": "inplace",
       "label": "contract IPriceOracle",
       "numberOfBytes": "20"

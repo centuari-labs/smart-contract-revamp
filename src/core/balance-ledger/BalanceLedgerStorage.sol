@@ -115,12 +115,19 @@ abstract contract BalanceLedgerStorage {
     ///      `uint64` holds unix seconds until year 2554 — safe.
     mapping(address => mapping(address => uint64)) internal _flaggedAt;
 
+    /// @notice Guardian allowed to pause()/unpause() with no timelock delay.
+    /// @dev Separate from owner() so the emergency stop stays fast while owner()
+    ///      (a 24h TimelockController in production) governs every other setter.
+    ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
+    address internal _pauser;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 42 slots for future storage variables.
+    /// @dev Provides 41 slots for future storage variables.
     ///      When adding new variables, reduce this gap accordingly.
     ///      Current usage: 2 bool slots + 3 balance/writer mappings
-    ///      + 3 collateral mappings (_usedAsCollateral, _flaggedAssets, _flaggedAt) = 8 slots.
-    uint256[42] private __gap;
+    ///      + 3 collateral mappings (_usedAsCollateral, _flaggedAssets, _flaggedAt)
+    ///      + _pauser = 9 slots.
+    uint256[41] private __gap;
 }

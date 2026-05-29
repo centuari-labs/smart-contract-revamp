@@ -203,6 +203,18 @@ parse_hub_intent_settler_proxy() {
 parse_settlement_ledger_proxy() {
   grep -oE 'SettlementLedger proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/SettlementLedger proxy: //'
 }
+parse_collateral_manager_proxy_admin() {
+  grep -oE 'CollateralManager ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/CollateralManager ProxyAdmin: //'
+}
+parse_withdrawal_registry_proxy_admin() {
+  grep -oE 'WithdrawalRegistry ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/WithdrawalRegistry ProxyAdmin: //'
+}
+parse_hub_intent_settler_proxy_admin() {
+  grep -oE 'HubIntentSettler ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/HubIntentSettler ProxyAdmin: //'
+}
+parse_settlement_ledger_proxy_admin() {
+  grep -oE 'SettlementLedger ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/SettlementLedger ProxyAdmin: //'
+}
 
 write_deploy_summary() {
   : "${MOCK_TOKENS_JSON:={}}"
@@ -216,14 +228,18 @@ write_deploy_summary() {
   : "${HUB_DEPOSITOR_PROXY_ADMIN_ADDRESS:=}"
   : "${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS:=}"
   : "${COLLATERAL_MANAGER_ADDRESS:=}"
+  : "${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS:=}"
   : "${RISK_MODULE_STUB_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
   : "${UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
   : "${WITHDRAWAL_REGISTRY_ADDRESS:=}"
+  : "${WITHDRAWAL_REGISTRY_PROXY_ADMIN_ADDRESS:=}"
   : "${HUB_INTENT_SETTLER_ADDRESS:=}"
+  : "${HUB_INTENT_SETTLER_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_LEDGER_ADDRESS:=}"
+  : "${SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS:=}"
 
   {
     echo "{"
@@ -250,14 +266,18 @@ write_deploy_summary() {
     echo "  \"hubDepositorProxyAdmin\": \"${HUB_DEPOSITOR_PROXY_ADMIN_ADDRESS}\","
     echo "  \"hubDepositorImplementation\": \"${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS}\","
     echo "  \"collateralManagerAddress\": \"${COLLATERAL_MANAGER_ADDRESS}\","
+    echo "  \"collateralManagerProxyAdmin\": \"${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"riskModuleStubAddress\": \"${RISK_MODULE_STUB_ADDRESS}\","
     echo "  \"settlementProxy\": \"${SETTLEMENT_PROXY_ADDRESS:-}\","
     echo "  \"settlementProxyAdmin\": \"${SETTLEMENT_PROXY_ADMIN_ADDRESS:-}\","
     echo "  \"settlementImplementation\": \"${SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
     echo "  \"upgradedSettlementImplementation\": \"${UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
     echo "  \"withdrawalRegistryAddress\": \"${WITHDRAWAL_REGISTRY_ADDRESS}\","
+    echo "  \"withdrawalRegistryProxyAdmin\": \"${WITHDRAWAL_REGISTRY_PROXY_ADMIN_ADDRESS}\","
     echo "  \"hubIntentSettlerAddress\": \"${HUB_INTENT_SETTLER_ADDRESS}\","
+    echo "  \"hubIntentSettlerProxyAdmin\": \"${HUB_INTENT_SETTLER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"settlementLedgerAddress\": \"${SETTLEMENT_LEDGER_ADDRESS}\","
+    echo "  \"settlementLedgerProxyAdmin\": \"${SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"proxyAdminEnv\": \"${PROXY_ADMIN:-}\","
     echo "  \"settlementProxyEnv\": \"${SETTLEMENT_PROXY:-}\","
     echo "  \"proxyEnv\": \"${PROXY:-}\","
@@ -537,6 +557,7 @@ if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
       echo "Captured COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS"
     fi
     RISK_MODULE_STUB_ADDRESS="$(echo "$out" | parse_risk_module_stub || true)"
+    COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_collateral_manager_proxy_admin || true)"
   else
     echo "Skipping DeployCollateralStack (set PRIVATE_KEY, BALANCE_LEDGER_ADDRESS, and BACKEND_OPERATOR)"
   fi
@@ -672,6 +693,9 @@ if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_
     export SETTLEMENT_LEDGER_ADDRESS="$SL_PROXY"
     echo "Captured SETTLEMENT_LEDGER_ADDRESS=$SETTLEMENT_LEDGER_ADDRESS"
   fi
+  WITHDRAWAL_REGISTRY_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_withdrawal_registry_proxy_admin || true)"
+  HUB_INTENT_SETTLER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_hub_intent_settler_proxy_admin || true)"
+  SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_settlement_ledger_proxy_admin || true)"
 else
   echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_STUB_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
 fi

@@ -39,10 +39,16 @@ contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
         _operator = operator_;
         _centuari = centuari_;
         _paused = false;
+        _pauser = owner_;
 
         emit OperatorUpdated(address(0), operator_);
         emit CentuariUpdated(address(0), centuari_);
     }
+
+    // ============ Events ============
+
+    /// @notice Emitted when the guardian (pauser) address is rotated
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
     // ============ Modifiers ============
 
@@ -55,6 +61,12 @@ contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
     /// @notice Ensures the contract is not paused
     modifier whenNotPaused() {
         if (_paused) revert ContractPaused();
+        _;
+    }
+
+    /// @notice Restricts pause/unpause to the guardian (fast emergency path, no timelock)
+    modifier onlyPauser() {
+        if (msg.sender != _pauser) revert Unauthorized();
         _;
     }
 
@@ -184,17 +196,26 @@ contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
     }
 
     /// @notice Pause the contract
-    /// @dev Only callable by owner. Prevents settlement functions from executing.
-    function pause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function pause() external onlyPauser {
         _paused = true;
         emit Paused(msg.sender);
     }
 
     /// @notice Unpause the contract
-    /// @dev Only callable by owner. Allows settlement functions to execute.
-    function unpause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function unpause() external onlyPauser {
         _paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Rotate the guardian (pauser) address. Owner-gated (the 24h timelock in prod).
+    /// @param newPauser The new guardian address
+    function setPauser(address newPauser) external onlyOwner {
+        if (newPauser == address(0)) revert ZeroAddress();
+        address oldPauser = _pauser;
+        _pauser = newPauser;
+        emit PauserUpdated(oldPauser, newPauser);
     }
 
     // ============ View Functions ============
@@ -218,5 +239,10 @@ contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
     /// @return True if the contract is paused
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @notice The current guardian (pauser) address
+    function pauser() external view returns (address) {
+        return _pauser;
     }
 }

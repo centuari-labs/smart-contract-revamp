@@ -1424,6 +1424,53 @@ contract CentuariTest is Test {
         centuari.unpause();
     }
 
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(centuari.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit Centuari.PauserUpdated(owner, guardian);
+        centuari.setPauser(guardian);
+        assertEq(centuari.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
+        vm.prank(user);
+        vm.expectRevert();
+        centuari.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ICentuari.ZeroAddress.selector);
+        centuari.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        centuari.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(ICentuari.Unauthorized.selector);
+        centuari.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        centuari.pause();
+        assertTrue(centuari.paused());
+
+        vm.prank(guardian);
+        centuari.unpause();
+        assertFalse(centuari.paused());
+    }
+
     // ============ View Functions Tests ============
 
     function test_GetMarketId() public view {

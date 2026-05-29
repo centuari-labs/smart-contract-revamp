@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 1057,
+      "astId": 1122,
       "contract": "src/core/settlement/Settlement.sol:Settlement",
       "label": "_operator",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1060,
+      "astId": 1125,
       "contract": "src/core/settlement/Settlement.sol:Settlement",
       "label": "_centuari",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 1063,
+      "astId": 1128,
       "contract": "src/core/settlement/Settlement.sol:Settlement",
       "label": "_paused",
       "offset": 20,
@@ -25,7 +25,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 1068,
+      "astId": 1133,
       "contract": "src/core/settlement/Settlement.sol:Settlement",
       "label": "_settledMatches",
       "offset": 0,
@@ -33,12 +33,20 @@
       "type": "t_mapping(t_bytes32,t_bool)"
     },
     {
-      "astId": 1073,
+      "astId": 1136,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_address"
+    },
+    {
+      "astId": 1141,
       "contract": "src/core/settlement/Settlement.sol:Settlement",
       "label": "__gap",
       "offset": 0,
-      "slot": "3",
-      "type": "t_array(t_uint256)47_storage"
+      "slot": "4",
+      "type": "t_array(t_uint256)46_storage"
     }
   ],
   "types": {
@@ -47,10 +55,10 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)47_storage": {
+    "t_array(t_uint256)46_storage": {
       "encoding": "inplace",
-      "label": "uint256[47]",
-      "numberOfBytes": "1504",
+      "label": "uint256[46]",
+      "numberOfBytes": "1472",
       "base": "t_uint256"
     },
     "t_bool": {

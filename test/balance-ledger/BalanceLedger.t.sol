@@ -309,6 +309,53 @@ contract BalanceLedgerTest is Test {
         vm.stopPrank();
     }
 
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(ledger.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit BalanceLedger.PauserUpdated(owner, guardian);
+        ledger.setPauser(guardian);
+        assertEq(ledger.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
+        vm.prank(outsider);
+        vm.expectRevert();
+        ledger.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IBalanceLedger.ZeroAddress.selector);
+        ledger.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        ledger.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(IBalanceLedger.Unauthorized.selector);
+        ledger.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        ledger.pause();
+        assertTrue(ledger.paused());
+
+        vm.prank(guardian);
+        ledger.unpause();
+        assertFalse(ledger.paused());
+    }
+
     function test_Unpause_RestoresMutators() public {
         vm.startPrank(owner);
         ledger.pause();

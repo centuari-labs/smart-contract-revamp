@@ -522,6 +522,53 @@ contract SettlementTest is Test {
         settlement.unpause();
     }
 
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(settlement.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit Settlement.PauserUpdated(owner, guardian);
+        settlement.setPauser(guardian);
+        assertEq(settlement.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
+        vm.prank(user);
+        vm.expectRevert();
+        settlement.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ISettlement.ZeroAddress.selector);
+        settlement.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        settlement.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(ISettlement.Unauthorized.selector);
+        settlement.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        settlement.pause();
+        assertTrue(settlement.paused());
+
+        vm.prank(guardian);
+        settlement.unpause();
+        assertFalse(settlement.paused());
+    }
+
     // ============ View Functions Tests ============
 
     function test_IsSettled_ReturnsFalseForUnknown() public view {

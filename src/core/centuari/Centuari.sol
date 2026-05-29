@@ -53,10 +53,16 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
         _balanceLedger = balanceLedger_;
         _feeCollector = feeCollector_;
         _paused = false;
+        _pauser = owner_;
 
         emit SettlementUpdated(address(0), settlement_);
         emit BalanceLedgerUpdated(address(0), balanceLedger_);
     }
+
+    // ============ Events ============
+
+    /// @notice Emitted when the guardian (pauser) address is rotated
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
     // ============ Modifiers ============
 
@@ -75,6 +81,12 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
     /// @notice Restricts function access to the operator (backend)
     modifier onlyOperator() {
         if (msg.sender != _operator) revert Unauthorized();
+        _;
+    }
+
+    /// @notice Restricts pause/unpause to the guardian (fast emergency path, no timelock)
+    modifier onlyPauser() {
+        if (msg.sender != _pauser) revert Unauthorized();
         _;
     }
 
@@ -363,17 +375,26 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
     }
 
     /// @notice Pause the contract
-    /// @dev Only callable by owner. Prevents settlement functions from executing.
-    function pause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function pause() external onlyPauser {
         _paused = true;
         emit Paused(msg.sender);
     }
 
     /// @notice Unpause the contract
-    /// @dev Only callable by owner. Allows settlement functions to execute.
-    function unpause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function unpause() external onlyPauser {
         _paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Rotate the guardian (pauser) address. Owner-gated (the 24h timelock in prod).
+    /// @param newPauser The new guardian address
+    function setPauser(address newPauser) external onlyOwner {
+        if (newPauser == address(0)) revert ZeroAddress();
+        address oldPauser = _pauser;
+        _pauser = newPauser;
+        emit PauserUpdated(oldPauser, newPauser);
     }
 
     /// @notice Update the operator (backend) address
@@ -437,6 +458,11 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
     /// @inheritdoc ICentuari
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @notice The current guardian (pauser) address
+    function pauser() external view returns (address) {
+        return _pauser;
     }
 
     /// @inheritdoc ICentuari

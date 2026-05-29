@@ -88,15 +88,22 @@ abstract contract CentuariStorage {
     ///      Append-only (Phase 3, C6).
     mapping(bytes32 => address) internal _marketLoanToken;
 
+    /// @notice Guardian allowed to pause()/unpause() with no timelock delay.
+    /// @dev Separate from owner() so the emergency stop stays fast while owner()
+    ///      (a 24h TimelockController in production) governs every other setter.
+    ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
+    address internal _pauser;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
     /// @dev Reduced 40 → 38 in Phase 3 (C6) when `_borrowerMarkets` +
-    ///      `_marketLoanToken` were appended (2 mapping slots). When adding new
-    ///      variables, reduce this gap accordingly.
+    ///      `_marketLoanToken` were appended (2 mapping slots), then 38 → 37 in D1
+    ///      when `_pauser` was appended. When adding new variables, reduce this gap
+    ///      accordingly.
     ///      Current usage: address/bool slots (settlement, balanceLedger+paused,
     ///      bondTokenFactory, operator, feeCollector) + 6 mappings (marketTotalCbt,
     ///      lendPositionCbtAmount, borrowDebt, activeDebtCount, borrowerMarkets,
-    ///      marketLoanToken).
-    uint256[38] private __gap;
+    ///      marketLoanToken) + _pauser.
+    uint256[37] private __gap;
 }

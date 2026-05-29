@@ -327,6 +327,53 @@ contract HubIntentSettlerTest is Test {
         assertFalse(settler.paused());
     }
 
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(settler.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit HubIntentSettler.PauserUpdated(owner, guardian);
+        settler.setPauser(guardian);
+        assertEq(settler.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
+        vm.prank(outsider);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, outsider));
+        settler.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IHubIntentSettler.ZeroAddress.selector);
+        settler.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        settler.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(IHubIntentSettler.Unauthorized.selector);
+        settler.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        settler.pause();
+        assertTrue(settler.paused());
+
+        vm.prank(guardian);
+        settler.unpause();
+        assertFalse(settler.paused());
+    }
+
     // ============ Views ============
 
     function test_DepositStatus_DefaultNone() public view {

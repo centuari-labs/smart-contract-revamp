@@ -42,10 +42,16 @@ abstract contract HubIntentSettlerStorage {
     ///         when a SPOKE_NATIVE deposit is confirmed.
     address internal _withdrawalRegistry;
 
+    /// @notice Guardian allowed to pause()/unpause() with no timelock delay.
+    /// @dev Separate from owner() so the emergency stop stays fast while owner()
+    ///      (a 24h TimelockController in production) governs every other setter.
+    ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
+    address internal _pauser;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 8 slots consumed (5 original + lzEndpoint + trustedRemotes +
-    ///      withdrawalRegistry), leaving 42 from the 50-slot budget.
-    uint256[42] private __gap;
+    /// @dev 9 slots consumed (5 original + lzEndpoint + trustedRemotes +
+    ///      withdrawalRegistry + _pauser), leaving 41 from the 50-slot budget.
+    uint256[41] private __gap;
 }

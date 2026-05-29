@@ -65,10 +65,16 @@ abstract contract WithdrawalRegistryStorage {
     /// @notice EIP-155 chainId → LZ eid mapping for spoke chains.
     mapping(uint256 => uint32) internal _spokeEidByChainId;
 
+    /// @notice Guardian allowed to pause()/unpause() with no timelock delay.
+    /// @dev Separate from owner() so the emergency stop stays fast while owner()
+    ///      (a 24h TimelockController in production) governs every other setter.
+    ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
+    address internal _pauser;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev 13 slots consumed (10 + _payoutEndpoint + _payoutPeers +
-    ///      _spokeEidByChainId), leaving 37 from the 50-slot budget.
-    uint256[37] private __gap;
+    /// @dev 14 slots consumed (10 + _payoutEndpoint + _payoutPeers +
+    ///      _spokeEidByChainId + _pauser), leaving 36 from the 50-slot budget.
+    uint256[36] private __gap;
 }

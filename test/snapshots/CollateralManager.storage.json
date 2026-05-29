@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 933,
+      "astId": 948,
       "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
       "label": "_balanceLedger",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 936,
+      "astId": 951,
       "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
       "label": "_riskModule",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 939,
+      "astId": 954,
       "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
       "label": "_operator",
       "offset": 0,
@@ -25,7 +25,7 @@
       "type": "t_address"
     },
     {
-      "astId": 942,
+      "astId": 957,
       "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
       "label": "_flagLock",
       "offset": 20,
@@ -33,7 +33,7 @@
       "type": "t_uint64"
     },
     {
-      "astId": 947,
+      "astId": 962,
       "contract": "src/core/collateral/CollateralManager.sol:CollateralManager",
       "label": "__gap",
       "offset": 0,

@@ -56,7 +56,13 @@ contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorag
 
         _forceWriterRegistrationEnabled = forceWriterRegistrationEnabled_;
         _paused = false;
+        _pauser = owner_;
     }
+
+    // ============ Events ============
+
+    /// @notice Emitted when the guardian (pauser) address is rotated
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
     // ============ Modifiers ============
 
@@ -69,6 +75,12 @@ contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorag
     /// @notice Ensures the contract is not paused
     modifier whenNotPaused() {
         if (_paused) revert ContractPaused();
+        _;
+    }
+
+    /// @notice Restricts pause/unpause to the guardian (fast emergency path, no timelock)
+    modifier onlyPauser() {
+        if (msg.sender != _pauser) revert Unauthorized();
         _;
     }
 
@@ -211,15 +223,24 @@ contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorag
     // ============ Pause Control ============
 
     /// @inheritdoc IBalanceLedger
-    function pause() external onlyOwner {
+    function pause() external onlyPauser {
         _paused = true;
         emit Paused(msg.sender);
     }
 
     /// @inheritdoc IBalanceLedger
-    function unpause() external onlyOwner {
+    function unpause() external onlyPauser {
         _paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Rotate the guardian (pauser) address. Owner-gated (the 24h timelock in prod).
+    /// @param newPauser The new guardian address
+    function setPauser(address newPauser) external onlyOwner {
+        if (newPauser == address(0)) revert ZeroAddress();
+        address oldPauser = _pauser;
+        _pauser = newPauser;
+        emit PauserUpdated(oldPauser, newPauser);
     }
 
     // ============ Views ============
@@ -258,6 +279,11 @@ contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorag
     /// @inheritdoc IBalanceLedger
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @notice The current guardian (pauser) address
+    function pauser() external view returns (address) {
+        return _pauser;
     }
 
     /// @inheritdoc IBalanceLedger

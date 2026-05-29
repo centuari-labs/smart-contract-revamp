@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 8091,
+      "astId": 8053,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_paused",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 8094,
+      "astId": 8056,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_forceWriterRegistrationEnabled",
       "offset": 1,
@@ -17,15 +17,15 @@
       "type": "t_bool"
     },
     {
-      "astId": 8102,
+      "astId": 8064,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_balances",
       "offset": 0,
       "slot": "1",
-      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8084_storage))"
+      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8046_storage))"
     },
     {
-      "astId": 8107,
+      "astId": 8069,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_authorizedWriters",
       "offset": 0,
@@ -33,15 +33,15 @@
       "type": "t_mapping(t_address,t_bool)"
     },
     {
-      "astId": 8113,
+      "astId": 8075,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_writerProposals",
       "offset": 0,
       "slot": "3",
-      "type": "t_mapping(t_address,t_struct(WriterProposal)8088_storage)"
+      "type": "t_mapping(t_address,t_struct(WriterProposal)8050_storage)"
     },
     {
-      "astId": 8120,
+      "astId": 8082,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_usedAsCollateral",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_bool))"
     },
     {
-      "astId": 8126,
+      "astId": 8088,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_flaggedAssets",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_mapping(t_address,t_struct(AddressSet)6105_storage)"
     },
     {
-      "astId": 8133,
+      "astId": 8095,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "_flaggedAt",
       "offset": 0,
@@ -65,12 +65,20 @@
       "type": "t_mapping(t_address,t_mapping(t_address,t_uint64))"
     },
     {
-      "astId": 8138,
+      "astId": 8098,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_address"
+    },
+    {
+      "astId": 8103,
       "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
       "label": "__gap",
       "offset": 0,
-      "slot": "7",
-      "type": "t_array(t_uint256)42_storage"
+      "slot": "8",
+      "type": "t_array(t_uint256)41_storage"
     }
   ],
   "types": {
@@ -85,10 +93,10 @@
       "numberOfBytes": "32",
       "base": "t_bytes32"
     },
-    "t_array(t_uint256)42_storage": {
+    "t_array(t_uint256)41_storage": {
       "encoding": "inplace",
-      "label": "uint256[42]",
-      "numberOfBytes": "1344",
+      "label": "uint256[41]",
+      "numberOfBytes": "1312",
       "base": "t_uint256"
     },
     "t_bool": {
@@ -115,12 +123,12 @@
       "numberOfBytes": "32",
       "value": "t_mapping(t_address,t_bool)"
     },
-    "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8084_storage))": {
+    "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8046_storage))": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => mapping(address => struct BalanceLedgerStorage.Balance))",
       "numberOfBytes": "32",
-      "value": "t_mapping(t_address,t_struct(Balance)8084_storage)"
+      "value": "t_mapping(t_address,t_struct(Balance)8046_storage)"
     },
     "t_mapping(t_address,t_mapping(t_address,t_uint64))": {
       "encoding": "mapping",
@@ -136,19 +144,19 @@
       "numberOfBytes": "32",
       "value": "t_struct(AddressSet)6105_storage"
     },
-    "t_mapping(t_address,t_struct(Balance)8084_storage)": {
+    "t_mapping(t_address,t_struct(Balance)8046_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct BalanceLedgerStorage.Balance)",
       "numberOfBytes": "32",
-      "value": "t_struct(Balance)8084_storage"
+      "value": "t_struct(Balance)8046_storage"
     },
-    "t_mapping(t_address,t_struct(WriterProposal)8088_storage)": {
+    "t_mapping(t_address,t_struct(WriterProposal)8050_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct BalanceLedgerStorage.WriterProposal)",
       "numberOfBytes": "32",
-      "value": "t_struct(WriterProposal)8088_storage"
+      "value": "t_struct(WriterProposal)8050_storage"
     },
     "t_mapping(t_address,t_uint64)": {
       "encoding": "mapping",
@@ -179,13 +187,13 @@
         }
       ]
     },
-    "t_struct(Balance)8084_storage": {
+    "t_struct(Balance)8046_storage": {
       "encoding": "inplace",
       "label": "struct BalanceLedgerStorage.Balance",
       "numberOfBytes": "96",
       "members": [
         {
-          "astId": 8079,
+          "astId": 8041,
           "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
           "label": "available",
           "offset": 0,
@@ -193,7 +201,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 8081,
+          "astId": 8043,
           "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
           "label": "inOrders",
           "offset": 0,
@@ -201,7 +209,7 @@
           "type": "t_uint256"
         },
         {
-          "astId": 8083,
+          "astId": 8045,
           "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
           "label": "inYieldRouter",
           "offset": 0,
@@ -233,13 +241,13 @@
         }
       ]
     },
-    "t_struct(WriterProposal)8088_storage": {
+    "t_struct(WriterProposal)8050_storage": {
       "encoding": "inplace",
       "label": "struct BalanceLedgerStorage.WriterProposal",
       "numberOfBytes": "32",
       "members": [
         {
-          "astId": 8087,
+          "astId": 8049,
           "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
           "label": "proposedAt",
           "offset": 0,

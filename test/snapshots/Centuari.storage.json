@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 10012,
+      "astId": 10084,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_settlement",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 10015,
+      "astId": 10087,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_balanceLedger",
       "offset": 0,
@@ -17,7 +17,7 @@
       "type": "t_address"
     },
     {
-      "astId": 10018,
+      "astId": 10090,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_paused",
       "offset": 20,
@@ -25,7 +25,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 10023,
+      "astId": 10095,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_marketTotalCbt",
       "offset": 0,
@@ -33,7 +33,7 @@
       "type": "t_mapping(t_bytes32,t_uint256)"
     },
     {
-      "astId": 10030,
+      "astId": 10102,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_lendPositionCbtAmount",
       "offset": 0,
@@ -41,7 +41,7 @@
       "type": "t_mapping(t_bytes32,t_mapping(t_address,t_uint256))"
     },
     {
-      "astId": 10037,
+      "astId": 10109,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_borrowDebt",
       "offset": 0,
@@ -49,7 +49,7 @@
       "type": "t_mapping(t_bytes32,t_mapping(t_address,t_uint256))"
     },
     {
-      "astId": 10040,
+      "astId": 10112,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_bondTokenFactory",
       "offset": 0,
@@ -57,7 +57,7 @@
       "type": "t_address"
     },
     {
-      "astId": 10043,
+      "astId": 10115,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_operator",
       "offset": 0,
@@ -65,7 +65,7 @@
       "type": "t_address"
     },
     {
-      "astId": 10048,
+      "astId": 10120,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_activeDebtCount",
       "offset": 0,
@@ -73,7 +73,7 @@
       "type": "t_mapping(t_address,t_uint256)"
     },
     {
-      "astId": 10051,
+      "astId": 10123,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_feeCollector",
       "offset": 0,
@@ -81,7 +81,7 @@
       "type": "t_address"
     },
     {
-      "astId": 10057,
+      "astId": 10129,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_borrowerMarkets",
       "offset": 0,
@@ -89,7 +89,7 @@
       "type": "t_mapping(t_address,t_struct(Bytes32Set)6721_storage)"
     },
     {
-      "astId": 10062,
+      "astId": 10134,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "_marketLoanToken",
       "offset": 0,
@@ -97,12 +97,20 @@
       "type": "t_mapping(t_bytes32,t_address)"
     },
     {
-      "astId": 10067,
+      "astId": 10137,
+      "contract": "src/core/centuari/Centuari.sol:Centuari",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "11",
+      "type": "t_address"
+    },
+    {
+      "astId": 10142,
       "contract": "src/core/centuari/Centuari.sol:Centuari",
       "label": "__gap",
       "offset": 0,
-      "slot": "11",
-      "type": "t_array(t_uint256)38_storage"
+      "slot": "12",
+      "type": "t_array(t_uint256)37_storage"
     }
   ],
   "types": {
@@ -117,10 +125,10 @@
       "numberOfBytes": "32",
       "base": "t_bytes32"
     },
-    "t_array(t_uint256)38_storage": {
+    "t_array(t_uint256)37_storage": {
       "encoding": "inplace",
-      "label": "uint256[38]",
-      "numberOfBytes": "1216",
+      "label": "uint256[37]",
+      "numberOfBytes": "1184",
       "base": "t_uint256"
     },
     "t_bool": {
