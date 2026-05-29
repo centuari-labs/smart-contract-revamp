@@ -8,6 +8,8 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 import {WithdrawalRegistry} from "../src/core/cross-chain/WithdrawalRegistry.sol";
 import {HubIntentSettler} from "../src/core/cross-chain/HubIntentSettler.sol";
 import {SettlementLedger} from "../src/core/cross-chain/SettlementLedger.sol";
+import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
+import {HubDepositor} from "../src/core/cross-chain/HubDepositor.sol";
 
 /// @title DeployCrossChainHub
 /// @notice Deploys all three M4 cross-chain hub contracts behind proxies and
@@ -54,6 +56,22 @@ contract DeployCrossChainHub is DeployScriptBase {
 
         // 4. Wire circular dependency
         HubIntentSettler(address(hisProxy)).setSettlementLedger(address(slProxy));
+
+        // 5. Register WithdrawalRegistry + HubIntentSettler as BalanceLedger writers
+        //    (folded from ConfigureBalanceLedgerPhase3). Testnet forceAddWriter, guarded.
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(address(wrProxy))) {
+            BalanceLedger(balanceLedger).forceAddWriter(address(wrProxy));
+            console.log("Added writer: WithdrawalRegistry", address(wrProxy));
+        }
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(address(hisProxy))) {
+            BalanceLedger(balanceLedger).forceAddWriter(address(hisProxy));
+            console.log("Added writer: HubIntentSettler", address(hisProxy));
+        }
+
+        // 6. Authorize WithdrawalRegistry to call HubDepositor.payoutDirect
+        //    (folded from ConfigureHubDepositorAuth).
+        HubDepositor(hubDepositor).setAuthorizedCaller(address(wrProxy), true);
+        console.log("Authorized caller on HubDepositor: WithdrawalRegistry", address(wrProxy));
 
         vm.stopBroadcast();
 

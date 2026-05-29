@@ -26,25 +26,20 @@
 #   USE_EXISTING_MOCK_TOKENS - Optional. If "true", reuse mock tokens from a prior deployment summary instead of running DeployMockTokens.
 #   MOCK_TOKENS_FILE     - Optional. Path to deployment JSON to reuse mockTokens from. Defaults to deployments/deploy-<NETWORK_SLUG>-latest.json when USE_EXISTING_MOCK_TOKENS=true.
 #
-# Deployment order:
+# Deployment order (Configure* steps are folded into their Deploy* scripts):
 #   1. DeployMockTokens
 #   2. DeployFaucet
 #   3. DeployBalanceLedger
-#   4. DeployCentuari (with BalanceLedger)
-#   5. DeployBondFactory
-#   6. ConfigureBondFactory
-#   7. DeployHubDepositor
-#   8. ConfigureHubDepositor (register supported assets)
-#   9. DeployCollateralStack (RiskModuleStub + CollateralManager)
-#   10. ConfigureBalanceLedger (add Centuari + HubDepositor as writers)
-#   11. DeploySettlement
-#   12. ConfigureBalanceLedger (add Settlement as writer)
-#   13. SetSettlement on Centuari
-#   14. UpgradeSettlement (optional)
-#   15. SetOperators
-#   16. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger)
-#   17. ConfigureBalanceLedger (Phase 3 — add M4 writers)
-#   18. ConfigureHubDepositorAuth (authorize WithdrawalRegistry on HubDepositor)
+#   4. DeployCentuari (with BalanceLedger; self-registers as a BalanceLedger writer)
+#   5. DeployBondFactory (wires the factory into Centuari)
+#   6. DeployHubDepositor (self-registers as a writer; whitelists supported assets)
+#   7. DeployCollateralStack (RiskModuleStub + CollateralManager; self-registers manager)
+#   8. DeploySettlement (self-registers as a BalanceLedger writer)
+#   9. SetSettlement on Centuari
+#   10. UpgradeSettlement (optional)
+#   11. SetOperators
+#   12. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger;
+#       registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
 #
 set -e
 
@@ -368,7 +363,7 @@ build_mock_tokens_json() {
 '
 }
 
-TOTAL_STEPS=18
+TOTAL_STEPS=12
 
 # ===========================
 # Step 1: DeployMockTokens
@@ -489,26 +484,22 @@ else
 fi
 
 # ===========================
-# Step 6: ConfigureBondFactory
+# Step 6: DeployHubDepositor (self-registers as a writer; whitelists supported assets)
 # ===========================
-echo "=== 6/$TOTAL_STEPS ConfigureBondFactory ==="
-if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${BOND_FACTORY_ADDRESS:-}" ]]; then
-  run_script script/ConfigureBondFactory.s.sol:ConfigureBondFactory \
-    --sig "run(address,address)" \
-    "$CENTUARI_ADDRESS" "$BOND_FACTORY_ADDRESS"
-else
-  echo "Skipping ConfigureBondFactory (set CENTUARI_ADDRESS and BOND_FACTORY_ADDRESS to run)"
-fi
-
-# ===========================
-# Step 7: DeployHubDepositor
-# ===========================
-echo "=== 7/$TOTAL_STEPS DeployHubDepositor ==="
+echo "=== 6/$TOTAL_STEPS DeployHubDepositor ==="
 if [[ -z "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
   if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
+    # Build a Solidity address[] literal of supported assets from the comma-separated
+    # FAUCET_TOKENS list (all deployed mock token addresses). Empty -> [] (none whitelisted).
+    if [[ -n "${FAUCET_TOKENS:-}" ]]; then
+      IFS=',' read -ra TOKEN_ARRAY <<< "$FAUCET_TOKENS"
+      SOLIDITY_ARRAY="[$(printf '%s,' "${TOKEN_ARRAY[@]}" | sed 's/,$//' )]"
+    else
+      SOLIDITY_ARRAY="[]"
+    fi
     out=$(run_script script/DeployHubDepositor.s.sol:DeployHubDepositor \
-      --sig "run(address,address,address)" \
-      "$DEPLOYER_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
+      --sig "run(address,address,address,address[])" \
+      "$DEPLOYER_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" "$SOLIDITY_ARRAY" 2>&1)
     echo "$out"
     HD_PROXY=$(echo "$out" | parse_hub_depositor_proxy)
     if [[ -n "$HD_PROXY" ]]; then
@@ -525,26 +516,9 @@ else
 fi
 
 # ===========================
-# Step 8: ConfigureHubDepositor (register supported assets)
+# Step 7: DeployCollateralStack
 # ===========================
-echo "=== 8/$TOTAL_STEPS ConfigureHubDepositor ==="
-if [[ -n "${HUB_DEPOSITOR_ADDRESS:-}" && -n "${FAUCET_TOKENS:-}" ]]; then
-  # Build a Solidity-compatible array literal from the comma-separated FAUCET_TOKENS list.
-  # FAUCET_TOKENS contains all deployed mock token addresses — these are the supported assets.
-  IFS=',' read -ra TOKEN_ARRAY <<< "$FAUCET_TOKENS"
-  SOLIDITY_ARRAY="[$(printf '%s,' "${TOKEN_ARRAY[@]}" | sed 's/,$//' )]"
-
-  run_script script/ConfigureHubDepositor.s.sol:ConfigureHubDepositor \
-    --sig "run(address,address[])" \
-    "$HUB_DEPOSITOR_ADDRESS" "$SOLIDITY_ARRAY"
-else
-  echo "Skipping ConfigureHubDepositor (need HUB_DEPOSITOR_ADDRESS and FAUCET_TOKENS)"
-fi
-
-# ===========================
-# Step 9: DeployCollateralStack
-# ===========================
-echo "=== 9/$TOTAL_STEPS DeployCollateralStack ==="
+echo "=== 7/$TOTAL_STEPS DeployCollateralStack ==="
 if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
   if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" ]]; then
     out=$(run_script script/DeployCollateralStack.s.sol:DeployCollateralStack \
@@ -566,27 +540,13 @@ else
 fi
 
 # ===========================
-# Step 10: ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor writers)
+# Step 8: DeploySettlement (self-registers as a BalanceLedger writer)
 # ===========================
-echo "=== 10/$TOTAL_STEPS ConfigureBalanceLedger (Phase 1 — Centuari + HubDepositor) ==="
-if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
-  # CollateralManager is already registered by DeployCollateralStack (step 8),
-  # so Phase 1 only adds Centuari + HubDepositor.
-  run_script script/ConfigureBalanceLedger.s.sol:ConfigureBalanceLedger \
-    --sig "run(address,address,address)" \
-    "$BALANCE_LEDGER_ADDRESS" "$CENTUARI_ADDRESS" "$HUB_DEPOSITOR_ADDRESS"
-else
-  echo "Skipping ConfigureBalanceLedger Phase 1 (need BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
-fi
-
-# ===========================
-# Step 11: DeploySettlement
-# ===========================
-echo "=== 11/$TOTAL_STEPS DeploySettlement ==="
-if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" ]]; then
+echo "=== 8/$TOTAL_STEPS DeploySettlement ==="
+if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
   deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
-    --sig "run(address,address,address,address)" \
-    "$DEPLOYER_ADDRESS" "$SETTLEMENT_OPERATOR" "$CENTUARI_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
+    --sig "run(address,address,address,address,address)" \
+    "$DEPLOYER_ADDRESS" "$SETTLEMENT_OPERATOR" "$CENTUARI_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
     status=$?
     echo "$deploy_settlement_output"
     echo "DeploySettlement failed with status $status"
@@ -597,25 +557,13 @@ if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTU
   SETTLEMENT_PROXY_ADMIN_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_proxy_admin || true)"
   SETTLEMENT_IMPLEMENTATION_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_impl || true)"
 else
-  echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR and CENTUARI_ADDRESS are set)"
+  echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR, CENTUARI_ADDRESS, BALANCE_LEDGER_ADDRESS are set)"
 fi
 
 # ===========================
-# Step 12: ConfigureBalanceLedger (Phase 2 — add Settlement as writer)
+# Step 9: SetSettlement on Centuari
 # ===========================
-echo "=== 12/$TOTAL_STEPS ConfigureBalanceLedger (Phase 2 — Settlement) ==="
-if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" ]]; then
-  run_script script/ConfigureBalanceLedger.s.sol:ConfigureBalanceLedger \
-    --sig "addSettlement(address,address)" \
-    "$BALANCE_LEDGER_ADDRESS" "$SETTLEMENT_PROXY_ADDRESS"
-else
-  echo "Skipping ConfigureBalanceLedger Phase 2 (need BALANCE_LEDGER_ADDRESS and SETTLEMENT_PROXY_ADDRESS)"
-fi
-
-# ===========================
-# Step 13: SetSettlement on Centuari
-# ===========================
-echo "=== 13/$TOTAL_STEPS SetSettlement on Centuari ==="
+echo "=== 9/$TOTAL_STEPS SetSettlement on Centuari ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
   echo "Updating Centuari._settlement to the deployed Settlement proxy..."
   echo "  Centuari:         $CENTUARI_ADDRESS"
@@ -631,9 +579,9 @@ else
 fi
 
 # ===========================
-# Step 14: UpgradeSettlement (optional)
+# Step 10: UpgradeSettlement (optional)
 # ===========================
-echo "=== 14/$TOTAL_STEPS UpgradeSettlement ==="
+echo "=== 10/$TOTAL_STEPS UpgradeSettlement ==="
 PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
 if [[ "$DEPLOY_ONLY" == true ]]; then
   echo "Skipping UpgradeSettlement (--deploy-only)"
@@ -653,9 +601,9 @@ else
 fi
 
 # ===========================
-# Step 15: SetOperators
+# Step 11: SetOperators
 # ===========================
-echo "=== 15/$TOTAL_STEPS SetOperators ==="
+echo "=== 11/$TOTAL_STEPS SetOperators ==="
 if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
   echo "Writing deployment summary for set_operators.sh"
   write_deploy_summary
@@ -665,9 +613,10 @@ else
 fi
 
 # ===========================
-# Step 16: DeployCrossChainHub (M4: WithdrawalRegistry + HubIntentSettler + SettlementLedger)
+# Step 12: DeployCrossChainHub (M4: WithdrawalRegistry + HubIntentSettler + SettlementLedger;
+#          also registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
 # ===========================
-echo "=== 16/$TOTAL_STEPS DeployCrossChainHub ==="
+echo "=== 12/$TOTAL_STEPS DeployCrossChainHub ==="
 if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${RISK_MODULE_STUB_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
   out=$(run_script script/DeployCrossChainHub.s.sol:DeployCrossChainHub \
     --sig "run(address,address,address,address,address,address)" \
@@ -698,30 +647,6 @@ if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_
   SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_settlement_ledger_proxy_admin || true)"
 else
   echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_STUB_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
-fi
-
-# ===========================
-# Step 17: ConfigureBalanceLedger (Phase 3 — WithdrawalRegistry + HubIntentSettler writers)
-# ===========================
-echo "=== 17/$TOTAL_STEPS ConfigureBalanceLedger (Phase 3 — M4 writers) ==="
-if [[ -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${WITHDRAWAL_REGISTRY_ADDRESS:-}" && -n "${HUB_INTENT_SETTLER_ADDRESS:-}" ]]; then
-  run_script script/ConfigureBalanceLedgerPhase3.s.sol:ConfigureBalanceLedgerPhase3 \
-    --sig "run(address,address,address)" \
-    "$BALANCE_LEDGER_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS" "$HUB_INTENT_SETTLER_ADDRESS"
-else
-  echo "Skipping ConfigureBalanceLedger Phase 3 (need BALANCE_LEDGER_ADDRESS, WITHDRAWAL_REGISTRY_ADDRESS, HUB_INTENT_SETTLER_ADDRESS)"
-fi
-
-# ===========================
-# Step 18: ConfigureHubDepositorAuth (authorize WithdrawalRegistry on HubDepositor)
-# ===========================
-echo "=== 18/$TOTAL_STEPS ConfigureHubDepositorAuth ==="
-if [[ -n "${HUB_DEPOSITOR_ADDRESS:-}" && -n "${WITHDRAWAL_REGISTRY_ADDRESS:-}" ]]; then
-  run_script script/ConfigureHubDepositorAuth.s.sol:ConfigureHubDepositorAuth \
-    --sig "run(address,address)" \
-    "$HUB_DEPOSITOR_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS"
-else
-  echo "Skipping ConfigureHubDepositorAuth (need HUB_DEPOSITOR_ADDRESS and WITHDRAWAL_REGISTRY_ADDRESS)"
 fi
 
 echo "=== Writing deployment summary ==="

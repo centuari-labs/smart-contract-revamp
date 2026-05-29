@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {console} from "forge-std/Script.sol";
 import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {Centuari} from "../src/core/centuari/Centuari.sol";
+import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeployCentuari
@@ -31,6 +32,14 @@ contract DeployCentuari is DeployScriptBase {
 
         (centuariProxy, centuariImpl, proxyAdmin) =
             deploy(owner, settlementPlaceholder, balanceLedger, feeCollector, proxyAdminOwner);
+
+        // Register Centuari as an authorized BalanceLedger writer (folded from
+        // ConfigureBalanceLedger Phase 1). Testnet forceAddWriter fast path, guarded so
+        // re-runs are idempotent. Mainnet uses the 48h propose/execute writer path.
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(centuariProxy)) {
+            BalanceLedger(balanceLedger).forceAddWriter(centuariProxy);
+            console.log("Added writer: Centuari", centuariProxy);
+        }
 
         vm.stopBroadcast();
 

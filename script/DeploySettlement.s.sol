@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {console} from "forge-std/Script.sol";
 import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {Settlement} from "../src/core/settlement/Settlement.sol";
+import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeploySettlement
@@ -18,17 +19,25 @@ contract DeploySettlement is DeployScriptBase {
     /// @param owner The owner address for the Settlement contract
     /// @param operator The settlement engine operator address
     /// @param centuari The Centuari contract address
+    /// @param balanceLedger BalanceLedger proxy (Settlement is registered as an authorized writer)
     /// @param proxyAdminOwner The owner of the ProxyAdmin (typically a multisig)
     /// @return proxy The deployed proxy address
     /// @return proxyAdmin The deployed ProxyAdmin address
     /// @return implementation The deployed implementation address
-    function run(address owner, address operator, address centuari, address proxyAdminOwner)
+    function run(address owner, address operator, address centuari, address balanceLedger, address proxyAdminOwner)
         external
         returns (address proxy, address proxyAdmin, address implementation)
     {
         vm.startBroadcast();
 
         (proxy, proxyAdmin, implementation) = deploy(owner, operator, centuari, proxyAdminOwner);
+
+        // Register Settlement as an authorized BalanceLedger writer (folded from
+        // ConfigureBalanceLedger Phase 2). Testnet forceAddWriter fast path, guarded.
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(proxy)) {
+            BalanceLedger(balanceLedger).forceAddWriter(proxy);
+            console.log("Added writer: Settlement", proxy);
+        }
 
         vm.stopBroadcast();
 

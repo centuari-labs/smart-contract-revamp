@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Script, console} from "forge-std/Script.sol";
+import {Centuari} from "../src/core/centuari/Centuari.sol";
 import {CentuariBondERC20Factory} from "../src/core/centuari/CentuariBondERC20Factory.sol";
 
 /// @title DeployBondFactory
@@ -16,10 +17,14 @@ contract DeployBondFactory is Script {
 
         factory = deploy(centuari);
 
+        // Wire the freshly deployed factory into Centuari (folded from ConfigureBondFactory).
+        Centuari(centuari).setBondTokenFactory(factory);
+
         vm.stopBroadcast();
 
         console.log("=== Bond Factory Deployment Complete ===");
         console.log("BondFactory:", factory);
+        console.log("Wired BondFactory into Centuari:", centuari);
     }
 
     /// @notice Deploy the factory contract.

@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {console} from "forge-std/Script.sol";
 import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {HubDepositor} from "../src/core/cross-chain/HubDepositor.sol";
+import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeployHubDepositor
@@ -15,16 +16,30 @@ contract DeployHubDepositor is DeployScriptBase {
     /// @param owner HubDepositor owner (governance / multisig)
     /// @param balanceLedger BalanceLedger proxy address
     /// @param proxyAdminOwner Owner of the ProxyAdmin (e.g. multisig)
+    /// @param assets ERC20 tokens to whitelist as supported deposit assets
     /// @return hubDepositorProxy HubDepositor proxy address
     /// @return hubDepositorImpl HubDepositor implementation address
     /// @return proxyAdmin ProxyAdmin address
-    function run(address owner, address balanceLedger, address proxyAdminOwner)
+    function run(address owner, address balanceLedger, address proxyAdminOwner, address[] calldata assets)
         external
         returns (address hubDepositorProxy, address hubDepositorImpl, address proxyAdmin)
     {
         vm.startBroadcast();
 
         (hubDepositorProxy, hubDepositorImpl, proxyAdmin) = deploy(owner, balanceLedger, proxyAdminOwner);
+
+        // Register HubDepositor as an authorized BalanceLedger writer (folded from
+        // ConfigureBalanceLedger Phase 1). Testnet forceAddWriter fast path, guarded.
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(hubDepositorProxy)) {
+            BalanceLedger(balanceLedger).forceAddWriter(hubDepositorProxy);
+            console.log("Added writer: HubDepositor", hubDepositorProxy);
+        }
+
+        // Whitelist supported deposit assets (folded from ConfigureHubDepositor).
+        for (uint256 i = 0; i < assets.length; i++) {
+            HubDepositor(hubDepositorProxy).addSupportedAsset(assets[i]);
+            console.log("Added supported asset:", assets[i]);
+        }
 
         vm.stopBroadcast();
 
