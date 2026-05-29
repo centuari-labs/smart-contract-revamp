@@ -5,7 +5,9 @@
 #
 # Usage:
 #   ./bin/run-all.sh [FORGE_SCRIPT_FLAGS...]
-#   e.g. ./bin/run-all.sh --broadcast
+#   e.g. ./bin/run-all.sh --broadcast              # deploy + verify on Arbiscan (needs ETHERSCAN_API_KEY)
+#        ./bin/run-all.sh --broadcast --no-verify  # deploy without explorer verification
+#        ./bin/run-all.sh --verify-only            # re-verify an existing deployment (no deploy)
 #
 # Environment variables:
 #   RPC_URL              - RPC URL for the target chain (used by forge script when set)
@@ -25,6 +27,8 @@
 #   SETTLEMENT_PROXY     - Required to run UpgradeSettlement. Settlement proxy address (alias: PROXY)
 #   USE_EXISTING_MOCK_TOKENS - Optional. If "true", reuse mock tokens from a prior deployment summary instead of running DeployMockTokens.
 #   MOCK_TOKENS_FILE     - Optional. Path to deployment JSON to reuse mockTokens from. Defaults to deployments/deploy-<NETWORK_SLUG>-latest.json when USE_EXISTING_MOCK_TOKENS=true.
+#   ETHERSCAN_API_KEY    - Required for verification (Arbiscan / Etherscan v2 unified key). Without it, --verify is skipped.
+#   SKIP_VERIFY          - Optional. If "1" (or pass --no-verify), skip all explorer verification.
 #
 # Deployment order (Configure* steps are folded into their Deploy* scripts):
 #   1. DeployMockTokens
@@ -59,6 +63,8 @@ fi
 # Collect forge script flags (e.g. --broadcast, --slow, etc.); local flags are handled here
 FORGE_EXTRA=()
 DEPLOY_ONLY=false
+BROADCAST=false
+VERIFY_ONLY=false
 USE_EXISTING_MOCK_TOKENS="${USE_EXISTING_MOCK_TOKENS:-false}"
 for arg in "$@"; do
   case "$arg" in
@@ -68,14 +74,24 @@ for arg in "$@"; do
     --reuse-mock-tokens)
       USE_EXISTING_MOCK_TOKENS=true
       ;;
+    --verify-only)
+      VERIFY_ONLY=true
+      ;;
+    --no-verify)
+      SKIP_VERIFY=1
+      ;;
+    --broadcast)
+      BROADCAST=true
+      FORGE_EXTRA+=("$arg")
+      ;;
     *)
       FORGE_EXTRA+=("$arg")
       ;;
   esac
 done
 
-# Required operators
-if [[ -z "${BACKEND_OPERATOR:-}" ]]; then
+# Required operators (not needed for --verify-only, which re-verifies an existing deployment)
+if [[ "$VERIFY_ONLY" != true && -z "${BACKEND_OPERATOR:-}" ]]; then
   echo "BACKEND_OPERATOR must be set for Faucet deployment"
   exit 1
 fi
@@ -85,6 +101,26 @@ fi
 FORGE_BASE=(forge script)
 [[ -n "${RPC_URL:-}" ]] && FORGE_BASE+=(--rpc-url "$RPC_URL")
 [[ -n "${PRIVATE_KEY:-}" ]] && FORGE_BASE+=(--private-key "$PRIVATE_KEY")
+
+# Detect local RPCs (anvil/hardhat) — explorer verification is meaningless without a public explorer.
+is_local_rpc() {
+  case "$1" in
+    *localhost*|*127.0.0.1*|*0.0.0.0*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Always verify on real-network broadcasts (Arbiscan via ETHERSCAN_API_KEY). Opt out with
+# SKIP_VERIFY=1 / --no-verify. Appending --verify here makes every forge-script broadcast verify
+# inline; the post-deploy verify_deployment() pass re-verifies anything not yet indexed.
+if [[ "$BROADCAST" == true && "${SKIP_VERIFY:-0}" != "1" ]] && ! is_local_rpc "${RPC_URL:-}"; then
+  if [[ -n "${ETHERSCAN_API_KEY:-}" ]]; then
+    FORGE_EXTRA+=(--verify --etherscan-api-key "$ETHERSCAN_API_KEY")
+    echo "Contract verification: ENABLED (inline --verify on every broadcast + post-deploy re-verify)"
+  else
+    echo "Contract verification: SKIPPED (ETHERSCAN_API_KEY unset). Set it, or pass --no-verify to silence."
+  fi
+fi
 
 # Derive deployer address from PRIVATE_KEY (used as both settlement owner and ProxyAdmin owner)
 DEPLOYER_ADDRESS=""
@@ -362,6 +398,71 @@ build_mock_tokens_json() {
 }
 '
 }
+
+# Re-verify a completed deployment on the block explorer (Arbiscan). Runs both as the
+# post-deploy fallback (catches contracts the explorer had not yet indexed during the inline
+# --verify pass) and standalone via `--verify-only`. Idempotent + non-fatal: already-verified
+# or not-yet-indexed contracts are logged and skipped, never aborting the run.
+verify_deployment() {
+  if [[ "${SKIP_VERIFY:-0}" == "1" ]]; then echo "verify_deployment: skipped (SKIP_VERIFY=1 / --no-verify)"; return 0; fi
+  if is_local_rpc "${RPC_URL:-}"; then echo "verify_deployment: skipped (local RPC, no public explorer)"; return 0; fi
+  if [[ -z "${ETHERSCAN_API_KEY:-}" ]]; then echo "verify_deployment: skipped (ETHERSCAN_API_KEY unset)"; return 0; fi
+  if [[ -z "${CHAIN_ID:-}" ]]; then echo "verify_deployment: skipped (CHAIN_ID unknown — set RPC_URL)"; return 0; fi
+  if ! command -v cast >/dev/null 2>&1; then echo "verify_deployment: skipped (cast not found)"; return 0; fi
+  if [[ ! -f "$LATEST_FILE" ]]; then echo "verify_deployment: no deployment file at $LATEST_FILE"; return 0; fi
+
+  echo "Verifying deployment from $LATEST_FILE on chain $CHAIN_ID (Arbiscan)..."
+  local impl_slot=0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+
+  _json_get() {
+    python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2]) or '')" "$LATEST_FILE" "$1" 2>/dev/null || true
+  }
+  _verify() { # address  FQN  [extra forge args...]
+    local addr="$1" fqn="$2"; shift 2
+    if [[ -z "$addr" || "$addr" == "null" ]]; then return 0; fi
+    echo "  verify $fqn @ $addr"
+    forge verify-contract "$addr" "$fqn" --chain "$CHAIN_ID" --etherscan-api-key "$ETHERSCAN_API_KEY" --watch "$@" \
+      || echo "    (skipped — already verified or pending explorer indexing)"
+  }
+  _verify_impl() { # proxy_addr  FQN  (verifies the implementation behind a proxy; impls take no constructor args)
+    local proxy="$1" fqn="$2" raw impl
+    if [[ -z "$proxy" || "$proxy" == "null" ]]; then return 0; fi
+    raw="$(cast storage "$proxy" "$impl_slot" --rpc-url "$RPC_URL" 2>/dev/null || true)"
+    if [[ -z "$raw" || ${#raw} -lt 40 ]]; then echo "  ! could not read implementation slot for $fqn ($proxy)"; return 0; fi
+    impl="0x${raw: -40}"
+    _verify "$impl" "$fqn"
+  }
+
+  # Upgradeable implementations (the logic contracts behind each proxy).
+  _verify_impl "$(_json_get balanceLedgerAddress)"      "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger"
+  _verify_impl "$(_json_get centuariAddress)"           "src/core/centuari/Centuari.sol:Centuari"
+  _verify_impl "$(_json_get hubDepositorAddress)"       "src/core/cross-chain/HubDepositor.sol:HubDepositor"
+  _verify_impl "$(_json_get collateralManagerAddress)"  "src/core/collateral/CollateralManager.sol:CollateralManager"
+  _verify_impl "$(_json_get settlementProxy)"           "src/core/settlement/Settlement.sol:Settlement"
+  _verify_impl "$(_json_get withdrawalRegistryAddress)" "src/core/cross-chain/WithdrawalRegistry.sol:WithdrawalRegistry"
+  _verify_impl "$(_json_get hubIntentSettlerAddress)"   "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler"
+  _verify_impl "$(_json_get settlementLedgerAddress)"   "src/core/cross-chain/SettlementLedger.sol:SettlementLedger"
+
+  # Non-upgradeable singletons (constructor args fetched from the on-chain creation tx).
+  _verify "$(_json_get riskModuleStubAddress)"   "src/core/risk/RiskModuleStub.sol:RiskModuleStub"                           --guess-constructor-args
+  _verify "$(_json_get faucetAddress)"           "src/mocks/Faucet.sol:Faucet"                                               --guess-constructor-args
+  _verify "$(_json_get bondTokenFactoryAddress)" "src/core/centuari/CentuariBondERC20Factory.sol:CentuariBondERC20Factory"   --guess-constructor-args
+
+  # Mock testnet tokens (best-effort; also verified inline during DeployMockTokens).
+  while IFS= read -r mt; do
+    if [[ -n "$mt" ]]; then _verify "$mt" "src/mocks/MockToken.sol:MockToken" --guess-constructor-args; fi
+  done < <(python3 -c "import json,sys;[print(v) for v in (json.load(open(sys.argv[1])).get('mockTokens') or {}).values()]" "$LATEST_FILE" 2>/dev/null || true)
+
+  echo "verify_deployment: done"
+}
+
+# --verify-only: re-verify an existing deployment and exit, skipping all deploy steps.
+if [[ "$VERIFY_ONLY" == true ]]; then
+  echo "=== --verify-only: verifying existing deployment ($LATEST_FILE), skipping deploy ==="
+  verify_deployment
+  echo "=== run-all.sh (--verify-only) finished ==="
+  exit 0
+fi
 
 TOTAL_STEPS=12
 
@@ -671,5 +772,12 @@ if [[ "${SKIP_SYNC:-0}" != "1" ]]; then
 else
   echo "Skipping export-abi + sync-to-services (SKIP_SYNC=1)"
 fi
+
+# ===========================
+# Post-deploy: re-verify contracts on the explorer. Fallback that re-attempts verification for
+# anything not yet indexed during the inline --verify pass. No-op on local chains, when
+# SKIP_VERIFY=1 / --no-verify, or when ETHERSCAN_API_KEY is unset.
+# ===========================
+verify_deployment
 
 echo "=== run-all.sh finished ==="
