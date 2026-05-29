@@ -44,6 +44,12 @@
 #   11. SetOperators
 #   12. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger;
 #       registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
+#   13. DeployRiskModule + ConfigureRiskModule (B3/C6: real oracle-backed RiskModule +
+#       OracleRouter + per-asset PushOracles; sets per-asset LTV/staleness/buffer from
+#       script/config/risk-params.<slug>.json; swaps the real module into
+#       WithdrawalRegistry + CollateralManager unless SKIP_RISK_MODULE_SWAP=1. Skip the
+#       whole step with SKIP_RISK_MODULE=1. Initial prices are pushed by the Phase 3
+#       operator keeper, not here.)
 #
 set -e
 
@@ -246,6 +252,38 @@ parse_hub_intent_settler_proxy_admin() {
 parse_settlement_ledger_proxy_admin() {
   grep -oE 'SettlementLedger ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/SettlementLedger ProxyAdmin: //'
 }
+parse_oracle_router_proxy() {
+  grep -oE 'OracleRouter Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/OracleRouter Proxy: //'
+}
+parse_oracle_router_proxy_admin() {
+  grep -oE 'OracleRouter ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/OracleRouter ProxyAdmin: //'
+}
+parse_risk_module_proxy() {
+  grep -oE 'RiskModule Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/RiskModule Proxy: //'
+}
+parse_risk_module_proxy_admin() {
+  grep -oE 'RiskModule ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/RiskModule ProxyAdmin: //'
+}
+# Build the pushOracles {symbol:address} map from DeployRiskModule output, mapping each
+# asset address back to its symbol via the mockTokens JSON ($1). Reads forge output on stdin.
+build_push_oracles_json() {
+  python3 - "$1" <<'PY'
+import json, sys, re
+try:
+    mock = json.loads(sys.argv[1] or "{}")
+except Exception:
+    mock = {}
+addr_to_sym = {str(v).lower(): k for k, v in mock.items()}
+out = {}
+for line in sys.stdin:
+    m = re.search(r'PushOracle for asset:\s*(0x[0-9a-fA-F]{40})\s*->\s*(0x[0-9a-fA-F]{40})', line)
+    if m:
+        sym = addr_to_sym.get(m.group(1).lower())
+        if sym:
+            out[sym] = m.group(2)
+print(json.dumps(out))
+PY
+}
 
 write_deploy_summary() {
   : "${MOCK_TOKENS_JSON:={}}"
@@ -261,6 +299,11 @@ write_deploy_summary() {
   : "${COLLATERAL_MANAGER_ADDRESS:=}"
   : "${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS:=}"
   : "${RISK_MODULE_STUB_ADDRESS:=}"
+  : "${ORACLE_ROUTER_ADDRESS:=}"
+  : "${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS:=}"
+  : "${RISK_MODULE_ADDRESS:=}"
+  : "${RISK_MODULE_PROXY_ADMIN_ADDRESS:=}"
+  : "${PUSH_ORACLES_JSON:={}}"
   : "${SETTLEMENT_PROXY_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
@@ -299,6 +342,11 @@ write_deploy_summary() {
     echo "  \"collateralManagerAddress\": \"${COLLATERAL_MANAGER_ADDRESS}\","
     echo "  \"collateralManagerProxyAdmin\": \"${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"riskModuleStubAddress\": \"${RISK_MODULE_STUB_ADDRESS}\","
+    echo "  \"oracleRouterAddress\": \"${ORACLE_ROUTER_ADDRESS}\","
+    echo "  \"oracleRouterProxyAdmin\": \"${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS}\","
+    echo "  \"riskModuleAddress\": \"${RISK_MODULE_ADDRESS}\","
+    echo "  \"riskModuleProxyAdmin\": \"${RISK_MODULE_PROXY_ADMIN_ADDRESS}\","
+    echo "  \"pushOracles\": ${PUSH_ORACLES_JSON},"
     echo "  \"settlementProxy\": \"${SETTLEMENT_PROXY_ADDRESS:-}\","
     echo "  \"settlementProxyAdmin\": \"${SETTLEMENT_PROXY_ADMIN_ADDRESS:-}\","
     echo "  \"settlementImplementation\": \"${SETTLEMENT_IMPLEMENTATION_ADDRESS:-}\","
@@ -442,6 +490,8 @@ verify_deployment() {
   _verify_impl "$(_json_get withdrawalRegistryAddress)" "src/core/cross-chain/WithdrawalRegistry.sol:WithdrawalRegistry"
   _verify_impl "$(_json_get hubIntentSettlerAddress)"   "src/core/cross-chain/HubIntentSettler.sol:HubIntentSettler"
   _verify_impl "$(_json_get settlementLedgerAddress)"   "src/core/cross-chain/SettlementLedger.sol:SettlementLedger"
+  _verify_impl "$(_json_get oracleRouterAddress)"       "src/core/oracle/OracleRouter.sol:OracleRouter"
+  _verify_impl "$(_json_get riskModuleAddress)"         "src/core/risk/RiskModule.sol:RiskModule"
 
   # Non-upgradeable singletons (constructor args fetched from the on-chain creation tx).
   _verify "$(_json_get riskModuleStubAddress)"   "src/core/risk/RiskModuleStub.sol:RiskModuleStub"                           --guess-constructor-args
@@ -452,6 +502,11 @@ verify_deployment() {
   while IFS= read -r mt; do
     if [[ -n "$mt" ]]; then _verify "$mt" "src/mocks/MockToken.sol:MockToken" --guess-constructor-args; fi
   done < <(python3 -c "import json,sys;[print(v) for v in (json.load(open(sys.argv[1])).get('mockTokens') or {}).values()]" "$LATEST_FILE" 2>/dev/null || true)
+
+  # PushOracles (non-upgradeable; constructor args from the creation tx).
+  while IFS= read -r po; do
+    if [[ -n "$po" ]]; then _verify "$po" "src/core/oracle/PushOracle.sol:PushOracle" --guess-constructor-args; fi
+  done < <(python3 -c "import json,sys;[print(v) for v in (json.load(open(sys.argv[1])).get('pushOracles') or {}).values()]" "$LATEST_FILE" 2>/dev/null || true)
 
   echo "verify_deployment: done"
 }
@@ -464,7 +519,7 @@ if [[ "$VERIFY_ONLY" == true ]]; then
   exit 0
 fi
 
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 
 # ===========================
 # Step 1: DeployMockTokens
@@ -748,6 +803,65 @@ if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_
   SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_settlement_ledger_proxy_admin || true)"
 else
   echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_STUB_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
+fi
+
+# ===========================
+# Step 13: DeployRiskModule + ConfigureRiskModule (B3 / C6 real oracle-backed RiskModule)
+#   Deploys OracleRouter + per-asset PushOracles + the real RiskModule, configures
+#   per-asset LTV / staleness / buffer from script/config/risk-params.<slug>.json, and
+#   (unless SKIP_RISK_MODULE_SWAP=1) swaps the real module into WithdrawalRegistry +
+#   CollateralManager. Initial prices are pushed by the Phase 3 operator keeper, not
+#   here — the oracle fail-closes until then (safe: only collateral withdraw/unflag
+#   while in debt is gated, and a fresh deploy has no such positions).
+#   Skip the whole step with SKIP_RISK_MODULE=1 (keeps the stub wired).
+# ===========================
+echo "=== 13/$TOTAL_STEPS DeployRiskModule + ConfigureRiskModule ==="
+RISK_PARAMS_FILE="${RISK_PARAMS_FILE:-$ROOT_DIR/script/config/risk-params.${NETWORK_SLUG}.json}"
+if [[ "$DEPLOY_ONLY" == true ]]; then
+  echo "Skipping RiskModule (--deploy-only)"
+elif [[ "${SKIP_RISK_MODULE:-0}" == "1" ]]; then
+  echo "Skipping RiskModule deploy (SKIP_RISK_MODULE=1) — stub stays wired"
+elif [[ -z "${BALANCE_LEDGER_ADDRESS:-}" || -z "${CENTUARI_ADDRESS:-}" || -z "${DEPLOYER_ADDRESS:-}" || -z "${BACKEND_OPERATOR:-}" || -z "${FAUCET_TOKENS:-}" || -z "${COLLATERAL_MANAGER_ADDRESS:-}" || -z "${WITHDRAWAL_REGISTRY_ADDRESS:-}" ]]; then
+  echo "Skipping RiskModule deploy (need BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, DEPLOYER_ADDRESS, BACKEND_OPERATOR, FAUCET_TOKENS, COLLATERAL_MANAGER_ADDRESS, WITHDRAWAL_REGISTRY_ADDRESS)"
+elif [[ ! -f "$RISK_PARAMS_FILE" ]]; then
+  echo "Skipping RiskModule deploy (risk params file not found: $RISK_PARAMS_FILE)"
+else
+  rm_out=$(run_script script/DeployRiskModule.s.sol:DeployRiskModule \
+    --sig "run(address,address,address,address,address,address[])" \
+    "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$CENTUARI_ADDRESS" "$DEPLOYER_ADDRESS" "[$FAUCET_TOKENS]" 2>&1) || {
+    status=$?
+    echo "$rm_out"
+    echo "DeployRiskModule failed with status $status"
+    exit "$status"
+  }
+  echo "$rm_out"
+  ORACLE_ROUTER_ADDRESS="$(echo "$rm_out" | parse_oracle_router_proxy)"
+  ORACLE_ROUTER_PROXY_ADMIN_ADDRESS="$(echo "$rm_out" | parse_oracle_router_proxy_admin)"
+  RISK_MODULE_ADDRESS="$(echo "$rm_out" | parse_risk_module_proxy)"
+  RISK_MODULE_PROXY_ADMIN_ADDRESS="$(echo "$rm_out" | parse_risk_module_proxy_admin)"
+  PUSH_ORACLES_JSON="$(echo "$rm_out" | build_push_oracles_json "${MOCK_TOKENS_JSON:-{}}")"
+  export ORACLE_ROUTER_ADDRESS RISK_MODULE_ADDRESS
+  echo "Captured ORACLE_ROUTER_ADDRESS=$ORACLE_ROUTER_ADDRESS"
+  echo "Captured RISK_MODULE_ADDRESS=$RISK_MODULE_ADDRESS"
+
+  # Refresh the summary (with mockTokens + new oracle/module addrs) so
+  # ConfigureRiskModule can resolve each symbol to its deployed token address.
+  write_deploy_summary
+
+  DO_SWAP=true
+  [[ "${SKIP_RISK_MODULE_SWAP:-0}" == "1" ]] && DO_SWAP=false
+  DEPLOY_JSON="$SUMMARY_FILE" RISK_PARAMS_FILE="$RISK_PARAMS_FILE" run_script script/ConfigureRiskModule.s.sol:ConfigureRiskModule \
+    --sig "run(address,address,address,address,bool)" \
+    "$RISK_MODULE_ADDRESS" "$ORACLE_ROUTER_ADDRESS" "$COLLATERAL_MANAGER_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS" "$DO_SWAP" || {
+    status=$?
+    echo "ConfigureRiskModule failed with status $status"
+    exit "$status"
+  }
+  if [[ "$DO_SWAP" == true ]]; then
+    echo "Real RiskModule wired into WithdrawalRegistry + CollateralManager (swap done)."
+  else
+    echo "Real RiskModule deployed + configured; swap deferred (SKIP_RISK_MODULE_SWAP=1)."
+  fi
 fi
 
 echo "=== Writing deployment summary ==="

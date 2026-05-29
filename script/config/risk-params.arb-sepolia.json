@@ -1,0 +1,19 @@
+{
+  "_comment": "Per-asset risk parameters for the real oracle-backed RiskModule (Track B3 / C6). Consumed by ConfigureRiskModule.s.sol, invoked from bin/run-all.sh step 13. Keyed by token SYMBOL; ConfigureRiskModule resolves each symbol to its deployed address via the run-all.sh deployment summary `mockTokens` map.",
+  "_sources": "LTV from backend seeds 20260120174542_supported_tokens.sql (collateral assets) + 20260324000000_loan_token_collateral_risk.sql (loan-token-as-collateral). Staleness/buffer/prices from the C6 testnet deploy record (dev-docs/memory/MEMORY.md, 2026-05-25).",
+  "_notes": "On-chain RiskModule.setLtv is PER-ASSET; the backend `risk` table is per (collateral, loan) pair (stables: 9000 same-token / 8500 cross). Encoded the conservative 8500 for stablecoins — confirm before mainnet if you want 9000 for same-stablecoin collateral. bootstrapPriceUsd1e18 is USD-per-whole-token scaled to 1e18; null = the Phase 3 price keeper seeds it (ConfigureRiskModule does NOT push prices — that is operator-gated).",
+  "defaultBufferBps": 100,
+  "assets": {
+    "BTC":    { "ltvBps": 7500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": "95000000000000000000000" },
+    "ETH":    { "ltvBps": 7500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": "3500000000000000000000" },
+    "XAUT":   { "ltvBps": 7000, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": "2400000000000000000000" },
+    "SLVon":  { "ltvBps": 7000, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null },
+    "NVDAon": { "ltvBps": 6000, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null },
+    "AAPLon": { "ltvBps": 6000, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null },
+    "TLTon":  { "ltvBps": 8000, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null },
+    "USDC":   { "ltvBps": 8500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": "1000000000000000000" },
+    "USDT":   { "ltvBps": 8500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": "1000000000000000000" },
+    "IDRX":   { "ltvBps": 8500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null },
+    "XSGD":   { "ltvBps": 8500, "maxStalenessSeconds": 86400, "bootstrapPriceUsd1e18": null }
+  }
+}

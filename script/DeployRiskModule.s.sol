@@ -23,10 +23,14 @@ import {PushOracle} from "../src/core/oracle/PushOracle.sol";
 ///      Assumes (like `DeployCollateralStack.s.sol`) the broadcaster holds
 ///      `owner` privileges so `OracleRouter.setFeed` succeeds for the PushOracles.
 ///
-///      The Phase 4 governance swap — `setRiskModule(riskModuleProxy)` on BOTH
-///      `WithdrawalRegistry` and `CollateralManager` — is intentionally NOT done
-///      here; it is gated on audit. Output addresses should be merged into
-///      `deployments/deploy-<network>-latest.json`.
+///      This script only deploys the stack. Per-asset config (LTV / buffer /
+///      staleness) and the governance swap — `setRiskModule(riskModuleProxy)` on
+///      BOTH `WithdrawalRegistry` and `CollateralManager` — are done by
+///      `ConfigureRiskModule.s.sol`. Both run as step 13 of `bin/run-all.sh`
+///      (B3: the canonical deploy launches on the real RiskModule, not the stub).
+///      The external-audit gate that previously deferred the swap was dropped
+///      2026-05-28 (hub-only.html D8). `run-all.sh` records the output addresses
+///      into `deployments/deploy-<network>-latest.json`.
 contract DeployRiskModule is Script {
     /// @param owner Governance owner of the OracleRouter + RiskModule
     /// @param operator Price-pushing operator for the PushOracles
