@@ -267,7 +267,10 @@ parse_risk_module_proxy_admin() {
 # Build the pushOracles {symbol:address} map from DeployRiskModule output, mapping each
 # asset address back to its symbol via the mockTokens JSON ($1). Reads forge output on stdin.
 build_push_oracles_json() {
-  python3 - "$1" <<'PY'
+  # Feed the program on FD 3 (not stdin) — `python3 - <<'PY'` would read the
+  # PROGRAM from stdin, discarding the piped DeployRiskModule output and
+  # leaving sys.stdin at EOF, so the map always came back empty.
+  python3 /dev/fd/3 "$1" 3<<'PY'
 import json, sys, re
 try:
     mock = json.loads(sys.argv[1] or "{}")
@@ -286,7 +289,12 @@ PY
 }
 
 write_deploy_summary() {
-  : "${MOCK_TOKENS_JSON:={}}"
+  # NB: `${VAR:={}}` is a trap — the inner `}` closes the parameter expansion
+  # early, assigning `{` (not `{}`) and emitting malformed JSON (`"k": {,`).
+  # Default to an empty object in two steps instead (set -e safe: both the
+  # short-circuit and the assignment return 0).
+  : "${MOCK_TOKENS_JSON:=}"
+  [[ -n "$MOCK_TOKENS_JSON" ]] || MOCK_TOKENS_JSON='{}'
   : "${FAUCET_ADDRESS:=}"
   : "${BALANCE_LEDGER_ADDRESS:=}"
   : "${BALANCE_LEDGER_PROXY_ADMIN_ADDRESS:=}"
@@ -303,7 +311,8 @@ write_deploy_summary() {
   : "${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS:=}"
   : "${RISK_MODULE_ADDRESS:=}"
   : "${RISK_MODULE_PROXY_ADMIN_ADDRESS:=}"
-  : "${PUSH_ORACLES_JSON:={}}"
+  : "${PUSH_ORACLES_JSON:=}"
+  [[ -n "$PUSH_ORACLES_JSON" ]] || PUSH_ORACLES_JSON='{}'
   : "${SETTLEMENT_PROXY_ADDRESS:=}"
   : "${SETTLEMENT_PROXY_ADMIN_ADDRESS:=}"
   : "${SETTLEMENT_IMPLEMENTATION_ADDRESS:=}"
@@ -839,7 +848,11 @@ else
   ORACLE_ROUTER_PROXY_ADMIN_ADDRESS="$(echo "$rm_out" | parse_oracle_router_proxy_admin)"
   RISK_MODULE_ADDRESS="$(echo "$rm_out" | parse_risk_module_proxy)"
   RISK_MODULE_PROXY_ADMIN_ADDRESS="$(echo "$rm_out" | parse_risk_module_proxy_admin)"
-  PUSH_ORACLES_JSON="$(echo "$rm_out" | build_push_oracles_json "${MOCK_TOKENS_JSON:-{}}")"
+  # NB: pass MOCK_TOKENS_JSON as-is — `${VAR:-{}}` would append a stray `}`
+  # (the inner brace closes the expansion), corrupting the JSON so the helper's
+  # json.loads fails and the pushOracles map silently comes back empty. The
+  # helper already treats an empty arg as `{}`.
+  PUSH_ORACLES_JSON="$(echo "$rm_out" | build_push_oracles_json "${MOCK_TOKENS_JSON:-}")"
   export ORACLE_ROUTER_ADDRESS RISK_MODULE_ADDRESS
   echo "Captured ORACLE_ROUTER_ADDRESS=$ORACLE_ROUTER_ADDRESS"
   echo "Captured RISK_MODULE_ADDRESS=$RISK_MODULE_ADDRESS"

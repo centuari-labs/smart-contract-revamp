@@ -5,8 +5,15 @@ libs = ["lib"]
 via_ir = true
 optimizer = true
 
-# Allow tests to read shared fixtures (e.g. the SC-9 HF cross-check vectors).
-fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+# Read access:
+#  - test/fixtures: SC-9 HF cross-check vectors (tests)
+#  - script/config: per-network risk-params JSON consumed by ConfigureRiskModule (run-all.sh step 13)
+#  - deployments:   the run-all.sh deployment summary ConfigureRiskModule reads for the mockTokens map
+fs_permissions = [
+    { access = "read", path = "./test/fixtures" },
+    { access = "read", path = "./script/config" },
+    { access = "read", path = "./deployments" },
+]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
