@@ -22,6 +22,14 @@ contract PermissiveRiskModule is IRiskModule {
     function canWithdraw(address, address, uint256) external pure returns (bool) {
         return true;
     }
+
+    function isLiquidatable(address) external pure returns (bool) {
+        return false;
+    }
+
+    function healthFactor(address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
 }
 
 contract CollateralManagerTest is Test {

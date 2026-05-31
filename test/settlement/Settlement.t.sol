@@ -89,6 +89,14 @@ contract MockCentuari is ICentuari {
         return 0;
     }
 
+    function liquidationRepay(bytes32, address, address, address, uint256) external {}
+
+    function setLiquidationEngine(address) external {}
+
+    function liquidationEngine() external pure returns (address) {
+        return address(0);
+    }
+
     function feeCollector() external pure returns (address) {
         return address(0);
     }

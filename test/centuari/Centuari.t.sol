@@ -75,6 +75,10 @@ contract CentuariTest is Test {
         bytes32 indexed marketId, address indexed lender, uint256 cbtBurned, uint256 amountWithdrawn
     );
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
+    event LiquidationEngineUpdated(address indexed oldEngine, address indexed newEngine);
+    event LiquidationRepaid(
+        bytes32 indexed marketId, address indexed borrower, address indexed liquidator, uint256 amount
+    );
 
     function setUp() public {
         owner = makeAddr("owner");
@@ -863,6 +867,134 @@ contract CentuariTest is Test {
         vm.prank(owner);
         vm.expectRevert(ICentuari.ZeroAddress.selector);
         centuari.setOperator(address(0));
+    }
+
+    // ============ liquidationRepay Tests ============
+
+    function test_LiquidationRepay_reducesDebtAndDebitsLiquidator() public {
+        address engine = makeAddr("engine");
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        address liquidator = makeAddr("liquidator");
+        uint256 maturity = block.timestamp + 365 days;
+
+        bytes32 marketId = _settleMatchWithFunding(lender, borrower, 1000 ether, 500, maturity, true, 0, 0, 0, 0);
+        uint256 debt = centuari.getBorrowPosition(marketId, borrower);
+
+        vm.prank(owner);
+        centuari.setLiquidationEngine(engine);
+
+        _fundUser(liquidator, loanToken, debt); // liquidator funds the repayment
+        uint256 borrowerAvailBefore = balanceLedgerContract.available(borrower, loanToken);
+
+        vm.expectEmit(true, true, true, true);
+        emit LiquidationRepaid(marketId, borrower, liquidator, 400 ether);
+
+        vm.prank(engine);
+        centuari.liquidationRepay(marketId, borrower, loanToken, liquidator, 400 ether);
+
+        assertEq(centuari.getBorrowPosition(marketId, borrower), debt - 400 ether);
+        // The LIQUIDATOR funded the repayment, not the borrower.
+        assertEq(balanceLedgerContract.available(liquidator, loanToken), debt - 400 ether);
+        assertEq(balanceLedgerContract.available(borrower, loanToken), borrowerAvailBefore);
+    }
+
+    function test_LiquidationRepay_capsToDebtAndClearsMarket() public {
+        address engine = makeAddr("engine");
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        address liquidator = makeAddr("liquidator");
+        uint256 maturity = block.timestamp + 365 days;
+
+        bytes32 marketId = _settleMatchWithFunding(lender, borrower, 1000 ether, 500, maturity, true, 0, 0, 0, 0);
+        uint256 debt = centuari.getBorrowPosition(marketId, borrower);
+
+        vm.prank(owner);
+        centuari.setLiquidationEngine(engine);
+        _fundUser(liquidator, loanToken, debt + 500 ether);
+
+        vm.prank(engine);
+        centuari.liquidationRepay(marketId, borrower, loanToken, liquidator, debt + 500 ether);
+
+        // Capped to `debt`; the market drops out of the borrower's active-debt set.
+        assertEq(centuari.getBorrowPosition(marketId, borrower), 0);
+        assertEq(centuari.activeDebtCount(borrower), 0);
+        assertEq(balanceLedgerContract.available(liquidator, loanToken), 500 ether);
+    }
+
+    function test_LiquidationRepay_RevertOnlyLiquidationEngine() public {
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address engine = makeAddr("engine");
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        uint256 maturity = block.timestamp + 365 days;
+
+        bytes32 marketId = _settleMatchWithFunding(lender, borrower, 1000 ether, 500, maturity, true, 0, 0, 0, 0);
+
+        vm.prank(owner);
+        centuari.setLiquidationEngine(engine);
+
+        // The operator (a different privileged role) must NOT be able to liquidate.
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.Unauthorized.selector);
+        centuari.liquidationRepay(marketId, borrower, loanToken, makeAddr("liq"), 1 ether);
+    }
+
+    function test_LiquidationRepay_RevertWhenPaused() public {
+        address engine = makeAddr("engine");
+        address lender = makeAddr("lender");
+        address borrower = makeAddr("borrower");
+        address liquidator = makeAddr("liquidator");
+        uint256 maturity = block.timestamp + 365 days;
+
+        bytes32 marketId = _settleMatchWithFunding(lender, borrower, 1000 ether, 500, maturity, true, 0, 0, 0, 0);
+
+        vm.prank(owner);
+        centuari.setLiquidationEngine(engine);
+        _fundUser(liquidator, loanToken, 1000 ether);
+
+        vm.prank(owner);
+        centuari.pause();
+
+        vm.prank(engine);
+        vm.expectRevert(ICentuari.ContractPaused.selector);
+        centuari.liquidationRepay(marketId, borrower, loanToken, liquidator, 1 ether);
+    }
+
+    function test_LiquidationRepay_RevertZeroDebt() public {
+        address engine = makeAddr("engine");
+        uint256 maturity = block.timestamp + 365 days;
+        bytes32 marketId = _getMarketId(loanToken, maturity);
+
+        vm.prank(owner);
+        centuari.setLiquidationEngine(engine);
+
+        vm.prank(engine);
+        vm.expectRevert(ICentuari.InvalidAmount.selector);
+        centuari.liquidationRepay(marketId, makeAddr("borrower"), loanToken, makeAddr("liq"), 1 ether);
+    }
+
+    function test_SetLiquidationEngine() public {
+        address engine = makeAddr("engine");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit LiquidationEngineUpdated(address(0), engine);
+        centuari.setLiquidationEngine(engine);
+        assertEq(centuari.liquidationEngine(), engine);
+    }
+
+    function test_SetLiquidationEngine_RevertNotOwner() public {
+        vm.prank(user);
+        vm.expectRevert();
+        centuari.setLiquidationEngine(makeAddr("engine"));
+    }
+
+    function test_SetLiquidationEngine_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ICentuari.ZeroAddress.selector);
+        centuari.setLiquidationEngine(address(0));
     }
 
     // ============ Repay Tests ============

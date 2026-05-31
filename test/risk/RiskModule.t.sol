@@ -279,4 +279,89 @@ contract RiskModuleTest is Test {
         assertEq(rm.ltvBps(COLL), 8000);
         assertEq(rm.defaultBufferBps(), 0);
     }
+
+    // ---- isLiquidatable / healthFactor (liquidation trigger) ----
+
+    function test_isLiquidatable_noDebt_false() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 100e18);
+        // no debt set
+        assertFalse(rm.isLiquidatable(user));
+        assertEq(rm.healthFactor(user), type(uint256).max);
+    }
+
+    function test_isLiquidatable_healthy_false() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 100e18);
+        _debt(DEBT, 40e18);
+        // HF = (100-40)*0.8/40 = 1.2 ≥ 1.0 → not liquidatable
+        assertEq(rm.healthFactor(user), 1.2e18);
+        assertFalse(rm.isLiquidatable(user));
+    }
+
+    function test_isLiquidatable_atExactlyOne_false() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 90e18);
+        _debt(DEBT, 40e18);
+        // HF = (90-40)*0.8/40 = 1.0 exactly → NOT liquidatable (trigger is hf < 1.0)
+        assertEq(rm.healthFactor(user), 1e18);
+        assertFalse(rm.isLiquidatable(user));
+    }
+
+    function test_isLiquidatable_belowOne_true() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 100e18);
+        _debt(DEBT, 50e18);
+        // HF = (100-50)*0.8/50 = 0.8 < 1.0 → liquidatable
+        assertEq(rm.healthFactor(user), 0.8e18);
+        assertTrue(rm.isLiquidatable(user));
+    }
+
+    function test_isLiquidatable_underwater_true() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 30e18);
+        _debt(DEBT, 40e18);
+        // collateralUsd (30) <= debtUsd (40) → underwater → liquidatable, HF reported as 0
+        assertTrue(rm.isLiquidatable(user));
+        assertEq(rm.healthFactor(user), 0);
+    }
+
+    function test_isLiquidatable_buffer_ignoredForTrigger() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 90e18);
+        _debt(DEBT, 40e18);
+        // HF = 1.0 exactly. The withdraw/borrow buffer must NOT make this liquidatable:
+        // the liquidation trigger is hf < 1.0 with NO buffer.
+        vm.prank(owner);
+        rm.setBuffer(COLL, 100); // 1.01 withdraw threshold
+        assertFalse(rm.isLiquidatable(user));
+    }
+
+    function test_isLiquidatable_failClosed_staleDebtPrice() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 30e18);
+        _debt(DEBT, 40e18);
+        px.set(DEBT, 1e18, false); // debt unpriced
+        // Underwater on paper, but price is stale → fail-closed = NOT liquidatable
+        assertFalse(rm.isLiquidatable(user));
+        assertEq(rm.healthFactor(user), 0);
+    }
+
+    function test_isLiquidatable_failClosed_staleCollateralPrice() public {
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 100e18);
+        _debt(DEBT, 50e18);
+        px.set(COLL, 1e18, false); // collateral unpriced
+        assertFalse(rm.isLiquidatable(user));
+    }
+
+    function test_canWithdraw_unchanged_afterRefactor() public {
+        // Regression: the existing HF gate behavior must be preserved after the
+        // _healthyAfter → _computeHf refactor.
+        ledger.setFlagged(user, _one(COLL));
+        ledger.setAvailable(user, COLL, 100e18);
+        _debt(DEBT, 40e18);
+        assertTrue(rm.canWithdraw(user, COLL, 10e18)); // HF 1.0 at buffer 0 → allowed
+        assertFalse(rm.canWithdraw(user, COLL, 11e18)); // HF 0.98 → blocked
+    }
 }

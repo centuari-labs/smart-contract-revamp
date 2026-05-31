@@ -44,6 +44,7 @@ CONTRACTS=(
   SettlementLedger
   RiskModule
   OracleRouter
+  LiquidationEngine
 )
 
 MODE="check"

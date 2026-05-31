@@ -79,6 +79,20 @@ interface ICentuari {
     /// @param newOperator The new operator address
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
 
+    /// @notice Emitted when the LiquidationEngine address is updated
+    /// @param oldEngine The previous LiquidationEngine address
+    /// @param newEngine The new LiquidationEngine address
+    event LiquidationEngineUpdated(address indexed oldEngine, address indexed newEngine);
+
+    /// @notice Emitted when a borrow position is repaid via liquidation
+    /// @param marketId The market identifier
+    /// @param borrower The borrower whose debt was reduced
+    /// @param liquidator The account that funded the repayment
+    /// @param amount The amount repaid (in loan token terms)
+    event LiquidationRepaid(
+        bytes32 indexed marketId, address indexed borrower, address indexed liquidator, uint256 amount
+    );
+
     /// @notice Emitted when a lender withdraws (redeems) part or all of their lend position
     /// @param marketId The market identifier
     /// @param lender The lender address
@@ -169,6 +183,18 @@ interface ICentuari {
     /// @param amount The amount to repay (capped to current debt)
     function repay(bytes32 marketId, address borrower, address loanToken, uint256 amount) external;
 
+    /// @notice Repayment leg of a liquidation: reduce a borrower's debt, funded by a
+    ///         liquidator. Only callable by the LiquidationEngine.
+    /// @dev Mirrors {repay} but debits the `liquidator` (not the borrower). The
+    ///      LiquidationEngine owns the trigger, close-factor and collateral seizure.
+    /// @param marketId The market identifier
+    /// @param borrower The borrower being liquidated
+    /// @param loanToken The loan token address (debited from the liquidator)
+    /// @param liquidator The account funding the repayment
+    /// @param amount The amount to repay (capped to current debt)
+    function liquidationRepay(bytes32 marketId, address borrower, address loanToken, address liquidator, uint256 amount)
+        external;
+
     /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from Centuari custody and credits loan tokens to caller's BalanceLedger available balance.
     /// @dev CBT is held by Centuari (bond custodian). The caller's internal _lendPositionCbtAmount tracks their claim.
     /// @param marketId The market identifier (bytes32)
@@ -254,6 +280,14 @@ interface ICentuari {
     /// @notice Set the operator address. Only owner.
     /// @param newOperator The new operator address
     function setOperator(address newOperator) external;
+
+    /// @notice Set the LiquidationEngine address. Only owner.
+    /// @param newLiquidationEngine The new LiquidationEngine address
+    function setLiquidationEngine(address newLiquidationEngine) external;
+
+    /// @notice Get the LiquidationEngine address
+    /// @return The LiquidationEngine address
+    function liquidationEngine() external view returns (address);
 
     /// @notice Set the BalanceLedger address. Only owner.
     /// @param newBalanceLedger The new BalanceLedger address

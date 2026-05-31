@@ -94,16 +94,21 @@ abstract contract CentuariStorage {
     ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
     address internal _pauser;
 
+    /// @notice The LiquidationEngine permitted to call liquidationRepay.
+    /// @dev Set via setLiquidationEngine (onlyOwner); zero until wired post-deploy.
+    ///      Appended after _pauser — append-only storage (liquidation track).
+    address internal _liquidationEngine;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
     /// @dev Reduced 40 → 38 in Phase 3 (C6) when `_borrowerMarkets` +
     ///      `_marketLoanToken` were appended (2 mapping slots), then 38 → 37 in D1
-    ///      when `_pauser` was appended. When adding new variables, reduce this gap
-    ///      accordingly.
+    ///      when `_pauser` was appended, then 37 → 36 when `_liquidationEngine` was
+    ///      appended. When adding new variables, reduce this gap accordingly.
     ///      Current usage: address/bool slots (settlement, balanceLedger+paused,
     ///      bondTokenFactory, operator, feeCollector) + 6 mappings (marketTotalCbt,
     ///      lendPositionCbtAmount, borrowDebt, activeDebtCount, borrowerMarkets,
-    ///      marketLoanToken) + _pauser.
-    uint256[37] private __gap;
+    ///      marketLoanToken) + _pauser + _liquidationEngine.
+    uint256[36] private __gap;
 }

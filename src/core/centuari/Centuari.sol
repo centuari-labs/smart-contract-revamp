@@ -90,6 +90,12 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
         _;
     }
 
+    /// @notice Restricts function access to the LiquidationEngine
+    modifier onlyLiquidationEngine() {
+        if (msg.sender != _liquidationEngine) revert Unauthorized();
+        _;
+    }
+
     // ============ Core Settlement Function ============
 
     /// @inheritdoc ICentuari
@@ -265,6 +271,56 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
         // CollateralManager.unflagFor, which enforces the 24h flag-lock and RiskModule gate.
 
         emit Repaid(marketId, borrower, repayAmount);
+    }
+
+    // ============ Liquidation Hook ============
+
+    /// @inheritdoc ICentuari
+    /// @dev Repayment leg of a liquidation. Mirrors {repay} but the LIQUIDATOR funds
+    ///      the repayment (their BalanceLedger `available` is debited), not the
+    ///      borrower. Only the LiquidationEngine may call it; the engine owns the
+    ///      trigger, close-factor and collateral-seizure policy. Keeps the
+    ///      "debt down ⟺ loan token paid" invariant atomic inside Centuari.
+    function liquidationRepay(bytes32 marketId, address borrower, address loanToken, address liquidator, uint256 amount)
+        external
+        onlyLiquidationEngine
+        whenNotPaused
+        nonReentrant
+    {
+        if (borrower == address(0) || liquidator == address(0)) revert ZeroAddress();
+        if (amount == 0) revert InvalidAmount();
+
+        uint256 debt = _borrowDebt[marketId][borrower];
+        if (debt == 0) revert InvalidAmount();
+
+        uint256 repayAmount = amount > debt ? debt : amount;
+
+        _borrowDebt[marketId][borrower] = debt - repayAmount;
+
+        // Drop the market from the borrower's enumerable debt set at zero (SC-8),
+        // exactly as repay() does.
+        if (debt - repayAmount == 0) {
+            _borrowerMarkets[borrower].remove(marketId);
+        }
+
+        // The liquidator funds the repayment (no credit — repaid tokens are
+        // protocol-unallocated, same as repay()).
+        IBalanceLedger(_balanceLedger).debit(liquidator, loanToken, repayAmount);
+
+        emit LiquidationRepaid(marketId, borrower, liquidator, repayAmount);
+    }
+
+    /// @inheritdoc ICentuari
+    function setLiquidationEngine(address newLiquidationEngine) external onlyOwner {
+        if (newLiquidationEngine == address(0)) revert ZeroAddress();
+        address old = _liquidationEngine;
+        _liquidationEngine = newLiquidationEngine;
+        emit LiquidationEngineUpdated(old, newLiquidationEngine);
+    }
+
+    /// @inheritdoc ICentuari
+    function liquidationEngine() external view returns (address) {
+        return _liquidationEngine;
     }
 
     /// @inheritdoc ICentuari

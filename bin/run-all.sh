@@ -50,6 +50,9 @@
 #       WithdrawalRegistry + CollateralManager unless SKIP_RISK_MODULE_SWAP=1. Skip the
 #       whole step with SKIP_RISK_MODULE=1. Initial prices are pushed by the Phase 3
 #       operator keeper, not here.)
+#   14. DeployLiquidationEngine (permissionless liquidation: HF<1 OR matured-with-debt;
+#       self-registers as a BalanceLedger writer + setLiquidationEngine on Centuari;
+#       reads script/config/liquidation-params.<slug>.json. Skip with SKIP_LIQUIDATION=1.)
 #
 set -e
 
@@ -264,6 +267,12 @@ parse_risk_module_proxy() {
 parse_risk_module_proxy_admin() {
   grep -oE 'RiskModule ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/RiskModule ProxyAdmin: //'
 }
+parse_liquidation_engine_proxy() {
+  grep -oE 'LiquidationEngine Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/LiquidationEngine Proxy: //'
+}
+parse_liquidation_engine_proxy_admin() {
+  grep -oE 'LiquidationEngine ProxyAdmin: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/LiquidationEngine ProxyAdmin: //'
+}
 # Build the pushOracles {symbol:address} map from DeployRiskModule output, mapping each
 # asset address back to its symbol via the mockTokens JSON ($1). Reads forge output on stdin.
 build_push_oracles_json() {
@@ -311,6 +320,8 @@ write_deploy_summary() {
   : "${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS:=}"
   : "${RISK_MODULE_ADDRESS:=}"
   : "${RISK_MODULE_PROXY_ADMIN_ADDRESS:=}"
+  : "${LIQUIDATION_ENGINE_ADDRESS:=}"
+  : "${LIQUIDATION_ENGINE_PROXY_ADMIN_ADDRESS:=}"
   : "${PUSH_ORACLES_JSON:=}"
   [[ -n "$PUSH_ORACLES_JSON" ]] || PUSH_ORACLES_JSON='{}'
   : "${SETTLEMENT_PROXY_ADDRESS:=}"
@@ -355,6 +366,8 @@ write_deploy_summary() {
     echo "  \"oracleRouterProxyAdmin\": \"${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"riskModuleAddress\": \"${RISK_MODULE_ADDRESS}\","
     echo "  \"riskModuleProxyAdmin\": \"${RISK_MODULE_PROXY_ADMIN_ADDRESS}\","
+    echo "  \"liquidationEngineAddress\": \"${LIQUIDATION_ENGINE_ADDRESS}\","
+    echo "  \"liquidationEngineProxyAdmin\": \"${LIQUIDATION_ENGINE_PROXY_ADMIN_ADDRESS}\","
     echo "  \"pushOracles\": ${PUSH_ORACLES_JSON},"
     echo "  \"settlementProxy\": \"${SETTLEMENT_PROXY_ADDRESS:-}\","
     echo "  \"settlementProxyAdmin\": \"${SETTLEMENT_PROXY_ADMIN_ADDRESS:-}\","
@@ -501,6 +514,7 @@ verify_deployment() {
   _verify_impl "$(_json_get settlementLedgerAddress)"   "src/core/cross-chain/SettlementLedger.sol:SettlementLedger"
   _verify_impl "$(_json_get oracleRouterAddress)"       "src/core/oracle/OracleRouter.sol:OracleRouter"
   _verify_impl "$(_json_get riskModuleAddress)"         "src/core/risk/RiskModule.sol:RiskModule"
+  _verify_impl "$(_json_get liquidationEngineAddress)"  "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine"
 
   # Non-upgradeable singletons (constructor args fetched from the on-chain creation tx).
   _verify "$(_json_get riskModuleStubAddress)"   "src/core/risk/RiskModuleStub.sol:RiskModuleStub"                           --guess-constructor-args
@@ -528,7 +542,7 @@ if [[ "$VERIFY_ONLY" == true ]]; then
   exit 0
 fi
 
-TOTAL_STEPS=13
+TOTAL_STEPS=14
 
 # ===========================
 # Step 1: DeployMockTokens
@@ -875,6 +889,39 @@ else
   else
     echo "Real RiskModule deployed + configured; swap deferred (SKIP_RISK_MODULE_SWAP=1)."
   fi
+fi
+
+# ===========================
+# Step 14: DeployLiquidationEngine (permissionless liquidation; references RiskModule + OracleRouter)
+#   Deploys the LiquidationEngine proxy, authorizes it as a BalanceLedger writer, and
+#   registers it on Centuari (setLiquidationEngine). Reads liquidation params (bonus +
+#   close factors) from script/config/liquidation-params.<slug>.json. Skip with
+#   SKIP_LIQUIDATION=1. Requires the real RiskModule (step 13) + OracleRouter to be live.
+# ===========================
+echo "=== 14/$TOTAL_STEPS DeployLiquidationEngine ==="
+LIQUIDATION_PARAMS_FILE="${LIQUIDATION_PARAMS_FILE:-$ROOT_DIR/script/config/liquidation-params.${NETWORK_SLUG}.json}"
+if [[ "$DEPLOY_ONLY" == true ]]; then
+  echo "Skipping LiquidationEngine (--deploy-only)"
+elif [[ "${SKIP_LIQUIDATION:-0}" == "1" ]]; then
+  echo "Skipping LiquidationEngine deploy (SKIP_LIQUIDATION=1)"
+elif [[ -z "${RISK_MODULE_ADDRESS:-}" || -z "${ORACLE_ROUTER_ADDRESS:-}" || -z "${BALANCE_LEDGER_ADDRESS:-}" || -z "${CENTUARI_ADDRESS:-}" || -z "${DEPLOYER_ADDRESS:-}" ]]; then
+  echo "Skipping LiquidationEngine deploy (need RISK_MODULE_ADDRESS, ORACLE_ROUTER_ADDRESS, BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, DEPLOYER_ADDRESS)"
+elif [[ ! -f "$LIQUIDATION_PARAMS_FILE" ]]; then
+  echo "Skipping LiquidationEngine deploy (params file not found: $LIQUIDATION_PARAMS_FILE)"
+else
+  le_out=$(LIQUIDATION_PARAMS_FILE="$LIQUIDATION_PARAMS_FILE" NETWORK_SLUG="$NETWORK_SLUG" run_script script/DeployLiquidationEngine.s.sol:DeployLiquidationEngine \
+    --sig "run(address,address,address,address,address,address)" \
+    "$DEPLOYER_ADDRESS" "$CENTUARI_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$RISK_MODULE_ADDRESS" "$ORACLE_ROUTER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
+    status=$?
+    echo "$le_out"
+    echo "DeployLiquidationEngine failed with status $status"
+    exit "$status"
+  }
+  echo "$le_out"
+  LIQUIDATION_ENGINE_ADDRESS="$(echo "$le_out" | parse_liquidation_engine_proxy || true)"
+  LIQUIDATION_ENGINE_PROXY_ADMIN_ADDRESS="$(echo "$le_out" | parse_liquidation_engine_proxy_admin || true)"
+  export LIQUIDATION_ENGINE_ADDRESS
+  echo "Captured LIQUIDATION_ENGINE_ADDRESS=$LIQUIDATION_ENGINE_ADDRESS"
 fi
 
 echo "=== Writing deployment summary ==="

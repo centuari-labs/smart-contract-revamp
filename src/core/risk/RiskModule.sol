@@ -115,16 +115,59 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
         return _healthyAfter(user, asset, 0, true);
     }
 
+    /// @inheritdoc IRiskModule
+    function isLiquidatable(address user) external view returns (bool) {
+        (uint256 hf, bool priced, bool hasDebt,) = _computeHf(user, address(0), 0, false);
+        if (!hasDebt) return false; // no active debt → nothing to liquidate
+        if (!priced) return false; // fail-closed: never liquidate on a missing/stale price
+        // Trigger floor is exactly 1.0 with NO buffer — it sits below the
+        // 1 + buffer borrow/withdraw gate, leaving a deliberate safety band.
+        return hf < ONE;
+    }
+
+    /// @inheritdoc IRiskModule
+    function healthFactor(address user) external view returns (uint256) {
+        (uint256 hf, bool priced, bool hasDebt,) = _computeHf(user, address(0), 0, false);
+        if (!hasDebt) return type(uint256).max; // no debt → maximally healthy
+        if (!priced) return 0; // fail-closed
+        return hf;
+    }
+
     // ============ Internal HF math ============
 
-    /// @notice True iff the user's post-action health factor ≥ threshold.
-    /// @dev `actedAsset` is reduced by `withdrawAmount` (withdraw) or removed
-    ///      from collateral entirely (`removeEntirely` == unflag). Fail-closed on
-    ///      any unpriced/stale input. Never reverts on the decision path.
+    /// @notice True iff the user's post-action health factor ≥ the buffered threshold.
+    /// @dev Thin wrapper over `_computeHf`: no debt is always healthy, a missing/stale
+    ///      price is fail-closed, otherwise compare HF to `1 + maxBufferBps`.
     function _healthyAfter(address user, address actedAsset, uint256 withdrawAmount, bool removeEntirely)
         internal
         view
         returns (bool)
+    {
+        (uint256 hf, bool priced, bool hasDebt, uint256 maxBufferBps) =
+            _computeHf(user, actedAsset, withdrawAmount, removeEntirely);
+        if (!hasDebt) return true; // no active debt → healthy
+        if (!priced) return false; // fail-closed: unpriced/stale input
+        uint256 threshold = ONE + Math.mulDiv(maxBufferBps, ONE, BPS);
+        return hf >= threshold;
+    }
+
+    /// @notice Compute the user's post-action health factor plus the signals callers
+    ///         need to threshold it for different policies (withdraw/unflag vs
+    ///         liquidation).
+    /// @dev `actedAsset` is reduced by `withdrawAmount` (withdraw) or removed from
+    ///      collateral entirely (`removeEntirely` == unflag); pass
+    ///      (address(0), 0, false) for the live, no-pending-action HF. Never reverts
+    ///      on the decision path.
+    /// @return hf 1e18 health factor; 0 when underwater (collateral ≤ debt) or when
+    ///         there is no priced debt — only meaningful when `priced && hasDebt`.
+    /// @return priced False iff any required debt/collateral price was missing/stale.
+    /// @return hasDebt False iff the user has no active (non-zero, priced) debt.
+    /// @return maxBufferBps Largest per-asset HF buffer across the post-action flagged
+    ///         collateral (used by the withdraw/unflag gate; ignored by liquidation).
+    function _computeHf(address user, address actedAsset, uint256 withdrawAmount, bool removeEntirely)
+        internal
+        view
+        returns (uint256 hf, bool priced, bool hasDebt, uint256 maxBufferBps)
     {
         IBalanceLedger bl = _balanceLedger;
         IPriceOracle px = _oracle;
@@ -138,23 +181,22 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
         // getBorrowerDebts (one oracle call per distinct loan token), which covers
         // the SC-5 "dedup oracle calls per loan token" recommendation.
         (address[] memory debtTokens, uint256[] memory debtAmounts) = _centuari.getBorrowerDebts(user);
-        if (debtTokens.length == 0) return true; // no active debt markets → healthy
+        if (debtTokens.length == 0) return (0, true, false, 0); // no active debt markets
 
         uint256 debtUsd;
         for (uint256 j = 0; j < debtTokens.length; ++j) {
             if (debtAmounts[j] == 0) continue;
             (uint256 dVal, bool ok2) = px.tryGetUsdValue(debtTokens[j], debtAmounts[j]);
-            if (!ok2) return false; // fail-closed: unpriced/stale debt
+            if (!ok2) return (0, false, true, 0); // fail-closed: unpriced/stale debt
             debtUsd += dVal;
         }
-        if (debtUsd == 0) return true; // no debt → always healthy
+        if (debtUsd == 0) return (0, true, false, 0); // debt markets sum to zero → no debt
 
-        // There IS debt: now value the post-action flagged collateral.
+        // There IS debt: value the post-action flagged collateral.
         address[] memory flagged = bl.flaggedAssetsOf(user);
 
         uint256 collateralUsd; // Σ cVal (1e18)
         uint256 ltvWeighted; // Σ cVal·ltvBps/1e4 (== collateralUsd · weightedLTV)
-        uint256 maxBufferBps;
 
         for (uint256 i = 0; i < flagged.length; ++i) {
             address c = flagged[i];
@@ -167,7 +209,7 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
             if (amt == 0) continue;
 
             (uint256 cVal, bool ok) = px.tryGetUsdValue(c, amt);
-            if (!ok) return false; // fail-closed: unpriced/stale collateral
+            if (!ok) return (0, false, true, 0); // fail-closed: unpriced/stale collateral
 
             collateralUsd += cVal;
             ltvWeighted += Math.mulDiv(cVal, _ltvBps[c], BPS);
@@ -177,15 +219,15 @@ contract RiskModule is Initializable, OwnableUpgradeable, RiskModuleStorage, IRi
             if (b > maxBufferBps) maxBufferBps = b;
         }
 
-        if (collateralUsd <= debtUsd) return false; // net ≤ 0 → HF ≤ 0 < threshold
+        if (collateralUsd <= debtUsd) return (0, true, true, maxBufferBps); // underwater → HF 0
 
         uint256 net = collateralUsd - debtUsd;
         // HF1e18 = net · (ltvWeighted / collateralUsd) · 1e18 / debtUsd
-        uint256 hf = Math.mulDiv(net, ltvWeighted, collateralUsd);
+        hf = Math.mulDiv(net, ltvWeighted, collateralUsd);
         hf = Math.mulDiv(hf, ONE, debtUsd);
-
-        uint256 threshold = ONE + Math.mulDiv(maxBufferBps, ONE, BPS);
-        return hf >= threshold;
+        priced = true;
+        hasDebt = true;
+        // maxBufferBps already accumulated above; named returns complete the tuple.
     }
 
     // ============ Views ============

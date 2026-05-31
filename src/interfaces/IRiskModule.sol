@@ -43,4 +43,22 @@ interface IRiskModule {
     /// @param amount The amount being withdrawn
     /// @return True if the withdrawal is permitted under current policy
     function canWithdraw(address user, address asset, uint256 amount) external view returns (bool);
+
+    /// @notice The user's current health factor (1e18-scaled), with no pending action.
+    /// @dev Returns `type(uint256).max` when the user has no active debt. Returns 0
+    ///      when the position is underwater (collateral ≤ debt) OR any required price
+    ///      is missing/stale (fail-closed). Otherwise the live HF. View / never reverts.
+    /// @param user The account to value
+    /// @return The 1e18-scaled health factor
+    function healthFactor(address user) external view returns (uint256);
+
+    /// @notice Whether the user's position may be liquidated right now (HF trigger).
+    /// @dev True iff the user has debt, all inputs are priced, and HF < 1e18. The
+    ///      trigger floor is exactly 1.0 with NO buffer — below the `1 + buffer`
+    ///      borrow/withdraw gate, leaving a deliberate safety band. FAIL-CLOSED: a
+    ///      missing/stale price returns false (never liquidate on uncertainty), the
+    ///      inverse of `canWithdraw`. No debt returns false. View / never reverts.
+    /// @param user The account to test
+    /// @return True if the position is liquidatable under current policy
+    function isLiquidatable(address user) external view returns (bool);
 }

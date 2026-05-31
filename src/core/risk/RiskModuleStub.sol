@@ -48,15 +48,19 @@ contract RiskModuleStub is IRiskModule {
     /// @dev Returns true iff the asset is not currently flagged as collateral.
     ///      The `amount` argument is ignored by the stub but kept in the
     ///      interface so Phase 2 HF math can size-check withdrawals.
-    function canWithdraw(
-        address user,
-        address asset,
-        uint256 /* amount */
-    )
-        external
-        view
-        returns (bool)
-    {
+    function canWithdraw(address user, address asset, uint256 /* amount */ ) external view returns (bool) {
         return !BALANCE_LEDGER.usedAsCollateral(user, asset);
+    }
+
+    /// @inheritdoc IRiskModule
+    /// @dev Phase-1 stub is debt-blind; it never reports a position as liquidatable.
+    function isLiquidatable(address) external pure returns (bool) {
+        return false;
+    }
+
+    /// @inheritdoc IRiskModule
+    /// @dev Phase-1 stub has no oracle/debt aggregator; always reports max HF (healthy).
+    function healthFactor(address) external pure returns (uint256) {
+        return type(uint256).max;
     }
 }
