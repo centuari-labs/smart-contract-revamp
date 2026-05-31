@@ -13,9 +13,10 @@ import {RiskModuleStorage} from "./RiskModuleStorage.sol";
 
 /// @title RiskModule
 /// @notice Oracle-backed health-factor (HF) policy implementing `IRiskModule`.
-/// @dev Replaces `RiskModuleStub` behind the SAME `IRiskModule` seam — swapped
-///      in by governance via `setRiskModule` on `WithdrawalRegistry` and
-///      `CollateralManager`, so no caller contract changes. Mirrors the
+/// @dev The `IRiskModule` implementation behind the single policy seam:
+///      `WithdrawalRegistry` and `CollateralManager` are initialized with it
+///      directly, and `setRiskModule` lets governance hot-swap a future
+///      implementation without any caller contract changes. Mirrors the
 ///      off-chain HF math (backend PortfolioService):
 ///
 ///        weightedLTV = Σ(cVal·ltv) / Σ cVal     over post-action flagged collateral

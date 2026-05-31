@@ -8,7 +8,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
 import {WithdrawalRegistry} from "../../src/core/cross-chain/WithdrawalRegistry.sol";
-import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
+import {MockRiskModule} from "../mocks/MockRiskModule.sol";
 import {IWithdrawalRegistry} from "../../src/interfaces/cross-chain/IWithdrawalRegistry.sol";
 import {MockToken} from "../../src/mocks/MockToken.sol";
 
@@ -16,7 +16,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
     BalanceLedger internal ledger;
     HubDepositor internal depositor;
     WithdrawalRegistry internal registry;
-    RiskModuleStub internal riskModule;
+    MockRiskModule internal riskModule;
     MockToken internal usdc; // BRIDGED — no spoke-native route
     MockToken internal xsgd; // SPOKE_NATIVE
 
@@ -48,7 +48,7 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
             new TransparentUpgradeableProxy(address(depositorImpl), address(this), depositorInit);
         depositor = HubDepositor(address(depositorProxy));
 
-        riskModule = new RiskModuleStub(address(ledger));
+        riskModule = new MockRiskModule();
 
         // Deploy WithdrawalRegistry
         WithdrawalRegistry regImpl = new WithdrawalRegistry();

@@ -17,7 +17,7 @@ import {HubIntentSettler} from "../../../src/core/cross-chain/HubIntentSettler.s
 import {IHubIntentSettler} from "../../../src/interfaces/cross-chain/IHubIntentSettler.sol";
 import {SettlementLedger} from "../../../src/core/cross-chain/SettlementLedger.sol";
 import {WithdrawalRegistry} from "../../../src/core/cross-chain/WithdrawalRegistry.sol";
-import {RiskModuleStub} from "../../../src/core/risk/RiskModuleStub.sol";
+import {MockRiskModule} from "../../mocks/MockRiskModule.sol";
 
 import {MockToken} from "../../../src/mocks/MockToken.sol";
 import {MockLZEndpoint} from "../../mocks/MockLZEndpoint.sol";
@@ -39,7 +39,7 @@ contract SpokePayoutIntegrationTest is Test {
     HubIntentSettler internal settler;
     SettlementLedger internal settlementLedger;
     WithdrawalRegistry internal registry;
-    RiskModuleStub internal riskModule;
+    MockRiskModule internal riskModule;
     MockLZEndpoint internal hubEndpoint;
 
     MockToken internal xsgd; // SPOKE_NATIVE
@@ -62,15 +62,14 @@ contract SpokePayoutIntegrationTest is Test {
         hubEndpoint = new MockLZEndpoint(HUB_EID);
 
         // ---- Deploy hub contracts ----
-        ledger = BalanceLedger(
-            _proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true)))
-        );
+        ledger =
+            BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
 
         hubDepositor = HubDepositor(
             _proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger))))
         );
 
-        riskModule = new RiskModuleStub(address(ledger));
+        riskModule = new MockRiskModule();
 
         settler = HubIntentSettler(
             _proxy(

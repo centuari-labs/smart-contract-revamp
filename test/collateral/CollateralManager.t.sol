@@ -6,37 +6,14 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {CollateralManager} from "../../src/core/collateral/CollateralManager.sol";
-import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
 import {ICollateralManager} from "../../src/interfaces/ICollateralManager.sol";
-import {IRiskModule} from "../../src/interfaces/IRiskModule.sol";
-
-/// @title PermissiveRiskModule
-/// @notice Test-only RiskModule that always returns true. Used to decouple the
-///         CollateralManager "unflag-after-lock" happy-path test from the
-///         deliberately fail-closed Phase 1 stub.
-contract PermissiveRiskModule is IRiskModule {
-    function canUnflag(address, address) external pure returns (bool) {
-        return true;
-    }
-
-    function canWithdraw(address, address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function isLiquidatable(address) external pure returns (bool) {
-        return false;
-    }
-
-    function healthFactor(address) external pure returns (uint256) {
-        return type(uint256).max;
-    }
-}
+import {MockRiskModule} from "../mocks/MockRiskModule.sol";
 
 contract CollateralManagerTest is Test {
     BalanceLedger internal ledger;
     CollateralManager internal manager;
-    RiskModuleStub internal stub;
-    PermissiveRiskModule internal permissive;
+    MockRiskModule internal denying;
+    MockRiskModule internal permissive;
 
     address internal owner = address(0xA11CE);
     address internal operatorAddr = address(0x0B5E4A);
@@ -53,14 +30,16 @@ contract CollateralManagerTest is Test {
             new TransparentUpgradeableProxy(address(impl), address(this), ledgerInit);
         ledger = BalanceLedger(address(ledgerProxy));
 
-        // Deploy the stub and a permissive alt for the happy-path test.
-        stub = new RiskModuleStub(address(ledger));
-        permissive = new PermissiveRiskModule();
+        // Deploy a denying RiskModule (the fail-closed default the manager is
+        // initialized with) and a permissive alt for the happy-path tests.
+        denying = new MockRiskModule();
+        denying.setCanUnflag(false);
+        permissive = new MockRiskModule();
 
-        // Deploy CollateralManager behind a proxy, with the fail-closed stub.
+        // Deploy CollateralManager behind a proxy, with the denying RiskModule.
         CollateralManager mgrImpl = new CollateralManager();
         bytes memory mgrInit =
-            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(ledger), address(stub)));
+            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(ledger), address(denying)));
         TransparentUpgradeableProxy mgrProxy = new TransparentUpgradeableProxy(address(mgrImpl), address(this), mgrInit);
         manager = CollateralManager(address(mgrProxy));
 
@@ -75,7 +54,7 @@ contract CollateralManagerTest is Test {
         assertEq(manager.owner(), owner);
         assertEq(manager.operator(), operatorAddr);
         assertEq(manager.balanceLedger(), address(ledger));
-        assertEq(manager.riskModule(), address(stub));
+        assertEq(manager.riskModule(), address(denying));
         assertEq(manager.flagLock(), 24 hours);
     }
 
@@ -83,17 +62,17 @@ contract CollateralManagerTest is Test {
         CollateralManager mgrImpl = new CollateralManager();
 
         bytes memory badOwner =
-            abi.encodeCall(CollateralManager.initialize, (address(0), operatorAddr, address(ledger), address(stub)));
+            abi.encodeCall(CollateralManager.initialize, (address(0), operatorAddr, address(ledger), address(denying)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badOwner);
 
         bytes memory badOperator =
-            abi.encodeCall(CollateralManager.initialize, (owner, address(0), address(ledger), address(stub)));
+            abi.encodeCall(CollateralManager.initialize, (owner, address(0), address(ledger), address(denying)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badOperator);
 
         bytes memory badLedger =
-            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(0), address(stub)));
+            abi.encodeCall(CollateralManager.initialize, (owner, operatorAddr, address(0), address(denying)));
         vm.expectRevert(ICollateralManager.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(mgrImpl), address(this), badLedger);
 
@@ -143,12 +122,12 @@ contract CollateralManagerTest is Test {
         manager.unflagFor(user, asset);
     }
 
-    function test_UnflagFor_RevertWouldMakeUnhealthyWhenStubBlocks() public {
+    function test_UnflagFor_RevertWouldMakeUnhealthyWhenRiskModuleDenies() public {
         vm.warp(1_700_000_000);
         vm.prank(operatorAddr);
         manager.flagFor(user, asset);
 
-        // Warp past the lock. Stub still returns canUnflag = false.
+        // Warp past the lock. The denying RiskModule still returns canUnflag = false.
         vm.warp(block.timestamp + 24 hours);
         vm.prank(operatorAddr);
         vm.expectRevert(ICollateralManager.WouldMakeUnhealthy.selector);
@@ -157,7 +136,7 @@ contract CollateralManagerTest is Test {
 
     function test_UnflagFor_SucceedsAfter24hWhenRiskModulePermits() public {
         // Swap in the permissive RiskModule to isolate the flag-lock / write
-        // path from the Phase 1 stub's fail-closed policy.
+        // path from the denying RiskModule's fail-closed policy.
         vm.prank(owner);
         manager.setRiskModule(address(permissive));
 
@@ -215,7 +194,7 @@ contract CollateralManagerTest is Test {
     function test_SetRiskModule_SwapsImplementation() public {
         vm.prank(owner);
         vm.expectEmit(true, true, false, true);
-        emit ICollateralManager.RiskModuleUpdated(address(stub), address(permissive));
+        emit ICollateralManager.RiskModuleUpdated(address(denying), address(permissive));
         manager.setRiskModule(address(permissive));
 
         assertEq(manager.riskModule(), address(permissive));
@@ -334,12 +313,12 @@ contract CollateralManagerTest is Test {
         manager.unflag(asset);
     }
 
-    function test_Unflag_DirectCaller_RevertWouldMakeUnhealthyWhenStubBlocks() public {
+    function test_Unflag_DirectCaller_RevertWouldMakeUnhealthyWhenRiskModuleDenies() public {
         vm.warp(1_700_000_000);
         vm.prank(user);
         manager.flag(asset);
 
-        // Warp past the lock. Stub still returns canUnflag = false.
+        // Warp past the lock. The denying RiskModule still returns canUnflag = false.
         vm.warp(block.timestamp + 24 hours);
         vm.prank(user);
         vm.expectRevert(ICollateralManager.WouldMakeUnhealthy.selector);
@@ -348,7 +327,7 @@ contract CollateralManagerTest is Test {
 
     function test_Unflag_DirectCaller_SucceedsAfter24hWhenRiskModulePermits() public {
         // Swap in the permissive RiskModule to isolate the flag-lock / write
-        // path from the Phase 1 stub's fail-closed policy.
+        // path from the denying RiskModule's fail-closed policy.
         vm.prank(owner);
         manager.setRiskModule(address(permissive));
 
@@ -383,8 +362,8 @@ contract CollateralManagerTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ICollateralManager.FlagLockActive.selector, unlocksAt));
         manager.unflag(asset);
 
-        // Past the lock the stub still rejects via WouldMakeUnhealthy — same
-        // policy seam regardless of which entry point is used.
+        // Past the lock the denying RiskModule still rejects via WouldMakeUnhealthy —
+        // same policy seam regardless of which entry point is used.
         vm.warp(unlocksAt);
         vm.prank(user);
         vm.expectRevert(ICollateralManager.WouldMakeUnhealthy.selector);

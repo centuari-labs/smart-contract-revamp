@@ -5,33 +5,28 @@ import {Script, console} from "forge-std/Script.sol";
 
 import {RiskModule} from "../src/core/risk/RiskModule.sol";
 import {OracleRouter} from "../src/core/oracle/OracleRouter.sol";
-import {CollateralManager} from "../src/core/collateral/CollateralManager.sol";
-import {WithdrawalRegistry} from "../src/core/cross-chain/WithdrawalRegistry.sol";
 
 /// @title ConfigureRiskModule
-/// @notice Track B3 / C6 Phase 2: configure the freshly-deployed real RiskModule +
-///         OracleRouter from a committed risk-params JSON, then (optionally) swap the
-///         real module into WithdrawalRegistry + CollateralManager.
+/// @notice Track B3 / C6: configure the freshly-deployed real RiskModule +
+///         OracleRouter from a committed risk-params JSON.
 /// @dev Reads two JSON files, paths via env:
 ///        RISK_PARAMS_FILE — { defaultBufferBps, assets: { SYM: { ltvBps, maxStalenessSeconds, bufferBps? } } }
 ///        DEPLOY_JSON      — the run-all.sh deployment summary (for `mockTokens`: SYM -> address)
-///      The broadcaster must hold `owner()` on RiskModule, OracleRouter, CollateralManager
-///      and WithdrawalRegistry — i.e. the deployer key run-all.sh signs with.
+///      The broadcaster must hold `owner()` on RiskModule + OracleRouter — i.e. the
+///      deployer key run-all.sh signs with.
+///
+///      No `setRiskModule` swap happens here: `CollateralManager` and
+///      `WithdrawalRegistry` are initialized with the real RiskModule directly at
+///      deploy time (run-all.sh deploys the module in the step before them), so the
+///      real module is the only module those callers ever point at.
 ///
 ///      Price-pushing is intentionally NOT done here: `PushOracle.setPrice` is
 ///      operator-gated (a different key) and is the job of the Phase 3 price keeper.
 ///      A freshly-configured oracle therefore has no price yet and fail-closes, so
 ///      collateral withdraw/unflag-while-in-debt are blocked (safe) until the keeper
-///      pushes — non-collateral and debt-free paths are unaffected, which is why the
-///      `setRiskModule` swap below is safe to run before prices land.
+///      pushes — non-collateral and debt-free paths are unaffected.
 contract ConfigureRiskModule is Script {
-    function run(
-        address riskModule,
-        address oracleRouter,
-        address collateralManager,
-        address withdrawalRegistry,
-        bool doSwap
-    ) external {
+    function run(address riskModule, address oracleRouter) external {
         string memory params = vm.readFile(vm.envString("RISK_PARAMS_FILE"));
         string memory deploy = vm.readFile(vm.envString("DEPLOY_JSON"));
 
@@ -68,19 +63,10 @@ contract ConfigureRiskModule is Script {
             console.log("configured", sym, asset);
         }
 
-        if (doSwap) {
-            CollateralManager(collateralManager).setRiskModule(riskModule);
-            WithdrawalRegistry(withdrawalRegistry).setRiskModule(riskModule);
-            console.log("setRiskModule(real) on CollateralManager + WithdrawalRegistry");
-        } else {
-            console.log("Swap SKIPPED (SKIP_RISK_MODULE_SWAP=1) - stub stays wired; run the swap manually when ready");
-        }
-
         vm.stopBroadcast();
 
         console.log("=== ConfigureRiskModule complete ===");
         console.log("RiskModule:", riskModule);
         console.log("OracleRouter:", oracleRouter);
-        console.log("Swapped:", doSwap);
     }
 }

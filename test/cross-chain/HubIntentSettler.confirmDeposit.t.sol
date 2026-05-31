@@ -9,7 +9,7 @@ import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubIntentSettler} from "../../src/core/cross-chain/HubIntentSettler.sol";
 import {SettlementLedger} from "../../src/core/cross-chain/SettlementLedger.sol";
 import {WithdrawalRegistry} from "../../src/core/cross-chain/WithdrawalRegistry.sol";
-import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
+import {MockRiskModule} from "../mocks/MockRiskModule.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
 import {IHubIntentSettler} from "../../src/interfaces/cross-chain/IHubIntentSettler.sol";
 import {IWithdrawalRegistry} from "../../src/interfaces/cross-chain/IWithdrawalRegistry.sol";
@@ -21,7 +21,7 @@ contract HubIntentSettlerConfirmDepositTest is Test {
     HubIntentSettler internal settler;
     SettlementLedger internal settlementLedger;
     WithdrawalRegistry internal registry;
-    RiskModuleStub internal riskModule;
+    MockRiskModule internal riskModule;
     HubDepositor internal hubDepositor;
     MockToken internal usdc;
     MockToken internal xsgd;
@@ -71,8 +71,8 @@ contract HubIntentSettlerConfirmDepositTest is Test {
         TransparentUpgradeableProxy slProxy = new TransparentUpgradeableProxy(address(slImpl), address(this), slInit);
         settlementLedger = SettlementLedger(address(slProxy));
 
-        // Deploy RiskModuleStub + HubDepositor + WithdrawalRegistry
-        riskModule = new RiskModuleStub(address(ledger));
+        // Deploy MockRiskModule + HubDepositor + WithdrawalRegistry
+        riskModule = new MockRiskModule();
 
         HubDepositor depImpl = new HubDepositor();
         bytes memory depInit = abi.encodeCall(HubDepositor.initialize, (owner, address(ledger)));
