@@ -150,7 +150,7 @@ fi
 # Determine chain id and network slug early so they can be reused for file naming and summaries.
 CHAIN_ID=""
 if command -v cast >/dev/null 2>&1 && [[ -n "${RPC_URL:-}" ]]; then
-  CHAIN_ID="$(cast chain-id "$RPC_URL" 2>/dev/null || true)"
+  CHAIN_ID="$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null || true)"
 fi
 
 NETWORK_NAME="${NETWORK_NAME:-unknown}"
@@ -486,7 +486,7 @@ verify_deployment() {
     local addr="$1" fqn="$2"; shift 2
     if [[ -z "$addr" || "$addr" == "null" ]]; then return 0; fi
     echo "  verify $fqn @ $addr"
-    forge verify-contract "$addr" "$fqn" --chain "$CHAIN_ID" --etherscan-api-key "$ETHERSCAN_API_KEY" --watch "$@" \
+    forge verify-contract "$addr" "$fqn" --chain "$CHAIN_ID" --rpc-url "$RPC_URL" --etherscan-api-key "$ETHERSCAN_API_KEY" --watch "$@" \
       || echo "    (skipped — already verified or pending explorer indexing)"
   }
   _verify_impl() { # proxy_addr  FQN  (verifies the implementation behind a proxy; impls take no constructor args)
