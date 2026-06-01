@@ -73,7 +73,7 @@ fi
 # Resolve the deployment summary.
 if [[ -z "${DEPLOY_JSON:-}" ]]; then
   if [[ -z "$NETWORK_SLUG" ]]; then
-    CHAIN_ID="$(cast chain-id "$RPC_URL" 2>/dev/null || true)"
+    CHAIN_ID="$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null || true)"
     [[ -n "$CHAIN_ID" ]] && NETWORK_SLUG="chain-$CHAIN_ID"
   fi
   DEPLOY_JSON="$ROOT_DIR/deployments/deploy-${NETWORK_SLUG}-latest.json"
