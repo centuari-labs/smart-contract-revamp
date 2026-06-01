@@ -92,7 +92,7 @@ read_addr() {
   echo "$val"
 }
 
-# All 8 upgradeable core proxies (owner() -> ops timelock; ProxyAdmin -> upgrade timelock).
+# All 11 upgradeable core proxies (owner() -> ops timelock; ProxyAdmin -> upgrade timelock).
 BALANCE_LEDGER="$(read_addr balanceLedgerAddress)"
 CENTUARI="$(read_addr centuariAddress)"
 SETTLEMENT="$(read_addr settlementProxy)"
@@ -101,15 +101,20 @@ COLLATERAL_MANAGER="$(read_addr collateralManagerAddress)"
 WITHDRAWAL_REGISTRY="$(read_addr withdrawalRegistryAddress)"
 HUB_INTENT_SETTLER="$(read_addr hubIntentSettlerAddress)"
 SETTLEMENT_LEDGER="$(read_addr settlementLedgerAddress)"
+RISK_MODULE="$(read_addr riskModuleAddress)"
+ORACLE_ROUTER="$(read_addr oracleRouterAddress)"
+LIQUIDATION_ENGINE="$(read_addr liquidationEngineAddress)"
 
 PROXIES=(
   "$BALANCE_LEDGER" "$CENTUARI" "$SETTLEMENT" "$HUB_DEPOSITOR"
   "$COLLATERAL_MANAGER" "$WITHDRAWAL_REGISTRY" "$HUB_INTENT_SETTLER" "$SETTLEMENT_LEDGER"
+  "$RISK_MODULE" "$ORACLE_ROUTER" "$LIQUIDATION_ENGINE"
 )
 
-# The 5 pausable contracts gain the fast Safe guardian (pause/unpause).
+# The 6 pausable contracts gain the fast Safe guardian (pause/unpause).
 PAUSABLE=(
   "$BALANCE_LEDGER" "$CENTUARI" "$SETTLEMENT" "$WITHDRAWAL_REGISTRY" "$HUB_INTENT_SETTLER"
+  "$LIQUIDATION_ENGINE"
 )
 
 # Derive each proxy's ProxyAdmin from the ERC1967 admin slot — the single source of
@@ -133,7 +138,7 @@ echo "Ops timelock delay:     ${OPS_DELAY}s    (contract owner / setters)"
 echo "Upgrade timelock delay: ${UPGRADE_DELAY}s (ProxyAdmin / upgrades)"
 echo
 printf '%-22s %-44s %-44s\n' "contract" "current owner()" "current ProxyAdmin"
-NAMES=(BalanceLedger Centuari Settlement HubDepositor CollateralManager WithdrawalRegistry HubIntentSettler SettlementLedger)
+NAMES=(BalanceLedger Centuari Settlement HubDepositor CollateralManager WithdrawalRegistry HubIntentSettler SettlementLedger RiskModule OracleRouter LiquidationEngine)
 for i in "${!PROXIES[@]}"; do
   printf '%-22s %-44s %-44s\n' "${NAMES[$i]}" "$(owner_of "${PROXIES[$i]}")" "${PROXY_ADMINS[$i]}"
 done
@@ -172,7 +177,7 @@ UPGRADE_TIMELOCK="$(echo "$up_out" | grep -oE 'TimeLock address: 0x[a-fA-F0-9]{4
 echo "Upgrade TimeLock: $UPGRADE_TIMELOCK"
 
 # 2. Hand the guardian role to the Safe (while deployer is still owner).
-echo "=== setPauser(Safe) on the 5 pausable contracts ==="
+echo "=== setPauser(Safe) on the 6 pausable contracts ==="
 for p in "${PAUSABLE[@]}"; do
   echo "  setPauser($SAFE_ADDRESS) on $p"
   cast send "$p" "setPauser(address)" "$SAFE_ADDRESS" --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" >/dev/null
