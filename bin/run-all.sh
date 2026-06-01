@@ -37,19 +37,19 @@
 #   4. DeployCentuari (with BalanceLedger; self-registers as a BalanceLedger writer)
 #   5. DeployBondFactory (wires the factory into Centuari)
 #   6. DeployHubDepositor (self-registers as a writer; whitelists supported assets)
-#   7. DeployCollateralStack (RiskModuleStub + CollateralManager; self-registers manager)
-#   8. DeploySettlement (self-registers as a BalanceLedger writer)
-#   9. SetSettlement on Centuari
-#   10. UpgradeSettlement (optional)
-#   11. SetOperators
-#   12. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger;
-#       registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
-#   13. DeployRiskModule + ConfigureRiskModule (B3/C6: real oracle-backed RiskModule +
+#   7. DeployRiskModule + ConfigureRiskModule (B3/C6: real oracle-backed RiskModule +
 #       OracleRouter + per-asset PushOracles; sets per-asset LTV/staleness/buffer from
-#       script/config/risk-params.<slug>.json; swaps the real module into
-#       WithdrawalRegistry + CollateralManager unless SKIP_RISK_MODULE_SWAP=1. Skip the
-#       whole step with SKIP_RISK_MODULE=1. Initial prices are pushed by the Phase 3
+#       script/config/risk-params.<slug>.json. Deployed BEFORE the collateral / cross-chain
+#       steps so CollateralManager + WithdrawalRegistry initialize with the real module
+#       directly — no stub, no setRiskModule swap. Initial prices are pushed by the Phase 3
 #       operator keeper, not here.)
+#   8. DeployCollateralStack (CollateralManager wired to the real RiskModule; self-registers manager)
+#   9. DeploySettlement (self-registers as a BalanceLedger writer)
+#   10. SetSettlement on Centuari
+#   11. UpgradeSettlement (optional)
+#   12. SetOperators
+#   13. DeployCrossChainHub (WithdrawalRegistry + HubIntentSettler + SettlementLedger;
+#       registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
 #   14. DeployLiquidationEngine (permissionless liquidation: HF<1 OR matured-with-debt;
 #       self-registers as a BalanceLedger writer + setLiquidationEngine on Centuari;
 #       reads script/config/liquidation-params.<slug>.json. Skip with SKIP_LIQUIDATION=1.)
@@ -216,9 +216,6 @@ parse_hub_depositor_impl() {
 parse_collateral_manager_proxy() {
   grep -oE 'CollateralManager Proxy: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/CollateralManager Proxy: //'
 }
-parse_risk_module_stub() {
-  grep -oE 'RiskModuleStub: 0x[a-fA-F0-9]{40}' | head -1 | sed 's/RiskModuleStub: //'
-}
 parse_faucet() {
   grep -oE 'Faucet 0x[a-fA-F0-9]{40}' | head -1 | awk '{print $2}'
 }
@@ -315,7 +312,6 @@ write_deploy_summary() {
   : "${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS:=}"
   : "${COLLATERAL_MANAGER_ADDRESS:=}"
   : "${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS:=}"
-  : "${RISK_MODULE_STUB_ADDRESS:=}"
   : "${ORACLE_ROUTER_ADDRESS:=}"
   : "${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS:=}"
   : "${RISK_MODULE_ADDRESS:=}"
@@ -361,7 +357,6 @@ write_deploy_summary() {
     echo "  \"hubDepositorImplementation\": \"${HUB_DEPOSITOR_IMPLEMENTATION_ADDRESS}\","
     echo "  \"collateralManagerAddress\": \"${COLLATERAL_MANAGER_ADDRESS}\","
     echo "  \"collateralManagerProxyAdmin\": \"${COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS}\","
-    echo "  \"riskModuleStubAddress\": \"${RISK_MODULE_STUB_ADDRESS}\","
     echo "  \"oracleRouterAddress\": \"${ORACLE_ROUTER_ADDRESS}\","
     echo "  \"oracleRouterProxyAdmin\": \"${ORACLE_ROUTER_PROXY_ADMIN_ADDRESS}\","
     echo "  \"riskModuleAddress\": \"${RISK_MODULE_ADDRESS}\","
@@ -517,7 +512,6 @@ verify_deployment() {
   _verify_impl "$(_json_get liquidationEngineAddress)"  "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine"
 
   # Non-upgradeable singletons (constructor args fetched from the on-chain creation tx).
-  _verify "$(_json_get riskModuleStubAddress)"   "src/core/risk/RiskModuleStub.sol:RiskModuleStub"                           --guess-constructor-args
   _verify "$(_json_get faucetAddress)"           "src/mocks/Faucet.sol:Faucet"                                               --guess-constructor-args
   _verify "$(_json_get bondTokenFactoryAddress)" "src/core/centuari/CentuariBondERC20Factory.sol:CentuariBondERC20Factory"   --guess-constructor-args
 
@@ -695,157 +689,19 @@ else
 fi
 
 # ===========================
-# Step 7: DeployCollateralStack
+# Step 7: DeployRiskModule + ConfigureRiskModule (B3 / C6 real oracle-backed RiskModule)
+#   Deploys OracleRouter + per-asset PushOracles + the real RiskModule, then configures
+#   per-asset LTV / staleness / buffer from script/config/risk-params.<slug>.json. Runs
+#   BEFORE the collateral / cross-chain steps so CollateralManager (step 8) and
+#   WithdrawalRegistry (step 13) initialize with the real module directly — there is no
+#   stub and no post-hoc setRiskModule swap. Initial prices are pushed by the Phase 3
+#   operator keeper, not here — the oracle fail-closes until then (safe: only collateral
+#   withdraw / unflag-while-in-debt is gated, and a fresh deploy has no such positions).
 # ===========================
-echo "=== 7/$TOTAL_STEPS DeployCollateralStack ==="
-if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
-  if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" ]]; then
-    out=$(run_script script/DeployCollateralStack.s.sol:DeployCollateralStack \
-      --sig "run(address,address,address,address)" \
-      "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
-    echo "$out"
-    CM_PROXY=$(echo "$out" | parse_collateral_manager_proxy)
-    if [[ -n "$CM_PROXY" ]]; then
-      export COLLATERAL_MANAGER_ADDRESS="$CM_PROXY"
-      echo "Captured COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS"
-    fi
-    RISK_MODULE_STUB_ADDRESS="$(echo "$out" | parse_risk_module_stub || true)"
-    COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_collateral_manager_proxy_admin || true)"
-  else
-    echo "Skipping DeployCollateralStack (set PRIVATE_KEY, BALANCE_LEDGER_ADDRESS, and BACKEND_OPERATOR)"
-  fi
-else
-  echo "Using existing COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS (skip deploy)"
-fi
-
-# ===========================
-# Step 8: DeploySettlement (self-registers as a BalanceLedger writer)
-# ===========================
-echo "=== 8/$TOTAL_STEPS DeploySettlement ==="
-if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
-  deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
-    --sig "run(address,address,address,address,address)" \
-    "$DEPLOYER_ADDRESS" "$SETTLEMENT_OPERATOR" "$CENTUARI_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
-    status=$?
-    echo "$deploy_settlement_output"
-    echo "DeploySettlement failed with status $status"
-    exit "$status"
-  }
-  echo "$deploy_settlement_output"
-  SETTLEMENT_PROXY_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_proxy || true)"
-  SETTLEMENT_PROXY_ADMIN_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_proxy_admin || true)"
-  SETTLEMENT_IMPLEMENTATION_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_impl || true)"
-else
-  echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR, CENTUARI_ADDRESS, BALANCE_LEDGER_ADDRESS are set)"
-fi
-
-# ===========================
-# Step 9: SetSettlement on Centuari
-# ===========================
-echo "=== 9/$TOTAL_STEPS SetSettlement on Centuari ==="
-if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
-  echo "Updating Centuari._settlement to the deployed Settlement proxy..."
-  echo "  Centuari:         $CENTUARI_ADDRESS"
-  echo "  Settlement Proxy: $SETTLEMENT_PROXY_ADDRESS"
-  cast send "$CENTUARI_ADDRESS" "setSettlement(address)" "$SETTLEMENT_PROXY_ADDRESS" \
-    --private-key "$PRIVATE_KEY" \
-    --rpc-url "$RPC_URL"
-
-  current_settlement="$(cast call "$CENTUARI_ADDRESS" "settlement()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo '<call failed>')"
-  echo "  Verified settlement() = $current_settlement"
-else
-  echo "Skipping SetSettlement on Centuari (need CENTUARI_ADDRESS, SETTLEMENT_PROXY_ADDRESS, PRIVATE_KEY, and RPC_URL)"
-fi
-
-# ===========================
-# Step 10: UpgradeSettlement (optional)
-# ===========================
-echo "=== 10/$TOTAL_STEPS UpgradeSettlement ==="
-PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
-if [[ "$DEPLOY_ONLY" == true ]]; then
-  echo "Skipping UpgradeSettlement (--deploy-only)"
-elif [[ -n "${PROXY_ADMIN:-}" && -n "$PROXY" ]]; then
-  upgrade_settlement_output=$(run_script script/UpgradeSettlement.s.sol:UpgradeSettlement \
-    --sig "run(address,address)" \
-    "$PROXY_ADMIN" "$PROXY" 2>&1) || {
-    status=$?
-    echo "$upgrade_settlement_output"
-    echo "UpgradeSettlement failed with status $status"
-    exit "$status"
-  }
-  echo "$upgrade_settlement_output"
-  UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS="$(echo "$upgrade_settlement_output" | parse_upgrade_new_impl || true)"
-else
-  echo "Skipping UpgradeSettlement (set PROXY_ADMIN and SETTLEMENT_PROXY or PROXY to run)"
-fi
-
-# ===========================
-# Step 11: SetOperators
-# ===========================
-echo "=== 11/$TOTAL_STEPS SetOperators ==="
-if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
-  echo "Writing deployment summary for set_operators.sh"
-  write_deploy_summary
-  DEPLOY_JSON="$SUMMARY_FILE" "$ROOT_DIR/bin/set_operators.sh"
-else
-  echo "Skipping set_operators.sh (no contract addresses available)"
-fi
-
-# ===========================
-# Step 12: DeployCrossChainHub (M4: WithdrawalRegistry + HubIntentSettler + SettlementLedger;
-#          also registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
-# ===========================
-echo "=== 12/$TOTAL_STEPS DeployCrossChainHub ==="
-if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${RISK_MODULE_STUB_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
-  out=$(run_script script/DeployCrossChainHub.s.sol:DeployCrossChainHub \
-    --sig "run(address,address,address,address,address,address)" \
-    "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$RISK_MODULE_STUB_ADDRESS" "$HUB_DEPOSITOR_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
-    status=$?
-    echo "$out"
-    echo "DeployCrossChainHub failed with status $status"
-    exit "$status"
-  }
-  echo "$out"
-  WR_PROXY=$(echo "$out" | parse_withdrawal_registry_proxy)
-  if [[ -n "$WR_PROXY" ]]; then
-    export WITHDRAWAL_REGISTRY_ADDRESS="$WR_PROXY"
-    echo "Captured WITHDRAWAL_REGISTRY_ADDRESS=$WITHDRAWAL_REGISTRY_ADDRESS"
-  fi
-  HIS_PROXY=$(echo "$out" | parse_hub_intent_settler_proxy)
-  if [[ -n "$HIS_PROXY" ]]; then
-    export HUB_INTENT_SETTLER_ADDRESS="$HIS_PROXY"
-    echo "Captured HUB_INTENT_SETTLER_ADDRESS=$HUB_INTENT_SETTLER_ADDRESS"
-  fi
-  SL_PROXY=$(echo "$out" | parse_settlement_ledger_proxy)
-  if [[ -n "$SL_PROXY" ]]; then
-    export SETTLEMENT_LEDGER_ADDRESS="$SL_PROXY"
-    echo "Captured SETTLEMENT_LEDGER_ADDRESS=$SETTLEMENT_LEDGER_ADDRESS"
-  fi
-  WITHDRAWAL_REGISTRY_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_withdrawal_registry_proxy_admin || true)"
-  HUB_INTENT_SETTLER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_hub_intent_settler_proxy_admin || true)"
-  SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_settlement_ledger_proxy_admin || true)"
-else
-  echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_STUB_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
-fi
-
-# ===========================
-# Step 13: DeployRiskModule + ConfigureRiskModule (B3 / C6 real oracle-backed RiskModule)
-#   Deploys OracleRouter + per-asset PushOracles + the real RiskModule, configures
-#   per-asset LTV / staleness / buffer from script/config/risk-params.<slug>.json, and
-#   (unless SKIP_RISK_MODULE_SWAP=1) swaps the real module into WithdrawalRegistry +
-#   CollateralManager. Initial prices are pushed by the Phase 3 operator keeper, not
-#   here — the oracle fail-closes until then (safe: only collateral withdraw/unflag
-#   while in debt is gated, and a fresh deploy has no such positions).
-#   Skip the whole step with SKIP_RISK_MODULE=1 (keeps the stub wired).
-# ===========================
-echo "=== 13/$TOTAL_STEPS DeployRiskModule + ConfigureRiskModule ==="
+echo "=== 7/$TOTAL_STEPS DeployRiskModule + ConfigureRiskModule ==="
 RISK_PARAMS_FILE="${RISK_PARAMS_FILE:-$ROOT_DIR/script/config/risk-params.${NETWORK_SLUG}.json}"
-if [[ "$DEPLOY_ONLY" == true ]]; then
-  echo "Skipping RiskModule (--deploy-only)"
-elif [[ "${SKIP_RISK_MODULE:-0}" == "1" ]]; then
-  echo "Skipping RiskModule deploy (SKIP_RISK_MODULE=1) — stub stays wired"
-elif [[ -z "${BALANCE_LEDGER_ADDRESS:-}" || -z "${CENTUARI_ADDRESS:-}" || -z "${DEPLOYER_ADDRESS:-}" || -z "${BACKEND_OPERATOR:-}" || -z "${FAUCET_TOKENS:-}" || -z "${COLLATERAL_MANAGER_ADDRESS:-}" || -z "${WITHDRAWAL_REGISTRY_ADDRESS:-}" ]]; then
-  echo "Skipping RiskModule deploy (need BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, DEPLOYER_ADDRESS, BACKEND_OPERATOR, FAUCET_TOKENS, COLLATERAL_MANAGER_ADDRESS, WITHDRAWAL_REGISTRY_ADDRESS)"
+if [[ -z "${BALANCE_LEDGER_ADDRESS:-}" || -z "${CENTUARI_ADDRESS:-}" || -z "${DEPLOYER_ADDRESS:-}" || -z "${BACKEND_OPERATOR:-}" || -z "${FAUCET_TOKENS:-}" ]]; then
+  echo "Skipping RiskModule deploy (need BALANCE_LEDGER_ADDRESS, CENTUARI_ADDRESS, DEPLOYER_ADDRESS, BACKEND_OPERATOR, FAUCET_TOKENS)"
 elif [[ ! -f "$RISK_PARAMS_FILE" ]]; then
   echo "Skipping RiskModule deploy (risk params file not found: $RISK_PARAMS_FILE)"
 else
@@ -875,20 +731,147 @@ else
   # ConfigureRiskModule can resolve each symbol to its deployed token address.
   write_deploy_summary
 
-  DO_SWAP=true
-  [[ "${SKIP_RISK_MODULE_SWAP:-0}" == "1" ]] && DO_SWAP=false
   DEPLOY_JSON="$SUMMARY_FILE" RISK_PARAMS_FILE="$RISK_PARAMS_FILE" run_script script/ConfigureRiskModule.s.sol:ConfigureRiskModule \
-    --sig "run(address,address,address,address,bool)" \
-    "$RISK_MODULE_ADDRESS" "$ORACLE_ROUTER_ADDRESS" "$COLLATERAL_MANAGER_ADDRESS" "$WITHDRAWAL_REGISTRY_ADDRESS" "$DO_SWAP" || {
+    --sig "run(address,address)" \
+    "$RISK_MODULE_ADDRESS" "$ORACLE_ROUTER_ADDRESS" || {
     status=$?
     echo "ConfigureRiskModule failed with status $status"
     exit "$status"
   }
-  if [[ "$DO_SWAP" == true ]]; then
-    echo "Real RiskModule wired into WithdrawalRegistry + CollateralManager (swap done)."
+  echo "Real RiskModule deployed + configured; CollateralManager + WithdrawalRegistry initialize against it directly."
+fi
+
+# ===========================
+# Step 8: DeployCollateralStack
+# ===========================
+echo "=== 8/$TOTAL_STEPS DeployCollateralStack ==="
+if [[ -z "${COLLATERAL_MANAGER_ADDRESS:-}" ]]; then
+  if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${RISK_MODULE_ADDRESS:-}" ]]; then
+    out=$(run_script script/DeployCollateralStack.s.sol:DeployCollateralStack \
+      --sig "run(address,address,address,address,address)" \
+      "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$RISK_MODULE_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1)
+    echo "$out"
+    CM_PROXY=$(echo "$out" | parse_collateral_manager_proxy)
+    if [[ -n "$CM_PROXY" ]]; then
+      export COLLATERAL_MANAGER_ADDRESS="$CM_PROXY"
+      echo "Captured COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS"
+    fi
+    COLLATERAL_MANAGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_collateral_manager_proxy_admin || true)"
   else
-    echo "Real RiskModule deployed + configured; swap deferred (SKIP_RISK_MODULE_SWAP=1)."
+    echo "Skipping DeployCollateralStack (set PRIVATE_KEY, BALANCE_LEDGER_ADDRESS, BACKEND_OPERATOR, and RISK_MODULE_ADDRESS)"
   fi
+else
+  echo "Using existing COLLATERAL_MANAGER_ADDRESS=$COLLATERAL_MANAGER_ADDRESS (skip deploy)"
+fi
+
+# ===========================
+# Step 9: DeploySettlement (self-registers as a BalanceLedger writer)
+# ===========================
+echo "=== 9/$TOTAL_STEPS DeploySettlement ==="
+if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${SETTLEMENT_OPERATOR:-}" && -n "${CENTUARI_ADDRESS:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" ]]; then
+  deploy_settlement_output=$(run_script script/DeploySettlement.s.sol:DeploySettlement \
+    --sig "run(address,address,address,address,address)" \
+    "$DEPLOYER_ADDRESS" "$SETTLEMENT_OPERATOR" "$CENTUARI_ADDRESS" "$BALANCE_LEDGER_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
+    status=$?
+    echo "$deploy_settlement_output"
+    echo "DeploySettlement failed with status $status"
+    exit "$status"
+  }
+  echo "$deploy_settlement_output"
+  SETTLEMENT_PROXY_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_proxy || true)"
+  SETTLEMENT_PROXY_ADMIN_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_proxy_admin || true)"
+  SETTLEMENT_IMPLEMENTATION_ADDRESS="$(echo "$deploy_settlement_output" | parse_settlement_impl || true)"
+else
+  echo "Skipping DeploySettlement (ensure PRIVATE_KEY is set so DEPLOYER_ADDRESS can be derived, and SETTLEMENT_OPERATOR, CENTUARI_ADDRESS, BALANCE_LEDGER_ADDRESS are set)"
+fi
+
+# ===========================
+# Step 10: SetSettlement on Centuari
+# ===========================
+echo "=== 10/$TOTAL_STEPS SetSettlement on Centuari ==="
+if [[ -n "${CENTUARI_ADDRESS:-}" && -n "${SETTLEMENT_PROXY_ADDRESS:-}" && -n "${PRIVATE_KEY:-}" && -n "${RPC_URL:-}" ]]; then
+  echo "Updating Centuari._settlement to the deployed Settlement proxy..."
+  echo "  Centuari:         $CENTUARI_ADDRESS"
+  echo "  Settlement Proxy: $SETTLEMENT_PROXY_ADDRESS"
+  cast send "$CENTUARI_ADDRESS" "setSettlement(address)" "$SETTLEMENT_PROXY_ADDRESS" \
+    --private-key "$PRIVATE_KEY" \
+    --rpc-url "$RPC_URL"
+
+  current_settlement="$(cast call "$CENTUARI_ADDRESS" "settlement()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo '<call failed>')"
+  echo "  Verified settlement() = $current_settlement"
+else
+  echo "Skipping SetSettlement on Centuari (need CENTUARI_ADDRESS, SETTLEMENT_PROXY_ADDRESS, PRIVATE_KEY, and RPC_URL)"
+fi
+
+# ===========================
+# Step 11: UpgradeSettlement (optional)
+# ===========================
+echo "=== 11/$TOTAL_STEPS UpgradeSettlement ==="
+PROXY="${SETTLEMENT_PROXY:-${PROXY:-}}"
+if [[ "$DEPLOY_ONLY" == true ]]; then
+  echo "Skipping UpgradeSettlement (--deploy-only)"
+elif [[ -n "${PROXY_ADMIN:-}" && -n "$PROXY" ]]; then
+  upgrade_settlement_output=$(run_script script/UpgradeSettlement.s.sol:UpgradeSettlement \
+    --sig "run(address,address)" \
+    "$PROXY_ADMIN" "$PROXY" 2>&1) || {
+    status=$?
+    echo "$upgrade_settlement_output"
+    echo "UpgradeSettlement failed with status $status"
+    exit "$status"
+  }
+  echo "$upgrade_settlement_output"
+  UPGRADED_SETTLEMENT_IMPLEMENTATION_ADDRESS="$(echo "$upgrade_settlement_output" | parse_upgrade_new_impl || true)"
+else
+  echo "Skipping UpgradeSettlement (set PROXY_ADMIN and SETTLEMENT_PROXY or PROXY to run)"
+fi
+
+# ===========================
+# Step 12: SetOperators
+# ===========================
+echo "=== 12/$TOTAL_STEPS SetOperators ==="
+if [[ -n "${CENTUARI_ADDRESS:-}" || -n "${SETTLEMENT_PROXY_ADDRESS:-}" || -n "${FAUCET_ADDRESS:-}" ]]; then
+  echo "Writing deployment summary for set_operators.sh"
+  write_deploy_summary
+  DEPLOY_JSON="$SUMMARY_FILE" "$ROOT_DIR/bin/set_operators.sh"
+else
+  echo "Skipping set_operators.sh (no contract addresses available)"
+fi
+
+# ===========================
+# Step 13: DeployCrossChainHub (M4: WithdrawalRegistry + HubIntentSettler + SettlementLedger;
+#          also registers M4 writers + authorizes WithdrawalRegistry on HubDepositor)
+# ===========================
+echo "=== 13/$TOTAL_STEPS DeployCrossChainHub ==="
+if [[ -n "${DEPLOYER_ADDRESS:-}" && -n "${BACKEND_OPERATOR:-}" && -n "${BALANCE_LEDGER_ADDRESS:-}" && -n "${RISK_MODULE_ADDRESS:-}" && -n "${HUB_DEPOSITOR_ADDRESS:-}" ]]; then
+  out=$(run_script script/DeployCrossChainHub.s.sol:DeployCrossChainHub \
+    --sig "run(address,address,address,address,address,address)" \
+    "$DEPLOYER_ADDRESS" "$BACKEND_OPERATOR" "$BALANCE_LEDGER_ADDRESS" "$RISK_MODULE_ADDRESS" "$HUB_DEPOSITOR_ADDRESS" "$DEPLOYER_ADDRESS" 2>&1) || {
+    status=$?
+    echo "$out"
+    echo "DeployCrossChainHub failed with status $status"
+    exit "$status"
+  }
+  echo "$out"
+  WR_PROXY=$(echo "$out" | parse_withdrawal_registry_proxy)
+  if [[ -n "$WR_PROXY" ]]; then
+    export WITHDRAWAL_REGISTRY_ADDRESS="$WR_PROXY"
+    echo "Captured WITHDRAWAL_REGISTRY_ADDRESS=$WITHDRAWAL_REGISTRY_ADDRESS"
+  fi
+  HIS_PROXY=$(echo "$out" | parse_hub_intent_settler_proxy)
+  if [[ -n "$HIS_PROXY" ]]; then
+    export HUB_INTENT_SETTLER_ADDRESS="$HIS_PROXY"
+    echo "Captured HUB_INTENT_SETTLER_ADDRESS=$HUB_INTENT_SETTLER_ADDRESS"
+  fi
+  SL_PROXY=$(echo "$out" | parse_settlement_ledger_proxy)
+  if [[ -n "$SL_PROXY" ]]; then
+    export SETTLEMENT_LEDGER_ADDRESS="$SL_PROXY"
+    echo "Captured SETTLEMENT_LEDGER_ADDRESS=$SETTLEMENT_LEDGER_ADDRESS"
+  fi
+  WITHDRAWAL_REGISTRY_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_withdrawal_registry_proxy_admin || true)"
+  HUB_INTENT_SETTLER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_hub_intent_settler_proxy_admin || true)"
+  SETTLEMENT_LEDGER_PROXY_ADMIN_ADDRESS="$(echo "$out" | parse_settlement_ledger_proxy_admin || true)"
+else
+  echo "Skipping DeployCrossChainHub (need DEPLOYER_ADDRESS, BACKEND_OPERATOR, BALANCE_LEDGER_ADDRESS, RISK_MODULE_ADDRESS, HUB_DEPOSITOR_ADDRESS)"
 fi
 
 # ===========================

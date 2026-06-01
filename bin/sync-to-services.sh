@@ -119,9 +119,8 @@ WITHDRAWAL_REGISTRY=$(get_addr withdrawalRegistryAddress)
 HUB_INTENT_SETTLER=$(get_addr hubIntentSettlerAddress)
 SETTLEMENT_LEDGER=$(get_addr settlementLedgerAddress)
 BOND_TOKEN_FACTORY=$(get_addr bondTokenFactoryAddress)
-# Prefer the real (Phase 3 / C6) RiskModule address; fall back to the Phase 1 stub.
+# The real (Phase 3 / C6) oracle-backed RiskModule is the only module — no stub fallback.
 RISK_MODULE=$(get_addr riskModuleAddress)
-[[ -z "$RISK_MODULE" || "$RISK_MODULE" == "null" ]] && RISK_MODULE=$(get_addr riskModuleStubAddress)
 FAUCET=$(get_addr faucetAddress)
 FAUCET_TOKENS_CSV=$(get_addr faucetTokensRaw)
 # Per-token PushOracle addresses ({symbol: address}); consumed by the backend price keeper.

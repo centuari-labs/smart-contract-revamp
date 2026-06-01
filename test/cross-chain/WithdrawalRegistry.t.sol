@@ -8,7 +8,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {BalanceLedger} from "../../src/core/balance-ledger/BalanceLedger.sol";
 import {HubDepositor} from "../../src/core/cross-chain/HubDepositor.sol";
 import {WithdrawalRegistry} from "../../src/core/cross-chain/WithdrawalRegistry.sol";
-import {RiskModuleStub} from "../../src/core/risk/RiskModuleStub.sol";
+import {MockRiskModule} from "../mocks/MockRiskModule.sol";
 import {IWithdrawalRegistry} from "../../src/interfaces/cross-chain/IWithdrawalRegistry.sol";
 import {MockToken} from "../../src/mocks/MockToken.sol";
 import {MockLZEndpoint} from "../mocks/MockLZEndpoint.sol";
@@ -17,7 +17,7 @@ contract WithdrawalRegistryTest is Test {
     BalanceLedger internal ledger;
     HubDepositor internal depositor;
     WithdrawalRegistry internal registry;
-    RiskModuleStub internal riskModule;
+    MockRiskModule internal riskModule;
     MockToken internal usdc;
 
     address internal owner = address(0xA11CE);
@@ -45,8 +45,8 @@ contract WithdrawalRegistryTest is Test {
             new TransparentUpgradeableProxy(address(depositorImpl), address(this), depositorInit);
         depositor = HubDepositor(address(depositorProxy));
 
-        // Deploy RiskModuleStub (not upgradeable)
-        riskModule = new RiskModuleStub(address(ledger));
+        // Deploy a permissive MockRiskModule (configurable per-test).
+        riskModule = new MockRiskModule();
 
         // Deploy WithdrawalRegistry behind proxy
         WithdrawalRegistry registryImpl = new WithdrawalRegistry();
@@ -230,10 +230,8 @@ contract WithdrawalRegistryTest is Test {
     }
 
     function test_RequestWithdrawal_RevertBlockedByHF() public {
-        // Flag USDC as collateral for user → RiskModuleStub will reject
-        vm.prank(owner);
-        ledger.forceAddWriter(address(this));
-        ledger.markCollateral(user, address(usdc));
+        // RiskModule denies the withdrawal (e.g. it would breach HF) → registry blocks it.
+        riskModule.setCanWithdraw(false);
 
         vm.prank(user);
         vm.expectRevert(IWithdrawalRegistry.WithdrawalBlockedByHF.selector);
@@ -333,11 +331,8 @@ contract WithdrawalRegistryTest is Test {
     }
 
     function test_RequestWithdrawalFor_RevertBlockedByHF() public {
-        // Flag USDC as collateral → RiskModuleStub.canWithdraw rejects. This is
-        // the stub restriction the real RiskModule (Phase 3) later relaxes to HF>=1.
-        vm.prank(owner);
-        ledger.forceAddWriter(address(this));
-        ledger.markCollateral(user, address(usdc));
+        // RiskModule denies the withdrawal (e.g. it would breach HF) → registry blocks it.
+        riskModule.setCanWithdraw(false);
 
         vm.prank(operator);
         vm.expectRevert(IWithdrawalRegistry.WithdrawalBlockedByHF.selector);

@@ -34,7 +34,7 @@ contract MockCentuariDebt {
 /// @notice Proves the real RiskModule is interface-stable: the unchanged
 ///         WithdrawalRegistry + CollateralManager call `IRiskModule` and now
 ///         enforce REAL health-factor gates end-to-end, including the
-///         flagged-collateral exits that were impossible under RiskModuleStub.
+///         flagged-collateral exits that the earlier fail-closed policy rejected.
 contract RiskModuleIntegrationTest is Test {
     BalanceLedger internal ledger;
     HubDepositor internal depositor;
@@ -157,7 +157,7 @@ contract RiskModuleIntegrationTest is Test {
 
     // ---- WithdrawalRegistry gate via the real module ----
 
-    /// @dev Impossible under RiskModuleStub (which blocks ANY flagged withdrawal).
+    /// @dev Impossible under the earlier fail-closed policy (blocked ANY flagged withdrawal).
     function test_withdrawRegistry_flaggedHealthyWithdrawal_succeeds() public {
         uint256 amount = 5_000e6; // post-HF = (95k-40k)*0.8/40k = 1.1 ≥ 1.0
 
@@ -178,7 +178,7 @@ contract RiskModuleIntegrationTest is Test {
 
     // ---- CollateralManager gate via the real module ----
 
-    /// @dev Impossible under RiskModuleStub (canUnflag always false). Here a
+    /// @dev Impossible under the earlier fail-closed policy (canUnflag always false). Here a
     ///      second healthy collateral keeps HF ≥ 1 after unflagging the first.
     function test_collateralManager_unflagHealthy_succeeds() public {
         _depositAndFlag(usdt, DEPOSIT); // second collateral

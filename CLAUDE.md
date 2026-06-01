@@ -45,7 +45,8 @@ src/
 │   │   ├── SettlementLedger.sol         # Solver reimbursement tracking (upgradeable)
 │   │   └── SettlementLedgerStorage.sol  # Storage layout with gap
 │   ├── risk/
-│   │   └── RiskModuleStub.sol           # Phase 1 fail-closed stub (canUnflag always false)
+│   │   ├── RiskModule.sol               # Oracle-backed health-factor policy (upgradeable)
+│   │   └── RiskModuleStorage.sol        # Storage layout with gap
 │   └── settlement/
 │       ├── Settlement.sol               # Batch settlement processor (upgradeable)
 │       └── SettlementStorage.sol        # Storage layout with gap
@@ -88,7 +89,7 @@ BalanceLedger (Upgradeable, ERC1967 proxy)
   ├── Centuari (Upgradeable) — lending/borrowing, auto-flag at settlement, auto-unflag on repay
   ├── Settlement (Upgradeable) — batch settlement, calls Centuari.settleMatch()
   ├── CollateralManager (Upgradeable) — mid-life unflag path, 24h flag-lock + RiskModule gate
-  │     └── RiskModuleStub — Phase 1 fail-closed (canUnflag always false)
+  │     └── RiskModule (Upgradeable) — oracle-backed health-factor policy (reads OracleRouter + Centuari debt)
   ├── WithdrawalRegistry (Upgradeable) — withdrawal state machine + HF gate, debits on request
   │     ├── calls IRiskModule.canWithdraw() as first action
   │     └── calls HubDepositor.payoutDirect() for hub-native withdrawals

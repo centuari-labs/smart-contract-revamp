@@ -471,7 +471,7 @@ out = {
         "lzEid": 40231,
         "contracts": {k: hub.get(k) for k in [
             "balanceLedgerAddress", "centuariAddress", "bondTokenFactoryAddress",
-            "hubDepositorAddress", "collateralManagerAddress", "riskModuleStubAddress",
+            "hubDepositorAddress", "collateralManagerAddress", "riskModuleAddress",
             "settlementProxy", "withdrawalRegistryAddress", "hubIntentSettlerAddress",
             "settlementLedgerAddress", "faucetAddress",
         ]},

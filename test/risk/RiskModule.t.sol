@@ -153,7 +153,7 @@ contract RiskModuleTest is Test {
         assertTrue(rm.canWithdraw(user, FREE, 50e18));
     }
 
-    /// @dev The behavior IMPOSSIBLE under RiskModuleStub: a flagged collateral
+    /// @dev The behavior IMPOSSIBLE under the earlier fail-closed policy: a flagged collateral
     ///      asset can be partially withdrawn while in debt, because post-action
     ///      HF stays ≥ 1.
     function test_flaggedHealthyWithdrawal_succeeds() public {
