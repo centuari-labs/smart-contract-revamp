@@ -29,13 +29,13 @@ interface ISettlement {
     struct MatchData {
         bytes32 matchId;
         bytes32 marketId;
-        bytes32 lendOrderId; //@note : change into order market id
-        bytes32 borrowOrderId; //@note : change into order market id
-        address lender; //@note : change into account id
-        address borrower; //@note : change into account id
+        bytes32 lendOrderId;
+        bytes32 borrowOrderId;
+        address lender;
+        address borrower;
         uint256 matchedAmount;
         uint256 rate;
-        address loanToken; //@note : change into asset id
+        address loanToken;
         uint256 maturity;
         uint256 timestamp;
         bool borrowerIsTaker;
