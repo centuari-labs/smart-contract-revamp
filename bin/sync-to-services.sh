@@ -121,6 +121,7 @@ SETTLEMENT_LEDGER=$(get_addr settlementLedgerAddress)
 BOND_TOKEN_FACTORY=$(get_addr bondTokenFactoryAddress)
 # The real (Phase 3 / C6) oracle-backed RiskModule is the only module — no stub fallback.
 RISK_MODULE=$(get_addr riskModuleAddress)
+LIQUIDATION_ENGINE=$(get_addr liquidationEngineAddress)
 FAUCET=$(get_addr faucetAddress)
 FAUCET_TOKENS_CSV=$(get_addr faucetTokensRaw)
 # Per-token PushOracle addresses ({symbol: address}); consumed by the backend price keeper.
@@ -188,6 +189,7 @@ gen_indexer_env() {
   emit WITHDRAWAL_REGISTRY_ADDRESS   "$WITHDRAWAL_REGISTRY"
   emit HUB_INTENT_SETTLER_ADDRESS    "$HUB_INTENT_SETTLER"
   emit SETTLEMENT_LEDGER_ADDRESS     "$SETTLEMENT_LEDGER"
+  emit LIQUIDATION_ENGINE_ADDRESS    "$LIQUIDATION_ENGINE"
   emit BOND_TOKEN_FACTORY_ADDRESS    "$BOND_TOKEN_FACTORY"
   echo ""
   echo "# Spoke addresses (per chain)"
