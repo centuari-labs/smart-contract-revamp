@@ -14,6 +14,7 @@ forge fmt                  # format
 anvil                      # local chain
 ./bin/run-all.sh           # deploy all contracts (12-step orchestration); verifies on Arbiscan + runs export-abi + sync-to-services (SKIP_VERIFY=1 / SKIP_SYNC=1 to skip)
 ./bin/run-all.sh --verify-only  # re-verify an existing deployment on Arbiscan (no deploy)
+./bin/deploy-hardened.sh   # CANONICAL MAINNET PATH: run-all.sh + governance handover + verify, secure-by-construction (preview by default; --execute to broadcast, --mainnet-ack for Arbitrum One)
 ./bin/export-abi.sh        # export ABIs from out/ → abi/
 ./bin/sync-to-services.sh  # propagate abi/ + deployments/*.json into backend-v2, settlement-engine, indexer-v3, frontend-revamp
 ./bin/sync-to-services.sh --check  # verify every service is on the latest deployment (no writes); non-zero exit on drift
@@ -146,6 +147,7 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 ### Deployment Rules
 
 - `run-all.sh` orchestrates the full deployment in 12 steps — maintain this order (the former standalone `Configure*` steps are now folded into their `Deploy*` scripts)
+- **Mainnet uses `deploy-hardened.sh`, not bare `run-all.sh`.** `run-all.sh` leaves every proxy owned by the deployer EOA — fine for testnet iteration, unsafe as a mainnet end-state. `deploy-hardened.sh` is a thin wrapper (no duplicated deploy logic): it pre-flight-validates that `SAFE_ADDRESS` is a real ≥2-of-N Gnosis Safe, runs `run-all.sh`, runs `transfer-ownership-to-multisig.sh` (deploys 24h ops + 48h upgrade timelocks, moves every `owner()`/ProxyAdmin/pauser off the deployer), then verifies the deployer EOA owns nothing — exiting non-zero if not. Preview by default; `--execute` to broadcast; `--mainnet-ack` (+ `ETHERSCAN_API_KEY`) required on Arbitrum One. Same script does the Sepolia rehearsal with `OPS_DELAY=300 UPGRADE_DELAY=600`. Service-side mainnet gates (RPC failover, monitoring, faucet disable, token allowlist, Privy config) are out of its scope — track separately.
 - Each script is idempotent where possible — re-running should not break state
 - Deployment output goes to `deployments/deploy-<network>-latest.json` (hub) and `deployments/deploy-spoke-<chainId>-latest.json` (spokes)
 - BalanceLedger writer registration is folded into the deploy scripts: `DeployCentuari`, `DeployHubDepositor`, and `DeploySettlement` each self-register as a writer (guarded by `isAuthorizedWriter`, so re-runs are idempotent), `DeployCrossChainHub` registers WithdrawalRegistry + HubIntentSettler, and `DeployCollateralStack` self-registers CollateralManager
