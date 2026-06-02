@@ -38,6 +38,7 @@ CONTRACTS=(
   "RiskModule.sol:RiskModule"
   "PushOracle.sol:PushOracle"
   "ChainlinkPriceFeed.sol:ChainlinkPriceFeed"
+  "LiquidationEngine.sol:LiquidationEngine"
 )
 
 # Ensure artifacts exist
