@@ -33,6 +33,22 @@ contract UpgradeBaseHarness is TimeLockUpgradeBase {
     function getMinDelayView(address timeLock) external view returns (uint256) {
         return _getMinDelay(timeLock);
     }
+
+    function buildScheduleCalldata(address proxyAdmin, bytes memory upgradeCalldata, bytes32 salt, uint256 minDelay)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return _buildScheduleCalldata(proxyAdmin, upgradeCalldata, salt, minDelay);
+    }
+
+    function buildExecuteCalldata(address proxyAdmin, bytes memory upgradeCalldata, bytes32 salt)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return _buildExecuteCalldata(proxyAdmin, upgradeCalldata, salt);
+    }
 }
 
 /// @dev V2 settlement: adds a reinitializer and a new view — used for initData upgrade tests.
@@ -156,10 +172,9 @@ contract TimeLockUpgradeTest is Test {
 
     /// @dev Encode upgradeAndCall with initData — for reinitializer tests.
     function _upgradeWithInitCalldata(address _newImpl, bytes memory initData) internal view returns (bytes memory) {
-        return
-            abi.encodeCall(
-                ProxyAdmin.upgradeAndCall, (ITransparentUpgradeableProxy(address(proxy)), _newImpl, initData)
-            );
+        return abi.encodeCall(
+            ProxyAdmin.upgradeAndCall, (ITransparentUpgradeableProxy(address(proxy)), _newImpl, initData)
+        );
     }
 
     /// @dev Replicate OZ v5 hashOperation encoding.
@@ -683,5 +698,77 @@ contract TimeLockUpgradeTest is Test {
 
         // State still preserved across two upgrades
         assertEq(settlement.operator(), settlementOperator);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ //
+    //  15. Safe-submittable calldata — post-handover upgrade path (D1b)       //
+    // ══════════════════════════════════════════════════════════════════════ //
+
+    function test_buildScheduleCalldata_matchesManualEncoding() public {
+        Settlement implV2 = new Settlement();
+        bytes memory upgradeCalldata = _upgradeCalldata(address(implV2));
+        bytes32 salt = keccak256("safe-schedule");
+
+        bytes memory fromHarness = harness.buildScheduleCalldata(address(proxyAdmin), upgradeCalldata, salt, MIN_DELAY);
+        bytes memory manual = abi.encodeCall(
+            TimelockController.schedule, (address(proxyAdmin), 0, upgradeCalldata, bytes32(0), salt, MIN_DELAY)
+        );
+        assertEq(fromHarness, manual, "_buildScheduleCalldata must match manual abi.encodeCall");
+    }
+
+    function test_buildExecuteCalldata_matchesManualEncoding() public {
+        Settlement implV2 = new Settlement();
+        bytes memory upgradeCalldata = _upgradeCalldata(address(implV2));
+        bytes32 salt = keccak256("safe-execute");
+
+        bytes memory fromHarness = harness.buildExecuteCalldata(address(proxyAdmin), upgradeCalldata, salt);
+        bytes memory manual =
+            abi.encodeCall(TimelockController.execute, (address(proxyAdmin), 0, upgradeCalldata, bytes32(0), salt));
+        assertEq(fromHarness, manual, "_buildExecuteCalldata must match manual abi.encodeCall");
+    }
+
+    /// @dev The post-handover path: a Safe holding PROPOSER+EXECUTOR relays the *encoded*
+    ///      schedule/execute calldata to the TimeLock via execTransaction. This proves the
+    ///      bytes emitted by printSchedule/printExecute drive a real upgrade through the
+    ///      TimeLock's role gating — using only the calldata, never a single-key script call.
+    function test_safeSubmittableCalldata_drivesUpgradeEndToEnd() public {
+        Settlement implV2 = new Settlement();
+        bytes memory upgradeCalldata = _upgradeCalldata(address(implV2));
+        bytes32 salt = keccak256("safe-e2e");
+        bytes32 opId = _operationId(address(proxyAdmin), upgradeCalldata, salt);
+
+        // 1. Safe (proposer) relays schedule calldata to the TimeLock.
+        bytes memory scheduleCalldata =
+            harness.buildScheduleCalldata(address(proxyAdmin), upgradeCalldata, salt, MIN_DELAY);
+        vm.prank(multisig);
+        (bool okSchedule,) = address(timeLock).call(scheduleCalldata);
+        assertTrue(okSchedule, "Safe-relayed schedule calldata must succeed");
+        assertEq(uint8(timeLock.getOperationState(opId)), 1, "operation must be Waiting after schedule");
+
+        // 2. Wait out the delay.
+        vm.warp(timeLock.getTimestamp(opId));
+
+        // 3. Safe (executor) relays execute calldata to the TimeLock.
+        bytes memory executeCalldata = harness.buildExecuteCalldata(address(proxyAdmin), upgradeCalldata, salt);
+        vm.prank(multisig);
+        (bool okExecute,) = address(timeLock).call(executeCalldata);
+        assertTrue(okExecute, "Safe-relayed execute calldata must succeed");
+
+        assertEq(_implAddr(), address(implV2), "impl slot must point to V2 after Safe-driven upgrade");
+        assertEq(uint8(timeLock.getOperationState(opId)), 3, "operation must be Done after execute");
+    }
+
+    /// @dev The calldata carries no privilege — the Safe's role does. A non-proposer relaying
+    ///      the same schedule bytes is rejected by the TimeLock's onlyRole(PROPOSER_ROLE) gate.
+    function test_safeSubmittableScheduleCalldata_byNonProposer_reverts() public {
+        Settlement implV2 = new Settlement();
+        bytes memory upgradeCalldata = _upgradeCalldata(address(implV2));
+        bytes32 salt = keccak256("safe-nonproposer");
+
+        bytes memory scheduleCalldata =
+            harness.buildScheduleCalldata(address(proxyAdmin), upgradeCalldata, salt, MIN_DELAY);
+        vm.prank(nonAuthorized);
+        (bool ok,) = address(timeLock).call(scheduleCalldata);
+        assertFalse(ok, "schedule calldata relayed by a non-proposer must revert");
     }
 }

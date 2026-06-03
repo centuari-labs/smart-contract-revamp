@@ -62,11 +62,20 @@ cd "$ROOT_DIR"
 
 # Load environment variables from .env in the project root if present.
 # This exports all variables defined there so they are visible to child processes.
+#
+# A variable already exported by the CALLER must win over the .env literal. In
+# particular deploy-hardened.sh exports NETWORK_NAME from its --network=<slug> arg;
+# without this guard `source .env` would silently overwrite it, so the deploy summary
+# would land at the .env slug (clobbering the live -latest.json) and the handover step
+# would then fail to find the rehearsal file. Snapshot caller overrides, source, restore.
 if [[ -f ".env" ]]; then
+  __PRE_ENV_NETWORK_NAME="${NETWORK_NAME:-}"
   set -a
   # shellcheck source=/dev/null
   source ".env"
+  [[ -n "$__PRE_ENV_NETWORK_NAME" ]] && NETWORK_NAME="$__PRE_ENV_NETWORK_NAME"
   set +a
+  unset __PRE_ENV_NETWORK_NAME
 fi
 
 # Collect forge script flags (e.g. --broadcast, --slow, etc.); local flags are handled here

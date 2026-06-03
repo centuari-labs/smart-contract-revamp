@@ -38,11 +38,25 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
 # Load .env (RPC_URL / PRIVATE_KEY / SAFE_ADDRESS may live there), like run-all.sh.
+#
+# Caller-exported values must win over .env literals: deploy-hardened.sh invokes this
+# script with SAFE_ADDRESS / OPS_DELAY / UPGRADE_DELAY (and NETWORK_NAME) set explicitly,
+# and a stray copy of any of those in .env would otherwise clobber the caller's intent
+# (same bug class as the NETWORK_NAME isolation fix in run-all.sh). Snapshot, source, restore.
 if [[ -f ".env" ]]; then
+  __PRE_SAFE_ADDRESS="${SAFE_ADDRESS:-}"
+  __PRE_OPS_DELAY="${OPS_DELAY:-}"
+  __PRE_UPGRADE_DELAY="${UPGRADE_DELAY:-}"
+  __PRE_NETWORK_NAME="${NETWORK_NAME:-}"
   set -a
   # shellcheck source=/dev/null
   source ".env"
+  [[ -n "$__PRE_SAFE_ADDRESS" ]] && SAFE_ADDRESS="$__PRE_SAFE_ADDRESS"
+  [[ -n "$__PRE_OPS_DELAY" ]] && OPS_DELAY="$__PRE_OPS_DELAY"
+  [[ -n "$__PRE_UPGRADE_DELAY" ]] && UPGRADE_DELAY="$__PRE_UPGRADE_DELAY"
+  [[ -n "$__PRE_NETWORK_NAME" ]] && NETWORK_NAME="$__PRE_NETWORK_NAME"
   set +a
+  unset __PRE_SAFE_ADDRESS __PRE_OPS_DELAY __PRE_UPGRADE_DELAY __PRE_NETWORK_NAME
 fi
 
 # ERC1967 admin slot: keccak256("eip1967.proxy.admin") - 1
