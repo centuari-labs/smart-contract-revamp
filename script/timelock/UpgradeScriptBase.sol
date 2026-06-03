@@ -11,11 +11,23 @@ import {TimeLockUpgradeBase} from "./TimeLockUpgradeBase.sol";
 /// @dev Inherits pure/view helpers from TimeLockUpgradeBase and adds vm.* JSON helpers.
 ///      Concrete upgrade scripts only implement _contractName() and _deployNewImplementation().
 ///
-///      Upgrade flow:
+///      Two upgrade flows, picked by who owns the TimeLock:
+///
+///      A. EOA path (pre-handover / testnet) — the deployer EOA is proposer+executor:
 ///        1. runSchedule  — deploys new impl + calls TimeLock.schedule() + writes JSON record
 ///        2. (wait minDelay seconds on-chain)
 ///        3. runExecute   — reads JSON record + calls TimeLock.execute()
 ///        4. runCancel    — reads JSON record + calls TimeLock.cancel() (any time before execute)
+///
+///      B. Safe path (post-handover / mainnet) — a Gnosis Safe is proposer+executor, so a single
+///         `--private-key` broadcast of schedule()/execute() reverts. These emit calldata to
+///         submit *through the Safe* (Transaction Builder / SDK / cast) instead of broadcasting:
+///        1. printSchedule — deploys new impl (the only broadcast — permissionless) + PRINTS the
+///                           TimeLock.schedule() calldata + operationId + salt + writes JSON record
+///        2. (submit that calldata through the Safe; wait minDelay)
+///        3. printExecute  — reads JSON record + PRINTS the TimeLock.execute() calldata for the Safe
+///         Cancellation post-handover is likewise a Safe tx: `TimelockController.cancel(operationId)`
+///         (the operationId is printed by printSchedule and stored in the JSON record).
 abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
     // ─────────────────────── Abstract Contract Interface ────────────────────── //
 
@@ -49,15 +61,14 @@ abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
 
         // 3. Read on-chain minDelay and schedule via TimeLock
         uint256 minDelay = _getMinDelay(timeLock);
-        TimelockController(payable(timeLock))
-            .schedule(
-                proxyAdmin, // target
-                0, // value (ETH)
-                upgradeCalldata, // data
-                bytes32(0), // predecessor (none)
-                salt, // unique salt
-                minDelay // must be >= TimeLock.getMinDelay()
-            );
+        TimelockController(payable(timeLock)).schedule(
+            proxyAdmin, // target
+            0, // value (ETH)
+            upgradeCalldata, // data
+            bytes32(0), // predecessor (none)
+            salt, // unique salt
+            minDelay // must be >= TimeLock.getMinDelay()
+        );
 
         vm.stopBroadcast();
 
@@ -100,14 +111,13 @@ abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
         vm.startBroadcast();
 
         // TimeLock verifies operationId and that block.timestamp >= scheduledAt + minDelay
-        TimelockController(payable(timeLock))
-            .execute(
-                proxyAdmin, // target
-                0, // value (ETH)
-                upgradeCalldata, // data (must match schedule)
-                bytes32(0), // predecessor (must match schedule)
-                salt // salt (must match schedule)
-            );
+        TimelockController(payable(timeLock)).execute(
+            proxyAdmin, // target
+            0, // value (ETH)
+            upgradeCalldata, // data (must match schedule)
+            bytes32(0), // predecessor (must match schedule)
+            salt // salt (must match schedule)
+        );
 
         vm.stopBroadcast();
 
@@ -135,6 +145,79 @@ abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
         console.log(string.concat("=== ", _contractName(), " Upgrade Cancelled ==="));
         console.log("TimeLock:    ", timeLock);
         console.log("OperationId: ", vm.toString(operationId));
+    }
+
+    // ───────────────────── Safe path (post-handover / mainnet) ─────────────────────── //
+
+    /// @notice Deploy the new implementation and PRINT the TimeLock.schedule() calldata to submit
+    ///         through the Safe — the post-handover counterpart to runSchedule.
+    /// @dev Broadcasts ONLY the implementation deployment (permissionless: needs gas, not a role).
+    ///      It does NOT call schedule() — after the handover the proposer is the Safe, not this
+    ///      key, so a single-key schedule() would revert. The operator relays the printed calldata
+    ///      to the TimeLock through the Safe (`to` = TimeLock, `value` = 0, `data` = printed bytes).
+    ///      Writes the same JSON record runExecute / printExecute consume.
+    ///      Run with `--broadcast --rpc-url` so the impl is actually deployed and the printed
+    ///      newImpl is a real on-chain address.
+    /// @param timeLock   TimelockController governing the ProxyAdmin (the Safe tx target).
+    /// @param proxyAdmin ProxyAdmin contract that owns the proxy (the scheduled op's target).
+    /// @param proxy      TransparentUpgradeableProxy to upgrade.
+    /// @param salt       Unique bytes32 salt for this upgrade operation.
+    function printSchedule(address timeLock, address proxyAdmin, address proxy, bytes32 salt) external {
+        // Deploy the new implementation (permissionless) — the only broadcast in this path.
+        vm.startBroadcast();
+        address newImpl = _deployNewImplementation();
+        vm.stopBroadcast();
+
+        bytes memory upgradeCalldata = _buildUpgradeCalldata(proxy, newImpl, "");
+        uint256 minDelay = _getMinDelay(timeLock);
+        bytes memory scheduleCalldata = _buildScheduleCalldata(proxyAdmin, upgradeCalldata, salt, minDelay);
+        bytes32 operationId = _computeOperationId(proxyAdmin, upgradeCalldata, salt);
+
+        // Persist the record so printExecute (and runExecute) can rebuild the operation later.
+        string memory jsonPath = _writeScheduleRecord(
+            _contractName(), operationId, salt, newImpl, proxyAdmin, proxy, block.timestamp, minDelay
+        );
+
+        console.log(string.concat("=== ", _contractName(), " Upgrade - SCHEDULE via Safe ==="));
+        console.log("Submit this through the Safe (PROPOSER_ROLE). Safe transaction:");
+        console.log("  to:    ", timeLock);
+        console.log("  value:  0");
+        console.log("  data:  ", vm.toString(scheduleCalldata));
+        console.log("New Impl:     ", newImpl);
+        console.log("OperationId:  ", vm.toString(operationId));
+        console.log("Salt:         ", vm.toString(salt));
+        console.log("MinDelay (s): ", minDelay);
+        console.log("Schedule JSON:", jsonPath);
+    }
+
+    /// @notice PRINT the TimeLock.execute() calldata to submit through the Safe after the delay —
+    ///         the post-handover counterpart to runExecute. Broadcasts nothing.
+    /// @dev Rebuilds the upgrade calldata from the JSON record so the operationId matches the
+    ///      scheduled operation. The operator relays the printed calldata to the TimeLock through
+    ///      the Safe (`to` = TimeLock, `value` = 0, `data` = printed bytes).
+    /// @param timeLock         TimelockController governing the ProxyAdmin (the Safe tx target).
+    /// @param proxyAdmin       ProxyAdmin contract that owns the proxy (the scheduled op's target).
+    /// @param proxy            TransparentUpgradeableProxy to upgrade.
+    /// @param scheduleJsonPath Path to the JSON record written by printSchedule / runSchedule.
+    function printExecute(address timeLock, address proxyAdmin, address proxy, string memory scheduleJsonPath)
+        external
+    {
+        string memory json = vm.readFile(scheduleJsonPath);
+        bytes32 salt = vm.parseJsonBytes32(json, ".salt");
+        address newImpl = vm.parseJsonAddress(json, ".newImpl");
+
+        bytes memory upgradeCalldata = _buildUpgradeCalldata(proxy, newImpl, "");
+        bytes memory executeCalldata = _buildExecuteCalldata(proxyAdmin, upgradeCalldata, salt);
+        bytes32 operationId = _computeOperationId(proxyAdmin, upgradeCalldata, salt);
+
+        console.log(string.concat("=== ", _contractName(), " Upgrade - EXECUTE via Safe ==="));
+        console.log("Submit this through the Safe (EXECUTOR_ROLE) AFTER the delay. Safe transaction:");
+        console.log("  to:    ", timeLock);
+        console.log("  value:  0");
+        console.log("  data:  ", vm.toString(executeCalldata));
+        console.log("New Impl:    ", newImpl);
+        console.log("OperationId: ", vm.toString(operationId));
+        console.log("Salt:        ", vm.toString(salt));
     }
 
     // ─────────────────────────── JSON Record Helper ──────────────────────────── //
