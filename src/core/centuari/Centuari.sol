@@ -598,7 +598,14 @@ contract Centuari is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeab
             // this can never fabricate debt, it only repopulates the enumerable
             // set + loanToken map for positions that predate the upgrade.
             if (_borrowDebt[mid][borrower] == 0) continue;
-            if (_borrowerMarkets[borrower].add(mid)) {
+            // M2 / SC-5: enforce the same per-borrower debt-market cap that
+            // settleMatch honors, so this onlyOperator reconciliation path can't
+            // re-open the unbounded RiskModule HF-loop gas-DoS. Mirror settleMatch:
+            // only a brand-new market consumes a slot, so re-seeding a market
+            // already in the set (idempotent reconciliation) never trips the cap.
+            if (!_borrowerMarkets[borrower].contains(mid)) {
+                if (_borrowerMarkets[borrower].length() >= MAX_DEBT_MARKETS) revert TooManyDebtMarkets();
+                _borrowerMarkets[borrower].add(mid);
                 _marketLoanToken[mid] = loanTokens[i];
                 emit BorrowerMarketSeeded(borrower, mid, loanTokens[i]);
             }
