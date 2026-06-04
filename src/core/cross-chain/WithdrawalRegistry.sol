@@ -186,13 +186,17 @@ contract WithdrawalRegistry is
 
             // Determine classification: check if this route is spoke-native.
             uint8 classification = _isSpokeNativeRoute[request.asset][request.targetChainId]
-                ? uint8(2)  // SPOKE_NATIVE
+                ? uint8(2) // SPOKE_NATIVE
                 : uint8(1); // BRIDGED
 
             bytes memory payload = abi.encode(requestId, request.user, request.asset, request.amount, classification);
 
             ILzEndpointSend.MessagingParams memory params = ILzEndpointSend.MessagingParams({
-                dstEid: spokeEid, receiver: peer, message: payload, options: bytes(""), payInLzToken: false
+                dstEid: spokeEid,
+                receiver: peer,
+                message: payload,
+                options: bytes(""),
+                payInLzToken: false
             });
 
             ILzEndpointSend.MessagingReceipt memory receipt =
@@ -232,6 +236,16 @@ contract WithdrawalRegistry is
 
         request.status = WithdrawalStatus.FAILED;
         request.updatedAt = uint64(block.timestamp);
+
+        // Restore SPOKE_NATIVE chain liquidity — mirror the `_request` debit.
+        // No physical liquidity was spent on a failed withdrawal, so the
+        // capacity counter must be undone or it leaks permanently.
+        if (_isSpokeNativeRoute[request.asset][request.targetChainId]) {
+            uint256 restored = _chainLiquidity[request.asset][request.targetChainId] + request.amount;
+            _chainLiquidity[request.asset][request.targetChainId] = restored;
+
+            emit ChainLiquidityRestored(request.asset, request.targetChainId, requestId, request.amount, restored);
+        }
 
         // Refund the user's available balance
         IBalanceLedger(_balanceLedger).credit(request.user, request.asset, request.amount);
