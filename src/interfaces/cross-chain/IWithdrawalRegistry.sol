@@ -83,6 +83,13 @@ interface IWithdrawalRegistry {
     ///         withdrawal request.
     event ChainLiquidityDecremented(address indexed asset, uint256 indexed chainId, uint256 amount, uint256 newTotal);
 
+    /// @notice Emitted when chain liquidity is restored after a failed
+    ///         SPOKE_NATIVE withdrawal — mirrors the `_request` decrement. No
+    ///         physical liquidity was spent, so the capacity counter is undone.
+    event ChainLiquidityRestored(
+        address indexed asset, uint256 indexed chainId, bytes32 indexed requestId, uint256 amount, uint256 newTotal
+    );
+
     /// @notice Emitted when the HubIntentSettler pointer is updated.
     event HubIntentSettlerUpdated(address indexed settler);
 

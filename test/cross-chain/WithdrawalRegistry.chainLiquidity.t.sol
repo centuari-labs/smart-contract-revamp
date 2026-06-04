@@ -185,6 +185,75 @@ contract WithdrawalRegistryChainLiquidityTest is Test {
         assertTrue(reqId != bytes32(0));
     }
 
+    // ============ markFailed — SPOKE_NATIVE chain-liquidity restore ============
+
+    function test_MarkFailed_SpokeNative_RestoresChainLiquidity() public {
+        // Seed liquidity, then withdraw the whole amount (decrements to 0).
+        uint256 seeded = 50e6;
+        vm.prank(settlerAddr);
+        registry.incrementChainLiquidity(address(xsgd), BASE_CHAIN_ID, seeded);
+
+        vm.prank(user);
+        bytes32 reqId = registry.requestWithdrawal(address(xsgd), seeded, BASE_CHAIN_ID);
+
+        // Pre-conditions: liquidity spent, balance debited.
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 0);
+        assertEq(ledger.available(user, address(xsgd)), DEPOSIT_AMOUNT - seeded);
+
+        // Fail the withdrawal — no physical liquidity was spent, so the
+        // counter must be restored to its pre-request value.
+        vm.prank(operatorAddr);
+        registry.markFailed(reqId);
+
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), seeded);
+        // Balance is also credited back.
+        assertEq(ledger.available(user, address(xsgd)), DEPOSIT_AMOUNT);
+    }
+
+    function test_MarkFailed_SpokeNative_EmitsRestoreEvent() public {
+        uint256 seeded = 40e6;
+        vm.prank(settlerAddr);
+        registry.incrementChainLiquidity(address(xsgd), BASE_CHAIN_ID, seeded);
+
+        vm.prank(user);
+        bytes32 reqId = registry.requestWithdrawal(address(xsgd), seeded, BASE_CHAIN_ID);
+
+        vm.prank(operatorAddr);
+        vm.expectEmit(true, true, true, true);
+        emit IWithdrawalRegistry.ChainLiquidityRestored(address(xsgd), BASE_CHAIN_ID, reqId, seeded, seeded);
+        registry.markFailed(reqId);
+    }
+
+    function test_MarkFailed_SpokeNative_PartialRoundTrip() public {
+        // Seed more than the withdrawal so a remainder stays after the debit,
+        // and the restore lands back exactly on the seeded value.
+        vm.prank(settlerAddr);
+        registry.incrementChainLiquidity(address(xsgd), BASE_CHAIN_ID, 100e6);
+
+        vm.prank(user);
+        bytes32 reqId = registry.requestWithdrawal(address(xsgd), 30e6, BASE_CHAIN_ID);
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 70e6);
+
+        vm.prank(operatorAddr);
+        registry.markFailed(reqId);
+        assertEq(registry.chainLiquidity(address(xsgd), BASE_CHAIN_ID), 100e6);
+    }
+
+    function test_MarkFailed_Bridged_DoesNotTouchChainLiquidity() public {
+        // BRIDGED route never decremented chain liquidity, so a failure must
+        // not spuriously inflate it.
+        vm.prank(user);
+        bytes32 reqId = registry.requestWithdrawal(address(usdc), 10e6, BASE_CHAIN_ID);
+        assertEq(registry.chainLiquidity(address(usdc), BASE_CHAIN_ID), 0);
+
+        vm.prank(operatorAddr);
+        registry.markFailed(reqId);
+
+        assertEq(registry.chainLiquidity(address(usdc), BASE_CHAIN_ID), 0);
+        // Balance still credited back.
+        assertEq(ledger.available(user, address(usdc)), DEPOSIT_AMOUNT);
+    }
+
     // ============ Admin ============
 
     function test_SetHubIntentSettler_OwnerOnly() public {
