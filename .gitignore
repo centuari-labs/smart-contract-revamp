@@ -30,3 +30,5 @@ output/
 
 # dev docs
 dev-docs
+
+.DS_Store

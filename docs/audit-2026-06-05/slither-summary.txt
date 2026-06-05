@@ -1,0 +1,76 @@
+'forge clean' running (wd: /Users/singgihbriliantara/Documents copy/centuari/centuari-smart-contract-v2/smart-contract-revamp)
+'forge config --json' running
+'forge build --build-info src' running (wd: /Users/singgihbriliantara/Documents copy/centuari/centuari-smart-contract-v2/smart-contract-revamp)
+INFO:Printers:
+Compiled with Foundry
+Total number of contracts in source files: 55
+Number of contracts in dependencies: 26
+Number of contracts in tests       : 3
+Source lines of code (SLOC) in source files: 3560
+Source lines of code (SLOC) in dependencies: 2190
+Source lines of code (SLOC) in tests       : 121
+Number of  assembly lines: 0
+Number of optimization issues: 0
+Number of informational issues: 46
+Number of low issues: 36
+Number of medium issues: 13
+Number of high issues: 0
+
+ERCs: ERC1363, ERC165, ERC20
+
++--------------------------+-------------+-------+--------------------+--------------+--------------------+
+| Name                     | # functions | ERCS  | ERC20 info         | Complex code | Features           |
++--------------------------+-------------+-------+--------------------+--------------+--------------------+
+| BalanceLedger            | 69          |       |                    | No           | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| Centuari                 | 87          |       |                    | Yes          | Tokens interaction |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| CentuariBondERC20        | 34          | ERC20 | ∞ Minting          | No           |                    |
+|                          |             |       | Approve Race Cond. |              |                    |
+|                          |             |       |                    |              |                    |
+| CentuariBondERC20Factory | 11          |       |                    | No           | Tokens interaction |
+| CollateralManager        | 53          |       |                    | No           | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| HubDepositor             | 44          |       |                    | No           | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| HubIntentSettler         | 69          |       |                    | No           | Receive ETH        |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| SettlementLedger         | 42          |       |                    | No           | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| ILzEndpointSend          | 1           |       |                    | No           | Receive ETH        |
+| WithdrawalRegistry       | 88          |       |                    | Yes          | Receive ETH        |
+|                          |             |       |                    |              | Send ETH           |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| ILzEndpointLite          | 2           |       |                    | No           | Receive ETH        |
+| SpokeDepositGateway      | 65          |       |                    | No           | Receive ETH        |
+|                          |             |       |                    |              | Send ETH           |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| ISpokeVaultStableRecall  | 1           |       |                    | No           |                    |
+| SpokePayout              | 55          |       |                    | No           | Receive ETH        |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| ICctpTokenMessengerLite  | 1           |       |                    | No           |                    |
+| IStargateLite            | 1           |       |                    | No           | Receive ETH        |
+| SpokeVaultStable         | 68          |       |                    | No           | Receive ETH        |
+|                          |             |       |                    |              | Send ETH           |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| LiquidationEngine        | 61          |       |                    | Yes          | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| ChainlinkPriceFeed       | 4           |       |                    | No           |                    |
+| OracleRouter             | 28          |       |                    | No           | Tokens interaction |
+|                          |             |       |                    |              | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| PushOracle               | 20          |       |                    | No           |                    |
+| RiskModule               | 42          |       |                    | Yes          | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| Settlement               | 47          |       |                    | Yes          | Assembly           |
+|                          |             |       |                    |              | Upgradeable        |
+| AggregatorV3Interface    | 2           |       |                    | No           |                    |
+| DateTime                 | 6           |       |                    | No           |                    |
++--------------------------+-------------+-------+--------------------+--------------+--------------------+
+INFO:Slither:src/ analyzed (84 contracts)

@@ -1,0 +1,144 @@
+'forge clean' running (wd: /Users/singgihbriliantara/Documents copy/centuari/centuari-smart-contract-v2/smart-contract-revamp)
+'forge config --json' running
+'forge build --build-info src' running (wd: /Users/singgihbriliantara/Documents copy/centuari/centuari-smart-contract-v2/smart-contract-revamp)
+INFO:Detectors:
+Detector: reentrancy-benign
+Reentrancy in Centuari.settleMatch(bytes32,address,address,address,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,address[]) (src/core/centuari/Centuari.sol#102-193):
+	External calls:
+	- bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(loanToken,maturity) (src/core/centuari/Centuari.sol#144)
+	State variables written after the call(s):
+	- _processBorrowPosition(marketId,borrower,matchedAmount,rate,maturity) (src/core/centuari/Centuari.sol#152)
+		- _borrowDebt[marketId][borrower] += debt (src/core/centuari/Centuari.sol#235)
+	- cbtAmount = _processLendPosition(marketId,lender,matchedAmount,rate,maturity,bondToken) (src/core/centuari/Centuari.sol#147)
+		- _lendPositionCbtAmount[marketId][lender] += cbtAmount (src/core/centuari/Centuari.sol#216)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+INFO:Detectors:
+Detector: missing-zero-check
+CentuariBondERC20.constructor(string,string,address,address,uint256,uint8).minter_ (src/core/centuari/CentuariBondERC20.sol#43) lacks a zero-check on :
+		- MINTER = minter_ (src/core/centuari/CentuariBondERC20.sol#48)
+CentuariBondERC20.constructor(string,string,address,address,uint256,uint8).loanToken_ (src/core/centuari/CentuariBondERC20.sol#44) lacks a zero-check on :
+		- LOAN_TOKEN = loanToken_ (src/core/centuari/CentuariBondERC20.sol#49)
+CentuariBondERC20Factory.constructor(address).centuari_ (src/core/centuari/CentuariBondERC20Factory.sol#56) lacks a zero-check on :
+		- CENTUARI = centuari_ (src/core/centuari/CentuariBondERC20Factory.sol#57)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-zero-address-validation
+INFO:Detectors:
+Detector: unused-return
+BalanceLedger._setCollateralFlag(address,address,bool) (src/core/balance-ledger/BalanceLedger.sol#136-160) ignores return value by _flaggedAssets[user].add(asset) (src/core/balance-ledger/BalanceLedger.sol#149)
+BalanceLedger._setCollateralFlag(address,address,bool) (src/core/balance-ledger/BalanceLedger.sol#136-160) ignores return value by _flaggedAssets[user].remove(asset) (src/core/balance-ledger/BalanceLedger.sol#156)
+Centuari.settleMatch(bytes32,address,address,address,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,address[]) (src/core/centuari/Centuari.sol#102-193) ignores return value by _borrowerMarkets[borrower].add(marketId) (src/core/centuari/Centuari.sol#162)
+Centuari.repay(bytes32,address,address,uint256) (src/core/centuari/Centuari.sol#243-274) ignores return value by _borrowerMarkets[borrower].remove(marketId) (src/core/centuari/Centuari.sol#264)
+Centuari.liquidationRepay(bytes32,address,address,address,uint256) (src/core/centuari/Centuari.sol#284-311) ignores return value by _borrowerMarkets[borrower].remove(marketId) (src/core/centuari/Centuari.sol#303)
+Centuari.seedBorrowerMarkets(address,address[],uint256[]) (src/core/centuari/Centuari.sol#589-613) ignores return value by _borrowerMarkets[borrower].add(mid) (src/core/centuari/Centuari.sol#608)
+ChainlinkPriceFeed.latestPriceUsd() (src/core/oracle/ChainlinkPriceFeed.sol#46-75) ignores return value by (None,seqAnswer,seqStartedAt,None,None) = SEQUENCER_UPTIME_FEED.latestRoundData() (src/core/oracle/ChainlinkPriceFeed.sol#51)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: reentrancy-no-eth
+Reentrancy in Centuari.settleMatch(bytes32,address,address,address,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,address[]) (src/core/centuari/Centuari.sol#102-193):
+	External calls:
+	- bondToken = CentuariBondERC20Factory(_bondTokenFactory).getOrCreate(loanToken,maturity) (src/core/centuari/Centuari.sol#144)
+	State variables written after the call(s):
+	- cbtAmount = _processLendPosition(marketId,lender,matchedAmount,rate,maturity,bondToken) (src/core/centuari/Centuari.sol#147)
+		- _marketTotalCbt[marketId] += cbtAmount (src/core/centuari/Centuari.sol#215)
+	CentuariStorage._marketTotalCbt (src/core/centuari/CentuariStorage.sol#43) can be used in cross function reentrancies:
+	- Centuari.getMarketTotalCbt(bytes32) (src/core/centuari/Centuari.sol#476-478)
+Reentrancy in Centuari.withdrawLendPosition(bytes32,address,uint256,uint256) (src/core/centuari/Centuari.sol#329-357):
+	External calls:
+	- CentuariBondERC20(bondToken).burn(cbtAmount) (src/core/centuari/Centuari.sol#348)
+	State variables written after the call(s):
+	- _lendPositionCbtAmount[marketId][msg.sender] -= cbtAmount (src/core/centuari/Centuari.sol#350)
+	CentuariStorage._lendPositionCbtAmount (src/core/centuari/CentuariStorage.sol#47) can be used in cross function reentrancies:
+	- Centuari.getLendPositionCbtAmount(bytes32,address) (src/core/centuari/Centuari.sol#481-483)
+	- _marketTotalCbt[marketId] -= cbtAmount (src/core/centuari/Centuari.sol#351)
+	CentuariStorage._marketTotalCbt (src/core/centuari/CentuariStorage.sol#43) can be used in cross function reentrancies:
+	- Centuari.getMarketTotalCbt(bytes32) (src/core/centuari/Centuari.sol#476-478)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-2
+INFO:Detectors:
+Detector: timestamp
+BalanceLedger.executeAuthorizedWriter(address) (src/core/balance-ledger/BalanceLedger.sol#176-187) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < proposal.proposedAt + WRITER_TIMELOCK (src/core/balance-ledger/BalanceLedger.sol#179)
+Centuari.settleMatch(bytes32,address,address,address,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,address[]) (src/core/centuari/Centuari.sol#102-193) uses timestamp for comparisons
+	Dangerous comparisons:
+	- maturity <= block.timestamp (src/core/centuari/Centuari.sol#119)
+	- bondToken != address(0) && cbtAmount > 0 (src/core/centuari/Centuari.sol#190)
+Centuari.withdrawLendPosition(bytes32,address,uint256,uint256) (src/core/centuari/Centuari.sol#329-357) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < maturity (src/core/centuari/Centuari.sol#340)
+	- _marketTotalCbt[marketId] < cbtAmount (src/core/centuari/Centuari.sol#345)
+Centuari._interestWithDayCount(uint256,uint256,uint256,uint256) (src/core/centuari/Centuari.sol#365-373) uses timestamp for comparisons
+	Dangerous comparisons:
+	- rawDays > 0 (src/core/centuari/Centuari.sol#371)
+CollateralManager._unflag(address,address) (src/core/collateral/CollateralManager.sol#144-158) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < unlocksAt (src/core/collateral/CollateralManager.sol#151)
+LiquidationEngine.liquidate(address,address,uint256,address,uint256,uint256) (src/core/liquidation/LiquidationEngine.sol#107-189) uses timestamp for comparisons
+	Dangerous comparisons:
+	- viaMaturity = block.timestamp >= maturity (src/core/liquidation/LiquidationEngine.sol#127)
+	- ! viaMaturity && ! IRiskModule(_riskModule).isLiquidatable(borrower) (src/core/liquidation/LiquidationEngine.sol#128)
+ChainlinkPriceFeed.latestPriceUsd() (src/core/oracle/ChainlinkPriceFeed.sol#46-75) uses timestamp for comparisons
+	Dangerous comparisons:
+	- seqAnswer != 0 || seqStartedAt == 0 || block.timestamp - seqStartedAt <= SEQUENCER_GRACE_PERIOD (src/core/oracle/ChainlinkPriceFeed.sol#53)
+OracleRouter.tryGetUsdValue(address,uint256) (src/core/oracle/OracleRouter.sol#69-93) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp > updatedAt + maxAge (src/core/oracle/OracleRouter.sol#82)
+PushOracle.setPrice(uint256) (src/core/oracle/PushOracle.sol#80-94) uses timestamp for comparisons
+	Dangerous comparisons:
+	- _updatedAt != 0 (src/core/oracle/PushOracle.sol#84)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: calls-loop
+Centuari.settleMatch(bytes32,address,address,address,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,address[]) (src/core/centuari/Centuari.sol#102-193) has external calls inside a loop: IBalanceLedger(_balanceLedger).markCollateral(borrower,collateralAssets[i]) (src/core/centuari/Centuari.sol#186)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (dVal,ok2) = px.tryGetUsdValue(debtTokens[j],debtAmounts[j]) (src/core/risk/RiskModule.sol#190)
+	Calls stack containing the loop:
+		RiskModule.canWithdraw(address,address,uint256)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: amt = bl.available(user,c) (src/core/risk/RiskModule.sol#205)
+	Calls stack containing the loop:
+		RiskModule.canWithdraw(address,address,uint256)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (cVal,ok) = px.tryGetUsdValue(c,amt) (src/core/risk/RiskModule.sol#212)
+	Calls stack containing the loop:
+		RiskModule.canWithdraw(address,address,uint256)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (dVal,ok2) = px.tryGetUsdValue(debtTokens[j],debtAmounts[j]) (src/core/risk/RiskModule.sol#190)
+	Calls stack containing the loop:
+		RiskModule.canUnflag(address,address)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: amt = bl.available(user,c) (src/core/risk/RiskModule.sol#205)
+	Calls stack containing the loop:
+		RiskModule.canUnflag(address,address)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (cVal,ok) = px.tryGetUsdValue(c,amt) (src/core/risk/RiskModule.sol#212)
+	Calls stack containing the loop:
+		RiskModule.canUnflag(address,address)
+		RiskModule._healthyAfter(address,address,uint256,bool)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (dVal,ok2) = px.tryGetUsdValue(debtTokens[j],debtAmounts[j]) (src/core/risk/RiskModule.sol#190)
+	Calls stack containing the loop:
+		RiskModule.isLiquidatable(address)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: amt = bl.available(user,c) (src/core/risk/RiskModule.sol#205)
+	Calls stack containing the loop:
+		RiskModule.isLiquidatable(address)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (cVal,ok) = px.tryGetUsdValue(c,amt) (src/core/risk/RiskModule.sol#212)
+	Calls stack containing the loop:
+		RiskModule.isLiquidatable(address)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (dVal,ok2) = px.tryGetUsdValue(debtTokens[j],debtAmounts[j]) (src/core/risk/RiskModule.sol#190)
+	Calls stack containing the loop:
+		RiskModule.healthFactor(address)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: amt = bl.available(user,c) (src/core/risk/RiskModule.sol#205)
+	Calls stack containing the loop:
+		RiskModule.healthFactor(address)
+RiskModule._computeHf(address,address,uint256,bool) (src/core/risk/RiskModule.sol#168-232) has external calls inside a loop: (cVal,ok) = px.tryGetUsdValue(c,amt) (src/core/risk/RiskModule.sol#212)
+	Calls stack containing the loop:
+		RiskModule.healthFactor(address)
+Settlement._processMatch(ISettlement.MatchData,address) (src/core/settlement/Settlement.sol#114-157) has external calls inside a loop: ICentuari(centuariAddr).settleMatch(matchData.marketId,matchData.lender,matchData.borrower,matchData.loanToken,matchData.matchedAmount,matchData.rate,matchData.maturity,matchData.borrowerIsTaker,matchData.lenderSettlementFee,matchData.borrowerSettlementFee,matchData.makerFeeAmount,matchData.takerFeeAmount,matchData.collateralAssets) (src/core/settlement/Settlement.sol#126-141)
+	Calls stack containing the loop:
+		Settlement.settleMatches(ISettlement.MatchData[])
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+INFO:Detectors:
+Detector: uninitialized-local
+Settlement.settleMatches(ISettlement.MatchData[]).totalVolume (src/core/settlement/Settlement.sol#80) is a local variable never initialized
+RiskModule._computeHf(address,address,uint256,bool).collateralUsd (src/core/risk/RiskModule.sol#199) is a local variable never initialized
+RiskModule._computeHf(address,address,uint256,bool).ltvWeighted (src/core/risk/RiskModule.sol#200) is a local variable never initialized
+RiskModule._computeHf(address,address,uint256,bool).debtUsd (src/core/risk/RiskModule.sol#187) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+INFO:Slither:src/ analyzed (84 contracts with 34 detectors), 40 result(s) found
