@@ -2860,6 +2860,81 @@ contract CentuariTest is Test {
         centuari.seedBorrowerMarkets(makeAddr("borrowerE6"), lts, mats);
     }
 
+    /// @dev M2: seedBorrowerMarkets must honor the same MAX_DEBT_MARKETS (64) cap
+    ///      that settleMatch enforces — otherwise the onlyOperator reconciliation
+    ///      path re-opens the unbounded RiskModule HF-loop gas-DoS. Fill exactly
+    ///      MAX_DEBT_MARKETS legacy debt markets via seeding, then assert the next
+    ///      brand-new legacy market reverts TooManyDebtMarkets.
+    function test_seedBorrowerMarkets_capsDebtMarketsAt64() public {
+        address borrower = makeAddr("borrowerE8");
+        uint256 base = block.timestamp + 30 days;
+
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        // Plant 64 distinct pre-upgrade positions: debt present in _borrowDebt
+        // (slot 4) but absent from the new enumerable set, then reconcile them.
+        for (uint256 i = 0; i < 64; ++i) {
+            uint256 maturity = base + i * 1 days;
+            bytes32 mid = _getMarketId(loanToken, maturity);
+            bytes32 innerSlot = keccak256(abi.encode(mid, uint256(4)));
+            bytes32 valueSlot = keccak256(abi.encode(borrower, innerSlot));
+            vm.store(address(centuari), valueSlot, bytes32(uint256(1 ether)));
+
+            address[] memory lts = new address[](1);
+            lts[0] = loanToken;
+            uint256[] memory mats = new uint256[](1);
+            mats[0] = maturity;
+            vm.prank(operator);
+            centuari.seedBorrowerMarkets(borrower, lts, mats);
+        }
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 64);
+
+        // Plant a 65th distinct legacy position and attempt to reconcile it.
+        uint256 maturity65 = base + 64 * 1 days;
+        bytes32 mid65 = _getMarketId(loanToken, maturity65);
+        bytes32 innerSlot65 = keccak256(abi.encode(mid65, uint256(4)));
+        bytes32 valueSlot65 = keccak256(abi.encode(borrower, innerSlot65));
+        vm.store(address(centuari), valueSlot65, bytes32(uint256(1 ether)));
+
+        address[] memory lts65 = new address[](1);
+        lts65[0] = loanToken;
+        uint256[] memory mats65 = new uint256[](1);
+        mats65[0] = maturity65;
+
+        vm.prank(operator);
+        vm.expectRevert(ICentuari.TooManyDebtMarkets.selector);
+        centuari.seedBorrowerMarkets(borrower, lts65, mats65);
+    }
+
+    /// @dev M2 regression guard: re-seeding markets already in the set (idempotent
+    ///      reconciliation) must NOT trip the cap, since `.add` returns false and
+    ///      no new slot is consumed. Seed the same 1 market twice — still length 1.
+    function test_seedBorrowerMarkets_reseedExistingDoesNotConsumeCap() public {
+        address borrower = makeAddr("borrowerE9");
+        uint256 maturity = block.timestamp + 365 days;
+        bytes32 mid = _getMarketId(loanToken, maturity);
+
+        bytes32 innerSlot = keccak256(abi.encode(mid, uint256(4)));
+        bytes32 valueSlot = keccak256(abi.encode(borrower, innerSlot));
+        vm.store(address(centuari), valueSlot, bytes32(uint256(1 ether)));
+
+        vm.prank(owner);
+        centuari.setOperator(operator);
+
+        address[] memory lts = new address[](1);
+        lts[0] = loanToken;
+        uint256[] memory mats = new uint256[](1);
+        mats[0] = maturity;
+
+        vm.prank(operator);
+        centuari.seedBorrowerMarkets(borrower, lts, mats);
+        vm.prank(operator);
+        centuari.seedBorrowerMarkets(borrower, lts, mats);
+
+        assertEq(centuari.getBorrowerMarkets(borrower).length, 1);
+    }
+
     function test_upgradeRoundTrip_preservesDebtEnumeration() public {
         address lender = makeAddr("lenderE7");
         address borrower = makeAddr("borrowerE7");
