@@ -27,7 +27,7 @@ src/
 ├── core/
 │   ├── balance-ledger/
 │   │   ├── BalanceLedger.sol            # 3-state balance model + on-chain collateral flag (upgradeable)
-│   │   └── BalanceLedgerStorage.sol     # Storage layout with gap (frozen at 49 slots)
+│   │   └── BalanceLedgerStorage.sol     # Storage layout with gap (9 used + 41 gap = 50 slots)
 │   ├── centuari/
 │   │   ├── Centuari.sol                 # Main lending/borrowing (upgradeable), reads/writes BalanceLedger
 │   │   ├── CentuariStorage.sol          # Storage layout with gap
@@ -87,7 +87,7 @@ BalanceLedger (Upgradeable, ERC1967 proxy)
   ↑ writer-gated: only authorized contracts can mutate
   │
   ├── HubDepositor (Upgradeable) — hub-native deposit/payout, token custody
-  ├── Centuari (Upgradeable) — lending/borrowing, auto-flag at settlement, auto-unflag on repay
+  ├── Centuari (Upgradeable) — lending/borrowing, auto-flag at settlement; repay does NOT unflag
   ├── Settlement (Upgradeable) — batch settlement, calls Centuari.settleMatch()
   ├── CollateralManager (Upgradeable) — mid-life unflag path, 24h flag-lock + RiskModule gate
   │     └── RiskModule (Upgradeable) — oracle-backed health-factor policy (reads OracleRouter + Centuari debt)
@@ -164,7 +164,7 @@ Markets are identified by `bytes32 marketId = keccak256(abi.encode(loanToken, ma
 - Test all access control paths — verify `onlySettlement`, `onlyOperator`, `onlyAuthorizedWriter` revert correctly
 - Test upgrade paths — verify storage layout compatibility
 - Test edge cases: zero amounts, expired maturities, duplicate settlements
-- Test collateral flag semantics: idempotent mark (no refresh of `_flaggedAt`), flag-lock enforcement, auto-unflag on repay
+- Test collateral flag semantics: idempotent mark (no refresh of `_flaggedAt`), flag-lock enforcement, repay does NOT unflag (`test_repay_neverUnflagsEvenOnFullDebtClear`); unflag only via `CollateralManager.unflagFor` (24h lock + RiskModule gate) or `LiquidationEngine` auto-unmark on full drain
 
 ### Configuration
 
