@@ -22,11 +22,17 @@ import {BalanceLedgerStorage} from "./BalanceLedgerStorage.sol";
 ///      compatibility with Phase 6 (CentuariRouter) and Phase 5B (YieldRouter)
 ///      and always read as zero in Phase 1.
 ///
-///      There is NO on-chain collateral sub-state and NO on-chain
-///      `usedAsCollateral` flag. Collateral is HF-gated virtual (Aave/Compound
-///      pattern) and the flag lives off-chain in indexer-v2 Postgres — see
-///      `docs/phase-1-cross-chain-balance-ledger.md` §Module 1 for the full
-///      rationale (gas economics + zero on-chain consumers in Phase 1).
+///      Collateral is HF-gated virtual (Aave/Compound pattern): a borrow locks
+///      no balance. An on-chain `usedAsCollateral` flag (+ `_flaggedAt`) IS kept
+///      here per (user, asset) and is written ONLY by authorized writers via
+///      `markCollateral` / `unmarkCollateral`. The flag write seam is shared with
+///      credit/debit (a single `onlyAuthorizedWriter` gate), so the safety of the
+///      collateral model depends on the authorized-writer set being exactly the
+///      intended contracts — see `script/VerifyBalanceLedgerWriters.s.sol`, which
+///      asserts that set post-deploy. Flag lifecycle: `Settlement`→`Centuari.settleMatch`
+///      auto-flags requested collateral; `Centuari.repay` does NOT touch flags;
+///      `CollateralManager.unflagFor` is the user-facing unflag seam (24h flag-lock
+///      + `IRiskModule.canUnflag`); `LiquidationEngine` auto-unmarks on full drain.
 ///
 ///      Deployed behind an ERC1967 transparent proxy for upgradeability.
 contract BalanceLedger is Initializable, OwnableUpgradeable, BalanceLedgerStorage, IBalanceLedger {

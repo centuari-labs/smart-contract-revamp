@@ -242,6 +242,25 @@ for name in "${PAUSABLE_NAMES[@]}"; do
   check "$name.pauser()" "$pauser" "$SAFE_ADDRESS"
 done
 
+# Audit M-1: BalanceLedger's collateral-flag writes (markCollateral/unmarkCollateral)
+# share a single onlyAuthorizedWriter gate with credit/debit, so ANY authorized
+# writer can flag/unflag arbitrary collateral. There is no on-chain enumeration, so
+# assert (a) each intended contract IS a writer, (b) the deployer EOA is NOT, and
+# (c) the testnet forceAddWriter fast path is permanently OFF on mainnet.
+# (script/VerifyBalanceLedgerWriters.s.sol does the same for testnet / ad-hoc runs.)
+BL_ADDR="$(read_addr balanceLedgerAddress)"
+WRITER_NAMES=(Centuari Settlement HubDepositor CollateralManager WithdrawalRegistry HubIntentSettler LiquidationEngine)
+WRITER_KEYS=(centuariAddress settlementProxy hubDepositorAddress collateralManagerAddress withdrawalRegistryAddress hubIntentSettlerAddress liquidationEngineAddress)
+for i in "${!WRITER_KEYS[@]}"; do
+  w="$(read_addr "${WRITER_KEYS[$i]}")"
+  is_writer="$(cast call "$BL_ADDR" "isAuthorizedWriter(address)(bool)" "$w" --rpc-url "$RPC_URL" 2>/dev/null || echo "")"
+  check "BalanceLedger writer ${WRITER_NAMES[$i]}" "$is_writer" "true"
+done
+dep_is_writer="$(cast call "$BL_ADDR" "isAuthorizedWriter(address)(bool)" "$DEPLOYER" --rpc-url "$RPC_URL" 2>/dev/null || echo "")"
+check "BalanceLedger deployer NOT a writer" "$dep_is_writer" "false"
+force_enabled="$(cast call "$BL_ADDR" "forceWriterRegistrationEnabled()(bool)" --rpc-url "$RPC_URL" 2>/dev/null || echo "")"
+check "BalanceLedger forceWriterRegistration OFF" "$force_enabled" "false"
+
 ops_delay_onchain="$(cast call "$OPS_TIMELOCK" "getMinDelay()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "")"
 up_delay_onchain="$(cast call "$UPGRADE_TIMELOCK" "getMinDelay()(uint256)" --rpc-url "$RPC_URL" 2>/dev/null || echo "")"
 check "ops timelock getMinDelay()" "$ops_delay_onchain" "$OPS_DELAY"
