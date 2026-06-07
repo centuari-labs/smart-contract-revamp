@@ -53,6 +53,8 @@ interface ILzEndpointLite {
 ///      starts marking `_depositStatuses[depositId] = CREDITED`. Until then,
 ///      the 30-min `REFUND_WINDOW` is the sole defence against double-spend
 ///      and is documented in tests.
+/// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — spoke contract, not
+///      deployed on the hub; dormant until the cross-chain phase. See dev-docs/audit/SCOPE.md §4.
 contract SpokeDepositGateway is
     Initializable,
     OwnableUpgradeable,

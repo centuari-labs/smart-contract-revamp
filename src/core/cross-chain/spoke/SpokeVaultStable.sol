@@ -54,6 +54,8 @@ interface IStargateLite {
 ///      three roles guarded by single-address modifiers: `_gateway` (inflows),
 ///      `_sweeper` (BRIDGED outflows), and `_payout` (SPOKE_NATIVE outflows).
 ///      All external state-mutating functions are `nonReentrant`.
+/// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — spoke contract, not
+///      deployed on the hub; dormant until the cross-chain phase. See dev-docs/audit/SCOPE.md §4.
 contract SpokeVaultStable is
     Initializable,
     OwnableUpgradeable,

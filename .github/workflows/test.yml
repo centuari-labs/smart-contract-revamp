@@ -43,3 +43,25 @@ jobs:
         run: |
           ./bin/check-storage-layout.sh
         id: storage-layout
+
+  slither:
+    name: Slither static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        id: slither
+        with:
+          target: "."
+          slither-config: "slither.config.json"
+          # Initial integration: block only on High-severity findings (the 2026-06-04 internal
+          # audit found 0 High in contracts). Ratchet to "medium" once Medium findings are triaged.
+          fail-on: high
+          slither-args: "--checklist --markdown-root ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/"
