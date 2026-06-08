@@ -195,12 +195,16 @@ contract WithdrawalRegistry is
                 dstEid: spokeEid, receiver: peer, message: payload, options: bytes(""), payInLzToken: false
             });
 
+            // Effects before interaction (checks-effects-interactions): mark the request
+            // PROCESSING and emit the authorization before dispatching the external
+            // LayerZero send. authorize() is already nonReentrant, but ordering the state
+            // write ahead of the external call removes the reentrancy-eth class outright.
+            request.status = WithdrawalStatus.PROCESSING;
+            emit WithdrawalAuthorized(requestId);
+
             ILzEndpointSend.MessagingReceipt memory receipt =
                 ILzEndpointSend(_payoutEndpoint).send{value: msg.value}(params, msg.sender);
 
-            request.status = WithdrawalStatus.PROCESSING;
-
-            emit WithdrawalAuthorized(requestId);
             emit PayoutDispatched(requestId, request.targetChainId, receipt.guid);
         }
     }
