@@ -172,9 +172,10 @@ contract TimeLockUpgradeTest is Test {
 
     /// @dev Encode upgradeAndCall with initData — for reinitializer tests.
     function _upgradeWithInitCalldata(address _newImpl, bytes memory initData) internal view returns (bytes memory) {
-        return abi.encodeCall(
-            ProxyAdmin.upgradeAndCall, (ITransparentUpgradeableProxy(address(proxy)), _newImpl, initData)
-        );
+        return
+            abi.encodeCall(
+                ProxyAdmin.upgradeAndCall, (ITransparentUpgradeableProxy(address(proxy)), _newImpl, initData)
+            );
     }
 
     /// @dev Replicate OZ v5 hashOperation encoding.

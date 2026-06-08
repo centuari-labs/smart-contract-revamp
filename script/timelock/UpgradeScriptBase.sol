@@ -61,14 +61,15 @@ abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
 
         // 3. Read on-chain minDelay and schedule via TimeLock
         uint256 minDelay = _getMinDelay(timeLock);
-        TimelockController(payable(timeLock)).schedule(
-            proxyAdmin, // target
-            0, // value (ETH)
-            upgradeCalldata, // data
-            bytes32(0), // predecessor (none)
-            salt, // unique salt
-            minDelay // must be >= TimeLock.getMinDelay()
-        );
+        TimelockController(payable(timeLock))
+            .schedule(
+                proxyAdmin, // target
+                0, // value (ETH)
+                upgradeCalldata, // data
+                bytes32(0), // predecessor (none)
+                salt, // unique salt
+                minDelay // must be >= TimeLock.getMinDelay()
+            );
 
         vm.stopBroadcast();
 
@@ -111,13 +112,14 @@ abstract contract UpgradeScriptBase is Script, TimeLockUpgradeBase {
         vm.startBroadcast();
 
         // TimeLock verifies operationId and that block.timestamp >= scheduledAt + minDelay
-        TimelockController(payable(timeLock)).execute(
-            proxyAdmin, // target
-            0, // value (ETH)
-            upgradeCalldata, // data (must match schedule)
-            bytes32(0), // predecessor (must match schedule)
-            salt // salt (must match schedule)
-        );
+        TimelockController(payable(timeLock))
+            .execute(
+                proxyAdmin, // target
+                0, // value (ETH)
+                upgradeCalldata, // data (must match schedule)
+                bytes32(0), // predecessor (must match schedule)
+                salt // salt (must match schedule)
+            );
 
         vm.stopBroadcast();
 

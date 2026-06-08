@@ -64,8 +64,9 @@ contract RiskModuleIntegrationTest is Test {
         usdc = new MockToken("USD Coin", "USDC", 6, 0);
         usdt = new MockToken("Tether USD", "USDT", 6, 0);
 
-        ledger =
-            BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
+        ledger = BalanceLedger(
+            _proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true)))
+        );
         depositor = HubDepositor(
             _proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger))))
         );

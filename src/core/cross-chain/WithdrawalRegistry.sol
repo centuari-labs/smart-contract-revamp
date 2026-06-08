@@ -186,25 +186,25 @@ contract WithdrawalRegistry is
 
             // Determine classification: check if this route is spoke-native.
             uint8 classification = _isSpokeNativeRoute[request.asset][request.targetChainId]
-                ? uint8(2) // SPOKE_NATIVE
+                ? uint8(2)  // SPOKE_NATIVE
                 : uint8(1); // BRIDGED
 
             bytes memory payload = abi.encode(requestId, request.user, request.asset, request.amount, classification);
 
             ILzEndpointSend.MessagingParams memory params = ILzEndpointSend.MessagingParams({
-                dstEid: spokeEid,
-                receiver: peer,
-                message: payload,
-                options: bytes(""),
-                payInLzToken: false
+                dstEid: spokeEid, receiver: peer, message: payload, options: bytes(""), payInLzToken: false
             });
+
+            // Effects before interaction (checks-effects-interactions): mark the request
+            // PROCESSING and emit the authorization before dispatching the external
+            // LayerZero send. authorize() is already nonReentrant, but ordering the state
+            // write ahead of the external call removes the reentrancy-eth class outright.
+            request.status = WithdrawalStatus.PROCESSING;
+            emit WithdrawalAuthorized(requestId);
 
             ILzEndpointSend.MessagingReceipt memory receipt =
                 ILzEndpointSend(_payoutEndpoint).send{value: msg.value}(params, msg.sender);
 
-            request.status = WithdrawalStatus.PROCESSING;
-
-            emit WithdrawalAuthorized(requestId);
             emit PayoutDispatched(requestId, request.targetChainId, receipt.guid);
         }
     }
