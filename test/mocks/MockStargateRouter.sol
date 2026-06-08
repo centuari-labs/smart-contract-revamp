@@ -106,14 +106,22 @@ contract MockStargateRouter {
         SendParam calldata,
         /* params */
         bool /* payInLzToken */
-    ) external view returns (MessagingFee memory fee) {
+    )
+        external
+        view
+        returns (MessagingFee memory fee)
+    {
         return MessagingFee({nativeFee: nativeFee, lzTokenFee: 0});
     }
 
     /// @notice Mirrors `IStargate.send`. The return name drops the `LD`
     ///         suffix (vs. the `OFTSent` event) to satisfy mixedCase lint;
     ///         semantics are identical (Local Decimals).
-    function send(SendParam calldata params, MessagingFee calldata fee, address /* refundAddress */ )
+    function send(
+        SendParam calldata params,
+        MessagingFee calldata fee,
+        address /* refundAddress */
+    )
         external
         payable
         returns (bytes32 guid, uint256 amountReceived)

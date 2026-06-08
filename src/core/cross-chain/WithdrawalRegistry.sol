@@ -186,17 +186,13 @@ contract WithdrawalRegistry is
 
             // Determine classification: check if this route is spoke-native.
             uint8 classification = _isSpokeNativeRoute[request.asset][request.targetChainId]
-                ? uint8(2) // SPOKE_NATIVE
+                ? uint8(2)  // SPOKE_NATIVE
                 : uint8(1); // BRIDGED
 
             bytes memory payload = abi.encode(requestId, request.user, request.asset, request.amount, classification);
 
             ILzEndpointSend.MessagingParams memory params = ILzEndpointSend.MessagingParams({
-                dstEid: spokeEid,
-                receiver: peer,
-                message: payload,
-                options: bytes(""),
-                payInLzToken: false
+                dstEid: spokeEid, receiver: peer, message: payload, options: bytes(""), payInLzToken: false
             });
 
             ILzEndpointSend.MessagingReceipt memory receipt =

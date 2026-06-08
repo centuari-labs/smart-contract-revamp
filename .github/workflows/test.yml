@@ -5,9 +5,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FOUNDRY_PROFILE: ci
-
 jobs:
   check:
     name: Foundry project
@@ -19,6 +16,10 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned so `forge fmt --check` is deterministic. Unpinned "latest stable"
+          # silently advances and reformats previously-clean files, recurring-reddening CI.
+          version: "1.7.1"
 
       - name: Show Forge version
         run: |
