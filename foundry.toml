@@ -17,6 +17,15 @@ fs_permissions = [
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
+# Stateful invariant harnesses (test/invariant/* — audit-prep Phase 2.2).
+# fail_on_revert = false: handlers intentionally guard against reverting calls
+# (e.g. debit beyond balance) and treat the revert as a no-op, so a reverting
+# fuzz call should not fail the run — the invariant assertions are the gate.
+[invariant]
+runs = 256
+depth = 32
+fail_on_revert = false
+
 [lint]
 # Exclude lints for OpenZeppelin upgradeable pattern functions (intentional naming)
 # and keccak256 optimization suggestions (performance optimizations, not errors)
