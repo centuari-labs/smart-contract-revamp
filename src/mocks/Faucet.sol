@@ -129,7 +129,10 @@ contract Faucet is Ownable {
     /// @param tokens    Array of token addresses (max MAX_BATCH elements)
     /// @param amounts   Amount to mint per token, parallel to `tokens`
     /// @param recipient End-user address to receive all tokens
-    function mintBatch(address[] calldata tokens, uint256[] calldata amounts, address recipient) external onlyOperator {
+    function mintBatch(address[] calldata tokens, uint256[] calldata amounts, address recipient)
+        external
+        onlyOperator
+    {
         if (tokens.length > MAX_BATCH) revert BatchTooLarge();
         if (tokens.length != amounts.length) revert ArrayLengthMismatch();
 

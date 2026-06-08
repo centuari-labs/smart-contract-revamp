@@ -136,7 +136,11 @@ contract MockLZEndpoint {
         return MessagingFee({nativeFee: nativeFee, lzTokenFee: lzTokenFee});
     }
 
-    function send(MessagingParams calldata params, address) external payable returns (MessagingReceipt memory receipt) {
+    function send(MessagingParams calldata params, address)
+        external
+        payable
+        returns (MessagingReceipt memory receipt)
+    {
         if (msg.value < nativeFee) {
             revert InsufficientFee(msg.value, nativeFee);
         }
@@ -145,9 +149,8 @@ contract MockLZEndpoint {
             _outboundNonce += 1;
         }
 
-        bytes32 guid = keccak256(
-            abi.encodePacked(_outboundNonce, EID, msg.sender, params.dstEid, params.receiver, params.message)
-        );
+        bytes32 guid =
+            keccak256(abi.encodePacked(_outboundNonce, EID, msg.sender, params.dstEid, params.receiver, params.message));
 
         _packets.push(
             CapturedPacket({
@@ -162,7 +165,9 @@ contract MockLZEndpoint {
         );
 
         receipt = MessagingReceipt({
-            guid: guid, nonce: _outboundNonce, fee: MessagingFee({nativeFee: nativeFee, lzTokenFee: lzTokenFee})
+            guid: guid,
+            nonce: _outboundNonce,
+            fee: MessagingFee({nativeFee: nativeFee, lzTokenFee: lzTokenFee})
         });
 
         emit PacketSent(msg.sender, params.dstEid, params.receiver, _outboundNonce, guid, params.message);
