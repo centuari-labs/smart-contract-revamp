@@ -62,8 +62,9 @@ contract SpokePayoutIntegrationTest is Test {
         hubEndpoint = new MockLZEndpoint(HUB_EID);
 
         // ---- Deploy hub contracts ----
-        ledger =
-            BalanceLedger(_proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true))));
+        ledger = BalanceLedger(
+            _proxy(address(new BalanceLedger()), abi.encodeCall(BalanceLedger.initialize, (owner, true)))
+        );
 
         hubDepositor = HubDepositor(
             _proxy(address(new HubDepositor()), abi.encodeCall(HubDepositor.initialize, (owner, address(ledger))))

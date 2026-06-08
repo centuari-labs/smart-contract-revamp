@@ -17,6 +17,12 @@ fs_permissions = [
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
+# CI runs with FOUNDRY_PROFILE=ci (set in .github/workflows/test.yml). Without this section
+# forge warns "profile `ci` does not exist; falling back to default" on every CI step.
+# It inherits everything from [profile.default]; fuzz runs are bumped for stronger CI coverage.
+[profile.ci]
+fuzz = { runs = 1000 }
+
 [lint]
 # Exclude lints for OpenZeppelin upgradeable pattern functions (intentional naming)
 # and keccak256 optimization suggestions (performance optimizations, not errors)
