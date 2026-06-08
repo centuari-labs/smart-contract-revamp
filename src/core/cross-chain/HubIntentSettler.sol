@@ -25,6 +25,8 @@ import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable
 ///      M4: operator-gated (solver calls through the protocol operator key).
 ///      M5: the operator gate on `fillFor` is replaced by LayerZero proof
 ///      verification so the solver can call directly.
+/// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — cross-chain deposit
+///      credit path; dormant (no spoke deposits arrive on the hub-only path). See dev-docs/audit/SCOPE.md §4.
 contract HubIntentSettler is
     Initializable,
     OwnableUpgradeable,
@@ -90,6 +92,7 @@ contract HubIntentSettler is
     // ============ Operator/Solver Actions ============
 
     /// @inheritdoc IHubIntentSettler
+    /// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — dormant solver-fill path.
     function fillFor(bytes32 depositId, address user, address asset, uint256 amount, uint256 sourceChainId)
         external
         onlyOperator
@@ -174,18 +177,14 @@ contract HubIntentSettler is
     ///      caused the EndpointV2 calldata to ABI-decode incorrectly and
     ///      revert silently with empty data ("Executor transaction simulation
     ///      reverted" on LZ scanner).
+    /// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — dormant LayerZero receive path.
     function lzReceive(
         Origin calldata origin,
         bytes32, // guid — unused
         bytes calldata message,
         address, // executor — unused
         bytes calldata // extraData — unused
-    )
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-    {
+    ) external payable whenNotPaused nonReentrant {
         // Gate 1: only accept calls from the LZ endpoint.
         if (msg.sender != _lzEndpoint) revert InvalidLzEndpoint();
 

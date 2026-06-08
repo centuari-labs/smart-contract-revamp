@@ -17,6 +17,8 @@ import {ReentrancyGuardUpgradeable} from "../../utils/ReentrancyGuardUpgradeable
 ///      custody to the solver's EOA.
 ///
 ///      State machine per depositId: NONE → REGISTERED → REIMBURSED.
+/// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — solver reimbursement
+///      tracking; dormant (no cross-chain deposits on the hub-only path). See dev-docs/audit/SCOPE.md §4.
 contract SettlementLedger is
     Initializable,
     OwnableUpgradeable,

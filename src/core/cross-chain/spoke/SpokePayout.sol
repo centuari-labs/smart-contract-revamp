@@ -16,6 +16,8 @@ import {ReentrancyGuardUpgradeable} from "../../../utils/ReentrancyGuardUpgradea
 ///         cross-chain withdrawal has been authorized on the hub.
 /// @dev See `ISpokePayout` for the dual release path (BRIDGED buffer vs
 ///      SPOKE_NATIVE vault custody).
+/// @custom:audit-scope OUT OF AUDIT SCOPE (hub-only launch) — spoke contract, not
+///      deployed on the hub; dormant until the cross-chain phase. See dev-docs/audit/SCOPE.md §4.
 contract SpokePayout is
     Initializable,
     OwnableUpgradeable,
@@ -91,11 +93,7 @@ contract SpokePayout is
         bytes calldata message,
         address, // executor — unused
         bytes calldata // extraData — unused
-    )
-        external
-        payable
-        nonReentrant
-    {
+    ) external payable nonReentrant {
         if (msg.sender != _lzEndpoint) revert InvalidLzEndpoint();
         bytes32 expectedPeer = _peers[origin.srcEid];
         if (expectedPeer == bytes32(0) || origin.sender != expectedPeer) {
