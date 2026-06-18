@@ -12,9 +12,7 @@ import {Faucet} from "../src/mocks/Faucet.sol";
 contract UpdateFaucetAmounts is Script {
     /// @notice Returns the human-readable drip amount for a given token symbol.
     ///         Must stay in sync with DeployFaucet._dripAmountFor and frontend DRIP_AMOUNTS.
-    function _dripAmountFor(
-        string memory symbol
-    ) internal pure returns (uint256) {
+    function _dripAmountFor(string memory symbol) internal pure returns (uint256) {
         bytes32 s = keccak256(bytes(symbol));
         if (s == keccak256("USDC")) return 5_000;
         if (s == keccak256("USDT")) return 5_000;
@@ -60,8 +58,7 @@ contract UpdateFaucetAmounts is Script {
                 continue;
             }
 
-            uint256 newMaxPerRequest = _dripAmountFor(symbol) *
-                (10 ** decimals);
+            uint256 newMaxPerRequest = _dripAmountFor(symbol) * (10 ** decimals);
 
             faucet.setTokenConfig(tokenAddr, newMaxPerRequest, 0);
             console.log("Updated", symbol, "maxPerRequest", newMaxPerRequest);

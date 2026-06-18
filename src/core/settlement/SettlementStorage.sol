@@ -25,10 +25,16 @@ abstract contract SettlementStorage {
     /// @dev Used to prevent double-settlement of the same match
     mapping(bytes32 => bool) internal _settledMatches;
 
+    /// @notice Guardian allowed to pause()/unpause() with no timelock delay.
+    /// @dev Separate from owner() so the emergency stop stays fast while owner()
+    ///      (a 24h TimelockController in production) governs every other setter.
+    ///      Set to owner_ at initialize; rotated via setPauser (onlyOwner). (D1)
+    address internal _pauser;
+
     // ============ Storage Gap ============
 
     /// @notice Storage gap for future upgrades
-    /// @dev Provides 47 slots for future storage variables
+    /// @dev Reduced 47 → 46 in D1 when `_pauser` was appended.
     ///      When adding new variables, reduce this gap accordingly
-    uint256[47] private __gap;
+    uint256[46] private __gap;
 }

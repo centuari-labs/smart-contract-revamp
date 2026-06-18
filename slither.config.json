@@ -1,0 +1,9 @@
+{
+  "filter_paths": "lib/|test/|script/|src/mocks/|src/core/cross-chain/spoke/|src/core/cross-chain/HubIntentSettler.sol|src/core/cross-chain/SettlementLedger.sol",
+  "exclude_dependencies": true,
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_optimization": true,
+  "detectors_to_exclude": "naming-convention,solc-version,pragma",
+  "_comment": "Scope: hub-only audit target. filter_paths drops deps/tests/scripts/mocks and the dormant out-of-scope cross-chain contracts (see dev-docs/audit/SCOPE.md §4). Excluded detectors are noise on a pinned-solc OZ-upgradeable codebase (naming/solc-version/pragma); upgradeable-proxy false positives (e.g. constructor/initializer) are handled by OZ's @custom:oz-upgrades annotations already present in source. Triage real findings before ratcheting CI fail-on to medium."
+}

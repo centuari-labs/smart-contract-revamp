@@ -137,7 +137,7 @@ contract FaucetTest is Test {
         vm.prank(operator);
         faucet.addToken(address(t2), 1000, 0);
 
-        (bool enabled, , ) = faucet.configOf(address(t2));
+        (bool enabled,,) = faucet.configOf(address(t2));
         assertTrue(enabled);
     }
 

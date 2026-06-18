@@ -1,0 +1,87 @@
+{
+  "storage": [
+    {
+      "astId": 1122,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_operator",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 1125,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_centuari",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "astId": 1128,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_paused",
+      "offset": 20,
+      "slot": "1",
+      "type": "t_bool"
+    },
+    {
+      "astId": 1133,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_settledMatches",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_bytes32,t_bool)"
+    },
+    {
+      "astId": 1136,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_address"
+    },
+    {
+      "astId": 1141,
+      "contract": "src/core/settlement/Settlement.sol:Settlement",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_array(t_uint256)46_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)46_storage": {
+      "encoding": "inplace",
+      "label": "uint256[46]",
+      "numberOfBytes": "1472",
+      "base": "t_uint256"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_bytes32,t_bool)": {
+      "encoding": "mapping",
+      "key": "t_bytes32",
+      "label": "mapping(bytes32 => bool)",
+      "numberOfBytes": "32",
+      "value": "t_bool"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}

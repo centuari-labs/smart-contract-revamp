@@ -19,6 +19,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pin the toolchain so `forge fmt --check` is deterministic — an unpinned
+          # "latest stable" silently changes fmt rules between releases and breaks CI
+          # with no code change. Bump this in lockstep with the team's local foundryup.
+          version: "1.7.1"
 
       - name: Show Forge version
         run: |
@@ -38,3 +43,30 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      - name: Check storage layout
+        run: |
+          ./bin/check-storage-layout.sh
+        id: storage-layout
+
+  slither:
+    name: Slither static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        id: slither
+        with:
+          target: "."
+          slither-config: "slither.config.json"
+          # Initial integration: block only on High-severity findings (the 2026-06-04 internal
+          # audit found 0 High in contracts). Ratchet to "medium" once Medium findings are triaged.
+          fail-on: high
+          slither-args: "--checklist --markdown-root ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/"

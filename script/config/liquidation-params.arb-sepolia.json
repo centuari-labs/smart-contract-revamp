@@ -1,0 +1,9 @@
+{
+  "defaultBonusBps": 800,
+  "hfCloseFactorBps": 5000,
+  "maturedCloseFactorBps": 10000,
+  "assets": {
+    "WETH": { "bonusBps": 800 },
+    "WBTC": { "bonusBps": 1000 }
+  }
+}

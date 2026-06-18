@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
+import {DeployScriptBase} from "./base/DeployScriptBase.sol";
 import {Centuari} from "../src/core/centuari/Centuari.sol";
+import {BalanceLedger} from "../src/core/balance-ledger/BalanceLedger.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeployCentuari
 /// @notice Deployment script for Centuari (implementation + TransparentUpgradeableProxy).
-/// @dev Pass the Treasury address from DeployTreasury. After this, run DeployTreasury.run(treasury, centuariProxy)
-///      to call setCentuariContract on Treasury. Use settlementPlaceholder = owner when deploying before
-///      Settlement; then deploy Settlement with this proxy and call Centuari.setSettlement(settlementProxy).
-contract DeployCentuari is Script {
-    /// @notice Deploy Centuari (impl + proxy). Then run DeployTreasury.run(treasury, centuariProxy) to set Centuari on Treasury.
+/// @dev Pass the BalanceLedger address from DeployBalanceLedger. Use settlementPlaceholder = owner when deploying
+///      before Settlement; then deploy Settlement with this proxy and call Centuari.setSettlement(settlementProxy).
+contract DeployCentuari is DeployScriptBase {
+    /// @notice Deploy Centuari (impl + proxy).
     /// @param owner Centuari owner
     /// @param settlementPlaceholder Address for Centuari.initialize settlement_ (use owner if Settlement not yet deployed)
-    /// @param treasury Treasury contract address (from DeployTreasury)
+    /// @param balanceLedger BalanceLedger contract address
+    /// @param feeCollector Address that receives protocol fee credits
     /// @param proxyAdminOwner Owner of the ProxyAdmin (e.g. multisig)
     /// @return centuariProxy Centuari proxy address (use as CENTUARI_ADDRESS for DeploySettlement)
     /// @return centuariImpl Centuari implementation address
@@ -22,24 +24,22 @@ contract DeployCentuari is Script {
     function run(
         address owner,
         address settlementPlaceholder,
-        address treasury,
+        address balanceLedger,
+        address feeCollector,
         address proxyAdminOwner
-    )
-        external
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) external returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         vm.startBroadcast();
 
-        (centuariProxy, centuariImpl, proxyAdmin) = deploy(
-            owner,
-            settlementPlaceholder,
-            treasury,
-            proxyAdminOwner
-        );
+        (centuariProxy, centuariImpl, proxyAdmin) =
+            deploy(owner, settlementPlaceholder, balanceLedger, feeCollector, proxyAdminOwner);
+
+        // Register Centuari as an authorized BalanceLedger writer (folded from
+        // ConfigureBalanceLedger Phase 1). Testnet forceAddWriter fast path, guarded so
+        // re-runs are idempotent. Mainnet uses the 48h propose/execute writer path.
+        if (!BalanceLedger(balanceLedger).isAuthorizedWriter(centuariProxy)) {
+            BalanceLedger(balanceLedger).forceAddWriter(centuariProxy);
+            console.log("Added writer: Centuari", centuariProxy);
+        }
 
         vm.stopBroadcast();
 
@@ -49,55 +49,38 @@ contract DeployCentuari is Script {
         console.log("ProxyAdmin:", proxyAdmin);
         console.log("Owner:", owner);
         console.log("Settlement placeholder:", settlementPlaceholder);
-        console.log("Treasury:", treasury);
+        console.log("BalanceLedger:", balanceLedger);
+        console.log("Fee Collector:", feeCollector);
         console.log("ProxyAdmin Owner:", proxyAdminOwner);
 
         return (centuariProxy, centuariImpl, proxyAdmin);
     }
 
-    /// @notice Deploy Centuari impl + proxy (no setCentuariContract; use DeployTreasury.run(treasury, centuariProxy) after).
+    /// @notice Deploy Centuari impl + proxy.
     /// @param owner Centuari owner
     /// @param settlementPlaceholder Address for Centuari.initialize settlement_
-    /// @param treasury Treasury contract address
+    /// @param balanceLedger BalanceLedger contract address
+    /// @param feeCollector Address that receives protocol fee credits
     /// @param proxyAdminOwner Owner of the ProxyAdmin
     function deploy(
         address owner,
         address settlementPlaceholder,
-        address treasury,
+        address balanceLedger,
+        address feeCollector,
         address proxyAdminOwner
-    )
-        public
-        returns (
-            address centuariProxy,
-            address centuariImpl,
-            address proxyAdmin
-        )
-    {
+    ) public returns (address centuariProxy, address centuariImpl, address proxyAdmin) {
         Centuari centuariImplContract = new Centuari();
         centuariImpl = address(centuariImplContract);
 
-        bytes memory initData = abi.encodeCall(
-            Centuari.initialize,
-            (owner, settlementPlaceholder, treasury)
-        );
+        bytes memory initData =
+            abi.encodeCall(Centuari.initialize, (owner, settlementPlaceholder, balanceLedger, feeCollector));
 
-        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
-            centuariImpl,
-            proxyAdminOwner,
-            initData
-        );
+        TransparentUpgradeableProxy transparentProxy =
+            new TransparentUpgradeableProxy(centuariImpl, proxyAdminOwner, initData);
         centuariProxy = address(transparentProxy);
 
         proxyAdmin = _getProxyAdmin(centuariProxy);
 
         return (centuariProxy, centuariImpl, proxyAdmin);
-    }
-
-    /// @notice Get the ProxyAdmin address from a TransparentUpgradeableProxy
-    /// @dev Reads the admin address from ERC1967 admin slot
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminValue = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminValue)));
     }
 }

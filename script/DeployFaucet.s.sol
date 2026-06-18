@@ -19,9 +19,7 @@ contract DeployFaucet is Script {
 
     /// @notice Returns the human-readable drip amount for a given token symbol.
     ///         These values must match the frontend DRIP_AMOUNTS in faucet-token-grid.tsx.
-    function _dripAmountFor(
-        string memory symbol
-    ) internal pure returns (uint256) {
+    function _dripAmountFor(string memory symbol) internal pure returns (uint256) {
         bytes32 s = keccak256(bytes(symbol));
         if (s == keccak256("USDC")) return 5_000;
         if (s == keccak256("USDT")) return 5_000;
@@ -50,18 +48,13 @@ contract DeployFaucet is Script {
         // Best-effort wiring of tokens specified in FAUCET_TOKENS (comma-separated addresses).
         // Any failures to read env, grant roles, or read decimals are logged and skipped
         // so that the script does not revert.
-        try vm.envAddress("FAUCET_TOKENS", ",") returns (
-            address[] memory tokenAddresses
-        ) {
+        try vm.envAddress("FAUCET_TOKENS", ",") returns (address[] memory tokenAddresses) {
             for (uint256 i = 0; i < tokenAddresses.length; i++) {
                 address tokenAddr = tokenAddresses[i];
 
                 // Never attempt to treat the faucet itself as a token.
                 if (tokenAddr == address(faucet)) {
-                    console.log(
-                        "Skipping faucet address in FAUCET_TOKENS:",
-                        tokenAddr
-                    );
+                    console.log("Skipping faucet address in FAUCET_TOKENS:", tokenAddr);
                     continue;
                 }
 
@@ -70,15 +63,9 @@ contract DeployFaucet is Script {
                 // (including missing grantRole) can be caught without reverting the script.
                 IAccessControlLike accessToken = IAccessControlLike(tokenAddr);
                 try accessToken.grantRole(MINTER_ROLE, address(faucet)) {
-                    console.log(
-                        "Granted MINTER_ROLE to Faucet for",
-                        tokenAddr
-                    );
+                    console.log("Granted MINTER_ROLE to Faucet for", tokenAddr);
                 } catch {
-                    console.log(
-                        "Skipping grantRole (no MINTER_ROLE / AccessControl) for",
-                        tokenAddr
-                    );
+                    console.log("Skipping grantRole (no MINTER_ROLE / AccessControl) for", tokenAddr);
                 }
 
                 // Default to 18 decimals; try to read actual decimals when available.
@@ -86,10 +73,7 @@ contract DeployFaucet is Script {
                 try MockToken(tokenAddr).decimals() returns (uint8 d) {
                     decimals = d;
                 } catch {
-                    console.log(
-                        "Skipping decimals() lookup for",
-                        tokenAddr
-                    );
+                    console.log("Skipping decimals() lookup for", tokenAddr);
                 }
 
                 // Read token symbol to determine the correct drip amount.
@@ -97,14 +81,10 @@ contract DeployFaucet is Script {
                 try MockToken(tokenAddr).symbol() returns (string memory s) {
                     symbol = s;
                 } catch {
-                    console.log(
-                        "Skipping symbol() lookup for",
-                        tokenAddr
-                    );
+                    console.log("Skipping symbol() lookup for", tokenAddr);
                 }
 
-                uint256 maxPerRequest = _dripAmountFor(symbol) *
-                    (10 ** decimals);
+                uint256 maxPerRequest = _dripAmountFor(symbol) * (10 ** decimals);
                 faucet.addToken(tokenAddr, maxPerRequest, 0);
                 console.log("Wired token", tokenAddr, "maxPerRequest", maxPerRequest);
             }

@@ -1,0 +1,110 @@
+{
+  "storage": [
+    {
+      "astId": 902,
+      "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+      "label": "_hubIntentSettler",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 905,
+      "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+      "label": "_operator",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "astId": 911,
+      "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+      "label": "_records",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_bytes32,t_struct(ReimbursementRecord)1172_storage)"
+    },
+    {
+      "astId": 916,
+      "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_array(t_uint256)47_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)47_storage": {
+      "encoding": "inplace",
+      "label": "uint256[47]",
+      "numberOfBytes": "1504",
+      "base": "t_uint256"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_enum(ReimbursementStatus)1161": {
+      "encoding": "inplace",
+      "label": "enum ISettlementLedger.ReimbursementStatus",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_bytes32,t_struct(ReimbursementRecord)1172_storage)": {
+      "encoding": "mapping",
+      "key": "t_bytes32",
+      "label": "mapping(bytes32 => struct ISettlementLedger.ReimbursementRecord)",
+      "numberOfBytes": "32",
+      "value": "t_struct(ReimbursementRecord)1172_storage"
+    },
+    "t_struct(ReimbursementRecord)1172_storage": {
+      "encoding": "inplace",
+      "label": "struct ISettlementLedger.ReimbursementRecord",
+      "numberOfBytes": "128",
+      "members": [
+        {
+          "astId": 1164,
+          "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+          "label": "solver",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_address"
+        },
+        {
+          "astId": 1166,
+          "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+          "label": "asset",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        },
+        {
+          "astId": 1168,
+          "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+          "label": "amount",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 1171,
+          "contract": "src/core/cross-chain/SettlementLedger.sol:SettlementLedger",
+          "label": "status",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_enum(ReimbursementStatus)1161"
+        }
+      ]
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}

@@ -34,26 +34,11 @@ contract Faucet is Ownable {
 
     // --- Events ---
 
-    event OperatorSet(
-        address indexed previousOperator,
-        address indexed newOperator
-    );
-    event TokenAdded(
-        address indexed token,
-        uint256 maxPerRequest,
-        uint256 cooldown
-    );
+    event OperatorSet(address indexed previousOperator, address indexed newOperator);
+    event TokenAdded(address indexed token, uint256 maxPerRequest, uint256 cooldown);
     event TokenRemoved(address indexed token);
-    event TokenConfigUpdated(
-        address indexed token,
-        uint256 maxPerRequest,
-        uint256 cooldown
-    );
-    event Minted(
-        address indexed token,
-        address indexed recipient,
-        uint256 amount
-    );
+    event TokenConfigUpdated(address indexed token, uint256 maxPerRequest, uint256 cooldown);
+    event Minted(address indexed token, address indexed recipient, uint256 amount);
 
     // --- Errors ---
 
@@ -103,17 +88,9 @@ contract Faucet is Ownable {
 
     /// @notice Add a token to the faucet. Only operator or owner.
     /// @dev Faucet must already have minter role on the token before calling this.
-    function addToken(
-        address token,
-        uint256 maxPerRequest,
-        uint256 cooldown
-    ) external onlyOwnerOrOperator {
+    function addToken(address token, uint256 maxPerRequest, uint256 cooldown) external onlyOwnerOrOperator {
         if (token == address(0)) revert InvalidAddress();
-        configOf[token] = TokenConfig({
-            enabled: true,
-            maxPerRequest: maxPerRequest,
-            cooldown: cooldown
-        });
+        configOf[token] = TokenConfig({enabled: true, maxPerRequest: maxPerRequest, cooldown: cooldown});
         emit TokenAdded(token, maxPerRequest, cooldown);
     }
 
@@ -125,11 +102,7 @@ contract Faucet is Ownable {
     }
 
     /// @notice Update per-token limits. Only owner.
-    function setTokenConfig(
-        address token,
-        uint256 maxPerRequest,
-        uint256 cooldown
-    ) external onlyOwner {
+    function setTokenConfig(address token, uint256 maxPerRequest, uint256 cooldown) external onlyOwner {
         if (token == address(0)) revert InvalidAddress();
         configOf[token].maxPerRequest = maxPerRequest;
         configOf[token].cooldown = cooldown;
@@ -144,11 +117,7 @@ contract Faucet is Ownable {
     /// @param token  The mintable token address (Faucet must have minter role on it)
     /// @param recipient End-user address to receive the tokens
     /// @param amount Amount to mint (in token units)
-    function mintTo(
-        address token,
-        address recipient,
-        uint256 amount
-    ) external onlyOperator {
+    function mintTo(address token, address recipient, uint256 amount) external onlyOperator {
         _mintTo(token, recipient, amount);
     }
 
@@ -160,15 +129,11 @@ contract Faucet is Ownable {
     /// @param tokens    Array of token addresses (max MAX_BATCH elements)
     /// @param amounts   Amount to mint per token, parallel to `tokens`
     /// @param recipient End-user address to receive all tokens
-    function mintBatch(
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        address recipient
-    ) external onlyOperator {
+    function mintBatch(address[] calldata tokens, uint256[] calldata amounts, address recipient) external onlyOperator {
         if (tokens.length > MAX_BATCH) revert BatchTooLarge();
         if (tokens.length != amounts.length) revert ArrayLengthMismatch();
 
-        for (uint256 i = 0; i < tokens.length; ) {
+        for (uint256 i = 0; i < tokens.length;) {
             _mintTo(tokens[i], recipient, amounts[i]);
             unchecked {
                 ++i;
@@ -181,23 +146,19 @@ contract Faucet is Ownable {
     // -------------------------------------------------------------------------
 
     /// @dev Core mint logic, shared by mintTo and mintBatch.
-    function _mintTo(
-        address token,
-        address recipient,
-        uint256 amount
-    ) internal {
-        if (token == address(0) || recipient == address(0))
+    function _mintTo(address token, address recipient, uint256 amount) internal {
+        if (token == address(0) || recipient == address(0)) {
             revert InvalidAddress();
+        }
         if (amount == 0) revert InvalidAmount();
 
         TokenConfig memory config = configOf[token];
         if (!config.enabled) revert TokenNotEnabled();
-        if (config.maxPerRequest != 0 && amount > config.maxPerRequest)
+        if (config.maxPerRequest != 0 && amount > config.maxPerRequest) {
             revert ExceedsMaxPerRequest();
+        }
         if (config.cooldown != 0 && lastMintAt[token][recipient] != 0) {
-            if (
-                block.timestamp < lastMintAt[token][recipient] + config.cooldown
-            ) revert CooldownNotElapsed();
+            if (block.timestamp < lastMintAt[token][recipient] + config.cooldown) revert CooldownNotElapsed();
         }
 
         if (config.cooldown != 0) {

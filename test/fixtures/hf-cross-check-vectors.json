@@ -1,0 +1,19 @@
+{
+  "_comment": "SC-9 shared health-factor cross-check vectors. Consumed by BOTH the Solidity RiskModule test (test/risk/RiskModuleHFCrossCheck.t.sol) and the backend jest test (backend-v2/src/__test__/portfolio/hf-cross-check.test.ts). Values are human-scale USD; HF is scale-invariant so the Solidity side feeds them 1e18-scaled and the backend feeds them with decimals=0/price=1. healthy iff HF >= 1 + bufferBps/10000. Parallel arrays, indexed by vector.",
+  "name": [
+    "healthy_single",
+    "unhealthy_single",
+    "boundary_healthy",
+    "boundary_buffer_unhealthy",
+    "multi_collateral_healthy",
+    "no_debt",
+    "underwater_single"
+  ],
+  "bufferBps": [0, 0, 0, 100, 0, 0, 0],
+  "coll0Value": [95000, 60000, 90000, 90000, 50000, 10000, 30000],
+  "coll0Ltv": [8000, 8000, 8000, 8000, 8000, 8000, 8000],
+  "coll1Value": [0, 0, 0, 0, 50000, 0, 0],
+  "coll1Ltv": [0, 0, 0, 0, 6000, 0, 0],
+  "debt0Value": [40000, 40000, 40000, 40000, 40000, 0, 40000],
+  "expectedHealthy": [true, false, true, false, true, true, false]
+}

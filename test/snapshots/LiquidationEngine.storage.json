@@ -1,0 +1,122 @@
+{
+  "storage": [
+    {
+      "astId": 4957,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_centuari",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 4960,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_balanceLedger",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_address"
+    },
+    {
+      "astId": 4963,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_riskModule",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_address"
+    },
+    {
+      "astId": 4966,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_oracle",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_address"
+    },
+    {
+      "astId": 4969,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_hfCloseFactorBps",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 4972,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_maturedCloseFactorBps",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 4975,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_defaultLiquidationBonusBps",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 4980,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_liquidationBonusBps",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "astId": 4983,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_paused",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_bool"
+    },
+    {
+      "astId": 4986,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "_pauser",
+      "offset": 1,
+      "slot": "8",
+      "type": "t_address"
+    },
+    {
+      "astId": 4991,
+      "contract": "src/core/liquidation/LiquidationEngine.sol:LiquidationEngine",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "9",
+      "type": "t_array(t_uint256)40_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)40_storage": {
+      "encoding": "inplace",
+      "label": "uint256[40]",
+      "numberOfBytes": "1280",
+      "base": "t_uint256"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}

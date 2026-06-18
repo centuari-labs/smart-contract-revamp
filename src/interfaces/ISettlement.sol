@@ -23,16 +23,19 @@ interface ISettlement {
     /// @param borrowerSettlementFee Settlement fee charged to the borrower
     /// @param makerFeeAmount Trade fee charged to the maker
     /// @param takerFeeAmount Trade fee charged to the taker
+    /// @param collateralAssets Borrower's explicit, unfulfilled flag-as-collateral requests to fulfill
+    ///        at this settlement. Empty array means no flag changes. Idempotent in BalanceLedger:
+    ///        re-submitting an already-flagged asset is a no-op and does not refresh `_flaggedAt`.
     struct MatchData {
         bytes32 matchId;
         bytes32 marketId;
-        bytes32 lendOrderId; //@note : change into order market id
-        bytes32 borrowOrderId; //@note : change into order market id
-        address lender; //@note : change into account id
-        address borrower; //@note : change into account id
+        bytes32 lendOrderId;
+        bytes32 borrowOrderId;
+        address lender;
+        address borrower;
         uint256 matchedAmount;
         uint256 rate;
-        address loanToken; //@note : change into asset id
+        address loanToken;
         uint256 maturity;
         uint256 timestamp;
         bool borrowerIsTaker;
@@ -40,6 +43,7 @@ interface ISettlement {
         uint256 borrowerSettlementFee;
         uint256 makerFeeAmount;
         uint256 takerFeeAmount;
+        address[] collateralAssets;
     }
 
     // ============ Events ============

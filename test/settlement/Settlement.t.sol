@@ -37,7 +37,8 @@ contract MockCentuari is ICentuari {
         uint256, // lenderSettlementFee - unused in mock
         uint256, // borrowerSettlementFee - unused in mock
         uint256, // makerFeeAmount - unused in mock
-        uint256 // takerFeeAmount - unused in mock
+        uint256, // takerFeeAmount - unused in mock
+        address[] calldata // collateralAssets - unused in mock
     ) external override {
         if (shouldRevert) {
             revert("MockCentuari: forced revert");
@@ -80,7 +81,23 @@ contract MockCentuari is ICentuari {
         return address(0);
     }
 
-    function treasury() external pure returns (address) {
+    function balanceLedger() external pure returns (address) {
+        return address(0);
+    }
+
+    function activeDebtCount(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function liquidationRepay(bytes32, address, address, address, uint256) external {}
+
+    function setLiquidationEngine(address) external {}
+
+    function liquidationEngine() external pure returns (address) {
+        return address(0);
+    }
+
+    function feeCollector() external pure returns (address) {
         return address(0);
     }
 
@@ -101,6 +118,24 @@ contract MockCentuari is ICentuari {
     }
 
     function setOperator(address) external pure override {}
+
+    function setBalanceLedger(address) external pure override {}
+
+    function setFeeCollector(address) external pure override {}
+
+    function getBorrowerMarkets(address) external pure returns (bytes32[] memory) {
+        return new bytes32[](0);
+    }
+
+    function marketLoanToken(bytes32) external pure returns (address) {
+        return address(0);
+    }
+
+    function getBorrowerDebts(address) external pure returns (address[] memory, uint256[] memory) {
+        return (new address[](0), new uint256[](0));
+    }
+
+    function seedBorrowerMarkets(address, address[] calldata, uint256[] calldata) external pure override {}
 }
 
 /// @title SettlementV2
@@ -177,18 +212,11 @@ contract SettlementTest is Test {
         implementation = new Settlement();
 
         // Prepare initialization data
-        bytes memory initData = abi.encodeCall(
-            Settlement.initialize,
-            (owner, operator, address(mockCentuari))
-        );
+        bytes memory initData = abi.encodeCall(Settlement.initialize, (owner, operator, address(mockCentuari)));
 
         // Deploy TransparentUpgradeableProxy
         // Note: TransparentUpgradeableProxy creates its own ProxyAdmin internally
-        proxy = new TransparentUpgradeableProxy(
-            address(implementation),
-            proxyAdminOwner,
-            initData
-        );
+        proxy = new TransparentUpgradeableProxy(address(implementation), proxyAdminOwner, initData);
 
         // Get the ProxyAdmin address from the proxy's admin slot
         proxyAdmin = ProxyAdmin(_getProxyAdmin(address(proxy)));
@@ -207,12 +235,11 @@ contract SettlementTest is Test {
 
     // ============ Helper Functions ============
 
-    function _createMatchData(
-        bytes32 matchId,
-        address lender,
-        address borrower,
-        uint256 amount
-    ) internal view returns (ISettlement.MatchData memory) {
+    function _createMatchData(bytes32 matchId, address lender, address borrower, uint256 amount)
+        internal
+        view
+        returns (ISettlement.MatchData memory)
+    {
         return ISettlement.MatchData({
             matchId: matchId,
             marketId: keccak256(abi.encodePacked("market", matchId)),
@@ -229,7 +256,8 @@ contract SettlementTest is Test {
             lenderSettlementFee: 0,
             borrowerSettlementFee: 0,
             makerFeeAmount: 0,
-            takerFeeAmount: 0
+            takerFeeAmount: 0,
+            collateralAssets: new address[](0)
         });
     }
 
@@ -244,30 +272,21 @@ contract SettlementTest is Test {
 
     function test_Initialize_RevertZeroOwner() public {
         Settlement newImpl = new Settlement();
-        bytes memory initData = abi.encodeCall(
-            Settlement.initialize,
-            (address(0), operator, address(mockCentuari))
-        );
+        bytes memory initData = abi.encodeCall(Settlement.initialize, (address(0), operator, address(mockCentuari)));
         vm.expectRevert(ISettlement.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
 
     function test_Initialize_RevertZeroOperator() public {
         Settlement newImpl = new Settlement();
-        bytes memory initData = abi.encodeCall(
-            Settlement.initialize,
-            (owner, address(0), address(mockCentuari))
-        );
+        bytes memory initData = abi.encodeCall(Settlement.initialize, (owner, address(0), address(mockCentuari)));
         vm.expectRevert(ISettlement.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
 
     function test_Initialize_RevertZeroCentuari() public {
         Settlement newImpl = new Settlement();
-        bytes memory initData = abi.encodeCall(
-            Settlement.initialize,
-            (owner, operator, address(0))
-        );
+        bytes memory initData = abi.encodeCall(Settlement.initialize, (owner, operator, address(0)));
         vm.expectRevert(ISettlement.ZeroAddress.selector);
         new TransparentUpgradeableProxy(address(newImpl), proxyAdminOwner, initData);
     }
@@ -275,12 +294,8 @@ contract SettlementTest is Test {
     // ============ settleMatch Tests ============
 
     function test_SettleMatch_Success() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), makeAddr("borrower"), 1000 ether);
 
         vm.prank(operator);
         vm.expectEmit(true, true, true, true);
@@ -304,12 +319,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertUnauthorized() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), makeAddr("borrower"), 1000 ether);
 
         vm.prank(user);
         vm.expectRevert(ISettlement.Unauthorized.selector);
@@ -320,12 +331,8 @@ contract SettlementTest is Test {
         vm.prank(owner);
         settlement.pause();
 
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), makeAddr("borrower"), 1000 ether);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.ContractPaused.selector);
@@ -333,12 +340,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertAlreadySettled() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), makeAddr("borrower"), 1000 ether);
 
         vm.prank(operator);
         settlement.settleMatch(matchData);
@@ -349,12 +352,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertInvalidMatchData_ZeroMatchId() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(0),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(0), makeAddr("lender"), makeAddr("borrower"), 1000 ether);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.InvalidMatchData.selector);
@@ -362,12 +361,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertInvalidMatchData_ZeroLender() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            address(0),
-            makeAddr("borrower"),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), address(0), makeAddr("borrower"), 1000 ether);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.InvalidMatchData.selector);
@@ -375,12 +370,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertInvalidMatchData_ZeroBorrower() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            address(0),
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), address(0), 1000 ether);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.InvalidMatchData.selector);
@@ -389,12 +380,7 @@ contract SettlementTest is Test {
 
     function test_SettleMatch_RevertInvalidMatchData_SameLenderBorrower() public {
         address same = makeAddr("same");
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            same,
-            same,
-            1000 ether
-        );
+        ISettlement.MatchData memory matchData = _createMatchData(bytes32(uint256(1)), same, same, 1000 ether);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.InvalidMatchData.selector);
@@ -402,12 +388,8 @@ contract SettlementTest is Test {
     }
 
     function test_SettleMatch_RevertInvalidMatchData_ZeroAmount() public {
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender"),
-            makeAddr("borrower"),
-            0
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(1)), makeAddr("lender"), makeAddr("borrower"), 0);
 
         vm.prank(operator);
         vm.expectRevert(ISettlement.InvalidMatchData.selector);
@@ -451,12 +433,7 @@ contract SettlementTest is Test {
 
     function test_SettleMatches_RevertOnDuplicateInBatch() public {
         ISettlement.MatchData[] memory matches = new ISettlement.MatchData[](2);
-        matches[0] = _createMatchData(
-            bytes32(uint256(1)),
-            makeAddr("lender1"),
-            makeAddr("borrower1"),
-            100 ether
-        );
+        matches[0] = _createMatchData(bytes32(uint256(1)), makeAddr("lender1"), makeAddr("borrower1"), 100 ether);
         matches[1] = _createMatchData(
             bytes32(uint256(1)), // Same matchId
             makeAddr("lender2"),
@@ -553,6 +530,53 @@ contract SettlementTest is Test {
         settlement.unpause();
     }
 
+    // ============ Guardian / Pauser (D1) ============
+
+    function test_PauserIsOwnerAtInit() public view {
+        assertEq(settlement.pauser(), owner);
+    }
+
+    function test_SetPauser() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit Settlement.PauserUpdated(owner, guardian);
+        settlement.setPauser(guardian);
+        assertEq(settlement.pauser(), guardian);
+    }
+
+    function test_SetPauser_RevertNonOwner() public {
+        vm.prank(user);
+        vm.expectRevert();
+        settlement.setPauser(makeAddr("guardian"));
+    }
+
+    function test_SetPauser_RevertZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(ISettlement.ZeroAddress.selector);
+        settlement.setPauser(address(0));
+    }
+
+    function test_GuardianPausesOwnerCannotAfterRotation() public {
+        address guardian = makeAddr("guardian");
+        vm.prank(owner);
+        settlement.setPauser(guardian);
+
+        // owner is no longer the pauser once rotated
+        vm.prank(owner);
+        vm.expectRevert(ISettlement.Unauthorized.selector);
+        settlement.pause();
+
+        // guardian holds the fast pause path
+        vm.prank(guardian);
+        settlement.pause();
+        assertTrue(settlement.paused());
+
+        vm.prank(guardian);
+        settlement.unpause();
+        assertFalse(settlement.paused());
+    }
+
     // ============ View Functions Tests ============
 
     function test_IsSettled_ReturnsFalseForUnknown() public view {
@@ -561,12 +585,7 @@ contract SettlementTest is Test {
 
     // ============ Fuzz Tests ============
 
-    function testFuzz_SettleMatch(
-        bytes32 matchId,
-        address lender,
-        address borrower,
-        uint256 amount
-    ) public {
+    function testFuzz_SettleMatch(bytes32 matchId, address lender, address borrower, uint256 amount) public {
         vm.assume(matchId != bytes32(0));
         vm.assume(lender != address(0));
         vm.assume(borrower != address(0));
@@ -589,7 +608,8 @@ contract SettlementTest is Test {
             lenderSettlementFee: 0,
             borrowerSettlementFee: 0,
             makerFeeAmount: 0,
-            takerFeeAmount: 0
+            takerFeeAmount: 0,
+            collateralAssets: new address[](0)
         });
 
         vm.prank(operator);
@@ -612,31 +632,19 @@ contract SettlementTest is Test {
         // User (non-admin) cannot upgrade
         vm.prank(user);
         vm.expectRevert();
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
 
         // Owner (Settlement owner, not ProxyAdmin owner) cannot upgrade
         vm.prank(owner);
         vm.expectRevert();
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
     }
 
     function test_Upgrade_AdminCanUpgrade() public {
         SettlementV2 newImpl = new SettlementV2();
 
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
 
         // Verify upgrade succeeded by calling V2 function
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
@@ -648,18 +656,10 @@ contract SettlementTest is Test {
 
     function test_Upgrade_PreservesStorage() public {
         // Setup: Settle some matches first
-        ISettlement.MatchData memory matchData1 = _createMatchData(
-            bytes32(uint256(100)),
-            makeAddr("lender100"),
-            makeAddr("borrower100"),
-            1000 ether
-        );
-        ISettlement.MatchData memory matchData2 = _createMatchData(
-            bytes32(uint256(200)),
-            makeAddr("lender200"),
-            makeAddr("borrower200"),
-            2000 ether
-        );
+        ISettlement.MatchData memory matchData1 =
+            _createMatchData(bytes32(uint256(100)), makeAddr("lender100"), makeAddr("borrower100"), 1000 ether);
+        ISettlement.MatchData memory matchData2 =
+            _createMatchData(bytes32(uint256(200)), makeAddr("lender200"), makeAddr("borrower200"), 2000 ether);
 
         vm.startPrank(operator);
         settlement.settleMatch(matchData1);
@@ -681,11 +681,7 @@ contract SettlementTest is Test {
         // Upgrade to V2
         SettlementV2 newImpl = new SettlementV2();
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
 
         // Verify state is preserved after upgrade
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
@@ -700,23 +696,19 @@ contract SettlementTest is Test {
     function test_Upgrade_NewFunctionalityWorks() public {
         // Upgrade to V2
         SettlementV2 newImpl = new SettlementV2();
-        
+
         // Upgrade and call initializeV2
         bytes memory initV2Data = abi.encodeCall(SettlementV2.initializeV2, ());
-        
+
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            initV2Data
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), initV2Data);
 
         // Verify new functionality works
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
-        
+
         // Check version was set
         assertEq(settlementV2.version(), 2);
-        
+
         // Check new getContractInfo function works
         (address op, address cent, bool isPaused) = settlementV2.getContractInfo();
         assertEq(op, operator);
@@ -728,22 +720,14 @@ contract SettlementTest is Test {
         // Upgrade to V2
         SettlementV2 newImpl = new SettlementV2();
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
 
         // Cast to V2 but test V1 functionality
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
 
         // Test settleMatch still works
-        ISettlement.MatchData memory matchData = _createMatchData(
-            bytes32(uint256(999)),
-            makeAddr("lenderNew"),
-            makeAddr("borrowerNew"),
-            5000 ether
-        );
+        ISettlement.MatchData memory matchData =
+            _createMatchData(bytes32(uint256(999)), makeAddr("lenderNew"), makeAddr("borrowerNew"), 5000 ether);
 
         vm.prank(operator);
         settlementV2.settleMatch(matchData);
@@ -762,11 +746,7 @@ contract SettlementTest is Test {
         // Upgrade to V2
         SettlementV2 newImpl = new SettlementV2();
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            ""
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), "");
 
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
 
@@ -779,13 +759,9 @@ contract SettlementTest is Test {
         // Upgrade to V2 with initialization
         SettlementV2 newImpl = new SettlementV2();
         bytes memory initV2Data = abi.encodeCall(SettlementV2.initializeV2, ());
-        
+
         vm.prank(proxyAdminOwner);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(proxy)),
-            address(newImpl),
-            initV2Data
-        );
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), address(newImpl), initV2Data);
 
         SettlementV2 settlementV2 = SettlementV2(address(proxy));
 

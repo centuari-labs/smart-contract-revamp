@@ -60,8 +60,6 @@ RPC_URL="$(jq -r '.rpcUrl' "$DEPLOY_JSON")"
 CENTUARI_ADDR="$(jq -r '.centuariAddress' "$DEPLOY_JSON")"
 SETTLEMENT_ADDR="$(jq -r '.settlementProxy' "$DEPLOY_JSON")"
 FAUCET_ADDR="$(jq -r '.faucetAddress' "$DEPLOY_JSON")"
-TREASURY_ADDR="$(jq -r '.treasuryAddress' "$DEPLOY_JSON")"
-
 if [[ -z "$RPC_URL" || "$RPC_URL" == "null" ]]; then
   echo "rpcUrl missing in $DEPLOY_JSON" >&2
   exit 1
@@ -78,7 +76,6 @@ echo "Using RPC_URL:          $RPC_URL"
 echo "Centuari address:       $CENTUARI_ADDR"
 echo "Settlement proxy:       $SETTLEMENT_ADDR"
 echo "Faucet address:         $FAUCET_ADDR"
-echo "Treasury address:       $TREASURY_ADDR"
 echo
 
 # Helper to set operator on a single contract.
@@ -116,7 +113,6 @@ set_operator_for_contract() {
 
   # Verify operator value.
   local getter="operator()"
-  [[ "$label" == "Treasury" ]] && getter="getOperator()"
 
   echo "  Verifying $getter..."
   local current_operator
@@ -135,9 +131,6 @@ set_operator_for_contract "Settlement" "$SETTLEMENT_ADDR" "SETTLEMENT_OPERATOR"
 
 # Faucet: BACKEND_OPERATOR
 set_operator_for_contract "Faucet" "$FAUCET_ADDR" "BACKEND_OPERATOR"
-
-# Treasury: BACKEND_OPERATOR
-set_operator_for_contract "Treasury" "$TREASURY_ADDR" "BACKEND_OPERATOR"
 
 echo "Done setting operators."
 

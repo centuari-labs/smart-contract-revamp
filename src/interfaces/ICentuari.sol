@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 /// @title ICentuari
 /// @notice Interface for the Centuari contract that manages lending positions
 /// @dev Settlement calls this interface to settle matched orders.
-///      Centuari handles positions (bond tokens, debt) and calls Treasury.settle()
+///      Centuari handles positions (bond tokens, debt) and calls BalanceLedger for balance mutations.
 interface ICentuari {
     // ============ Events ============
 
@@ -12,11 +12,7 @@ interface ICentuari {
     /// @param marketId The unique market identifier
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp
-    event MarketCreated(
-        bytes32 indexed marketId,
-        address indexed loanToken,
-        uint256 indexed maturity
-    );
+    event MarketCreated(bytes32 indexed marketId, address indexed loanToken, uint256 indexed maturity);
 
     /// @notice Emitted when a lend position is created or updated
     /// @param marketId The market identifier
@@ -41,11 +37,7 @@ interface ICentuari {
     /// @param debt The total debt (principal + interest)
     /// @param rate The interest rate in basis points
     event BorrowPositionCreated(
-        bytes32 indexed marketId,
-        address indexed borrower,
-        uint256 principal,
-        uint256 debt,
-        uint256 rate
+        bytes32 indexed marketId, address indexed borrower, uint256 principal, uint256 debt, uint256 rate
     );
 
     /// @notice Emitted when the Settlement contract address is updated
@@ -53,10 +45,15 @@ interface ICentuari {
     /// @param newSettlement The new Settlement address
     event SettlementUpdated(address indexed oldSettlement, address indexed newSettlement);
 
-    /// @notice Emitted when the Treasury contract address is updated
-    /// @param oldTreasury The previous Treasury address
-    /// @param newTreasury The new Treasury address
-    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    /// @notice Emitted when the BalanceLedger contract address is updated
+    /// @param oldLedger The previous BalanceLedger address
+    /// @param newLedger The new BalanceLedger address
+    event BalanceLedgerUpdated(address indexed oldLedger, address indexed newLedger);
+
+    /// @notice Emitted when the fee collector address is updated
+    /// @param oldCollector The previous fee collector address
+    /// @param newCollector The new fee collector address
+    event FeeCollectorUpdated(address indexed oldCollector, address indexed newCollector);
 
     /// @notice Emitted when the Bond Token Factory contract address is updated
     /// @param oldFactory The previous factory address
@@ -75,16 +72,26 @@ interface ICentuari {
     /// @param marketId The market identifier
     /// @param borrower The borrower address
     /// @param amount The amount repaid (in token terms)
-    event Repaid(
-        bytes32 indexed marketId,
-        address indexed borrower,
-        uint256 amount
-    );
+    event Repaid(bytes32 indexed marketId, address indexed borrower, uint256 amount);
 
     /// @notice Emitted when the operator address is updated
     /// @param oldOperator The previous operator address
     /// @param newOperator The new operator address
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
+
+    /// @notice Emitted when the LiquidationEngine address is updated
+    /// @param oldEngine The previous LiquidationEngine address
+    /// @param newEngine The new LiquidationEngine address
+    event LiquidationEngineUpdated(address indexed oldEngine, address indexed newEngine);
+
+    /// @notice Emitted when a borrow position is repaid via liquidation
+    /// @param marketId The market identifier
+    /// @param borrower The borrower whose debt was reduced
+    /// @param liquidator The account that funded the repayment
+    /// @param amount The amount repaid (in loan token terms)
+    event LiquidationRepaid(
+        bytes32 indexed marketId, address indexed borrower, address indexed liquidator, uint256 amount
+    );
 
     /// @notice Emitted when a lender withdraws (redeems) part or all of their lend position
     /// @param marketId The market identifier
@@ -92,11 +99,16 @@ interface ICentuari {
     /// @param cbtBurned The CBT (bond token) amount burned
     /// @param amountWithdrawn The loan token amount credited to the lender (1:1 with cbtBurned)
     event LendPositionWithdrawn(
-        bytes32 indexed marketId,
-        address indexed lender,
-        uint256 cbtBurned,
-        uint256 amountWithdrawn
+        bytes32 indexed marketId, address indexed lender, uint256 cbtBurned, uint256 amountWithdrawn
     );
+
+    /// @notice Emitted when the operator backfills a borrower's market into the
+    ///         enumerable debt set, reconciling positions that predate the
+    ///         Phase 3 (C6) debt-enumeration upgrade
+    /// @param borrower The borrower address
+    /// @param marketId The market identifier seeded
+    /// @param loanToken The loan token resolved for the market
+    event BorrowerMarketSeeded(address indexed borrower, bytes32 indexed marketId, address indexed loanToken);
 
     // ============ Errors ============
 
@@ -118,16 +130,23 @@ interface ICentuari {
     /// @notice Thrown when withdrawal is attempted before maturity has passed
     error NotYetMatured();
 
+    /// @notice Thrown when a borrower would exceed MAX_DEBT_MARKETS distinct debt markets (SC-5)
+    error TooManyDebtMarkets();
+
     /// @notice Thrown when bond token does not exist for the market (factory not set or market not settled)
     error BondTokenNotFound();
 
     // ============ Core Functions ============
 
-    /// @notice Settle a matched order - handles positions, token transfers, and fees atomically
+    /// @notice Settle a matched order - handles positions, balance mutations, and fees atomically
     /// @dev This function should:
-    ///      1. Record lend position and mint bond tokens to lender
-    ///      2. Record borrow position (debt) for borrower
-    ///      3. Call Treasury.settle() to transfer tokens to borrower and settlement fees to Treasury
+    ///      1. Record lend position and mint bond tokens to Centuari (bond custodian)
+    ///      2. Record borrow position (debt) for borrower, track active debt count
+    ///      3. Call BalanceLedger to debit lender, credit borrower, collect protocol fees
+    ///      4. Flag only the assets the borrower explicitly requested in `collateralAssets`
+    ///         (empty array = no flagging). Flag/unflag is never an implicit side-effect of
+    ///         settlement; it must come from an explicit user instruction propagated by the
+    ///         off-chain matching/settlement engine.
     /// @param lender The lender address
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
@@ -139,6 +158,8 @@ interface ICentuari {
     /// @param borrowerSettlementFee Settlement fee charged to the borrower (pre-split off-chain)
     /// @param makerFeeAmount Trade fee charged to the maker (for Centuari internal accounting)
     /// @param takerFeeAmount Trade fee charged to the taker (for Centuari internal accounting)
+    /// @param collateralAssets Borrower's explicit flag-as-collateral requests to fulfill at this
+    ///        settlement. Idempotent via BalanceLedger; empty array means no flag mutations.
     function settleMatch(
         bytes32 marketId,
         address lender,
@@ -151,7 +172,8 @@ interface ICentuari {
         uint256 lenderSettlementFee,
         uint256 borrowerSettlementFee,
         uint256 makerFeeAmount,
-        uint256 takerFeeAmount
+        uint256 takerFeeAmount,
+        address[] calldata collateralAssets
     ) external;
 
     /// @notice Repay debt for a borrower in a given market. Only callable by operator (backend).
@@ -159,26 +181,27 @@ interface ICentuari {
     /// @param borrower The borrower address
     /// @param loanToken The loan token address
     /// @param amount The amount to repay (capped to current debt)
-    function repay(
-        bytes32 marketId,
-        address borrower,
-        address loanToken,
-        uint256 amount
-    ) external;
+    function repay(bytes32 marketId, address borrower, address loanToken, uint256 amount) external;
 
-    /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from caller and credits loan tokens to caller's Treasury balance.
-    /// @dev Caller must have approved Centuari to spend at least cbtAmount of the market's bond token.
-    ///      Withdrawable amount is limited by Treasury's available balance (from repayments).
+    /// @notice Repayment leg of a liquidation: reduce a borrower's debt, funded by a
+    ///         liquidator. Only callable by the LiquidationEngine.
+    /// @dev Mirrors {repay} but debits the `liquidator` (not the borrower). The
+    ///      LiquidationEngine owns the trigger, close-factor and collateral seizure.
+    /// @param marketId The market identifier
+    /// @param borrower The borrower being liquidated
+    /// @param loanToken The loan token address (debited from the liquidator)
+    /// @param liquidator The account funding the repayment
+    /// @param amount The amount to repay (capped to current debt)
+    function liquidationRepay(bytes32 marketId, address borrower, address loanToken, address liquidator, uint256 amount)
+        external;
+
+    /// @notice Redeem CBT (bond tokens) for loan tokens. Burns CBT from Centuari custody and credits loan tokens to caller's BalanceLedger available balance.
+    /// @dev CBT is held by Centuari (bond custodian). The caller's internal _lendPositionCbtAmount tracks their claim.
     /// @param marketId The market identifier (bytes32)
     /// @param loanToken The loan token address
     /// @param maturity The maturity timestamp (used for bond token lookup and maturity check)
     /// @param cbtAmount The amount of CBT (bond token) to redeem
-    function withdrawLendPosition(
-        bytes32 marketId,
-        address loanToken,
-        uint256 maturity,
-        uint256 cbtAmount
-    ) external;
+    function withdrawLendPosition(bytes32 marketId, address loanToken, uint256 maturity, uint256 cbtAmount) external;
 
     // ============ View Functions ============
 
@@ -209,9 +232,38 @@ interface ICentuari {
     /// @return The Settlement contract address
     function settlement() external view returns (address);
 
-    /// @notice Get the Treasury contract address
-    /// @return The Treasury contract address
-    function treasury() external view returns (address);
+    /// @notice Get the BalanceLedger contract address
+    /// @return The BalanceLedger contract address
+    function balanceLedger() external view returns (address);
+
+    /// @notice Get the number of markets where a user has non-zero debt
+    /// @param user The user address
+    /// @return The count of active debt markets
+    function activeDebtCount(address user) external view returns (uint256);
+
+    /// @notice Enumerate the marketIds where `user` currently has non-zero debt
+    /// @param user The borrower address
+    /// @return The marketIds in the user's active-debt set
+    function getBorrowerMarkets(address user) external view returns (bytes32[] memory);
+
+    /// @notice Resolve a marketId to its loan token (0 if unknown / unset)
+    /// @param marketId The market identifier
+    /// @return The loan token address for the market
+    function marketLoanToken(bytes32 marketId) external view returns (address);
+
+    /// @notice Aggregate a borrower's total debt across all markets, grouped by
+    ///         loan token (the on-chain primitive a RiskModule sums for HF)
+    /// @param user The borrower address
+    /// @return loanTokens The distinct loan tokens the user owes in
+    /// @return amounts The total debt per loan token (principal + interest)
+    function getBorrowerDebts(address user)
+        external
+        view
+        returns (address[] memory loanTokens, uint256[] memory amounts);
+
+    /// @notice Get the fee collector address
+    /// @return The fee collector address
+    function feeCollector() external view returns (address);
 
     /// @notice Check if the contract is paused
     /// @return True if the contract is paused
@@ -228,4 +280,32 @@ interface ICentuari {
     /// @notice Set the operator address. Only owner.
     /// @param newOperator The new operator address
     function setOperator(address newOperator) external;
+
+    /// @notice Set the LiquidationEngine address. Only owner.
+    /// @param newLiquidationEngine The new LiquidationEngine address
+    function setLiquidationEngine(address newLiquidationEngine) external;
+
+    /// @notice Get the LiquidationEngine address
+    /// @return The LiquidationEngine address
+    function liquidationEngine() external view returns (address);
+
+    /// @notice Set the BalanceLedger address. Only owner.
+    /// @param newBalanceLedger The new BalanceLedger address
+    function setBalanceLedger(address newBalanceLedger) external;
+
+    /// @notice Set the fee collector address. Only owner.
+    /// @param newFeeCollector The new fee collector address
+    function setFeeCollector(address newFeeCollector) external;
+
+    /// @notice Backfill a borrower's enumerable debt-market set for positions
+    ///         that predate the Phase 3 (C6) upgrade. Only callable by operator.
+    /// @dev Self-validating: a (loanToken, maturity) pair derives a marketId, and
+    ///      the entry is added ONLY if `getBorrowPosition(marketId, borrower) > 0`.
+    ///      It can therefore never fabricate debt — it only reconciles the set +
+    ///      loanToken map with debt that already exists on-chain.
+    /// @param borrower The borrower whose markets are being reconciled
+    /// @param loanTokens The loan tokens of the borrower's pre-existing markets
+    /// @param maturities The maturities (paired with loanTokens) of those markets
+    function seedBorrowerMarkets(address borrower, address[] calldata loanTokens, uint256[] calldata maturities)
+        external;
 }

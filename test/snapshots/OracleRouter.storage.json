@@ -1,0 +1,65 @@
+{
+  "storage": [
+    {
+      "astId": 4411,
+      "contract": "src/core/oracle/OracleRouter.sol:OracleRouter",
+      "label": "_feeds",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_mapping(t_address,t_contract(IPriceFeed)4434)"
+    },
+    {
+      "astId": 4416,
+      "contract": "src/core/oracle/OracleRouter.sol:OracleRouter",
+      "label": "_maxStaleness",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_mapping(t_address,t_uint256)"
+    },
+    {
+      "astId": 4421,
+      "contract": "src/core/oracle/OracleRouter.sol:OracleRouter",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_array(t_uint256)48_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)48_storage": {
+      "encoding": "inplace",
+      "label": "uint256[48]",
+      "numberOfBytes": "1536",
+      "base": "t_uint256"
+    },
+    "t_contract(IPriceFeed)4434": {
+      "encoding": "inplace",
+      "label": "contract IPriceFeed",
+      "numberOfBytes": "20"
+    },
+    "t_mapping(t_address,t_contract(IPriceFeed)4434)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => contract IPriceFeed)",
+      "numberOfBytes": "32",
+      "value": "t_contract(IPriceFeed)4434"
+    },
+    "t_mapping(t_address,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}

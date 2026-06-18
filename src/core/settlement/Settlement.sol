@@ -13,13 +13,7 @@ import {SettlementStorage} from "./SettlementStorage.sol";
 /// @notice Processes batch settlements from the matching engine
 /// @dev This contract validates matches, prevents double-settlement, and calls Centuari for position updates.
 ///      It is designed to be deployed behind an ERC1967 proxy for upgradeability.
-contract Settlement is
-    Initializable,
-    OwnableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    SettlementStorage,
-    ISettlement
-{
+contract Settlement is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, SettlementStorage, ISettlement {
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -34,11 +28,7 @@ contract Settlement is
     /// @param owner_ The owner address (can update operator and Centuari)
     /// @param operator_ The settlement engine operator address
     /// @param centuari_ The Centuari contract address
-    function initialize(
-        address owner_,
-        address operator_,
-        address centuari_
-    ) external initializer {
+    function initialize(address owner_, address operator_, address centuari_) external initializer {
         if (owner_ == address(0)) revert ZeroAddress();
         if (operator_ == address(0)) revert ZeroAddress();
         if (centuari_ == address(0)) revert ZeroAddress();
@@ -49,10 +39,16 @@ contract Settlement is
         _operator = operator_;
         _centuari = centuari_;
         _paused = false;
+        _pauser = owner_;
 
         emit OperatorUpdated(address(0), operator_);
         emit CentuariUpdated(address(0), centuari_);
     }
+
+    // ============ Events ============
+
+    /// @notice Emitted when the guardian (pauser) address is rotated
+    event PauserUpdated(address indexed oldPauser, address indexed newPauser);
 
     // ============ Modifiers ============
 
@@ -68,15 +64,16 @@ contract Settlement is
         _;
     }
 
+    /// @notice Restricts pause/unpause to the guardian (fast emergency path, no timelock)
+    modifier onlyPauser() {
+        if (msg.sender != _pauser) revert Unauthorized();
+        _;
+    }
+
     // ============ Core Settlement Functions ============
 
     /// @inheritdoc ISettlement
-    function settleMatches(MatchData[] calldata matches)
-        external
-        onlyOperator
-        whenNotPaused
-        nonReentrant
-    {
+    function settleMatches(MatchData[] calldata matches) external onlyOperator whenNotPaused nonReentrant {
         uint256 matchCount = matches.length;
         if (matchCount == 0) revert EmptyBatch();
 
@@ -85,7 +82,7 @@ contract Settlement is
         // Cache Centuari address to save gas on repeated reads
         address centuariAddr = _centuari;
 
-        for (uint256 i; i < matchCount; ) {
+        for (uint256 i; i < matchCount;) {
             MatchData calldata matchData = matches[i];
 
             // Process the match
@@ -103,12 +100,7 @@ contract Settlement is
     }
 
     /// @inheritdoc ISettlement
-    function settleMatch(MatchData calldata matchData)
-        external
-        onlyOperator
-        whenNotPaused
-        nonReentrant
-    {
+    function settleMatch(MatchData calldata matchData) external onlyOperator whenNotPaused nonReentrant {
         _processMatch(matchData, _centuari);
 
         emit BatchSettlementCompleted(1, matchData.matchedAmount);
@@ -119,10 +111,7 @@ contract Settlement is
     /// @notice Process a single match - validate, mark as settled, and call Centuari
     /// @param matchData The match data to process
     /// @param centuariAddr The cached Centuari contract address
-    function _processMatch(
-        MatchData calldata matchData,
-        address centuariAddr
-    ) internal {
+    function _processMatch(MatchData calldata matchData, address centuariAddr) internal {
         // Validate match data
         _validateMatchData(matchData);
 
@@ -134,20 +123,22 @@ contract Settlement is
         _settledMatches[matchId] = true;
 
         // Call Centuari to handle positions and token transfers
-        ICentuari(centuariAddr).settleMatch(
-            matchData.marketId,
-            matchData.lender,
-            matchData.borrower,
-            matchData.loanToken,
-            matchData.matchedAmount,
-            matchData.rate,
-            matchData.maturity,
-            matchData.borrowerIsTaker,
-            matchData.lenderSettlementFee,
-            matchData.borrowerSettlementFee,
-            matchData.makerFeeAmount,
-            matchData.takerFeeAmount
-        );
+        ICentuari(centuariAddr)
+            .settleMatch(
+                matchData.marketId,
+                matchData.lender,
+                matchData.borrower,
+                matchData.loanToken,
+                matchData.matchedAmount,
+                matchData.rate,
+                matchData.maturity,
+                matchData.borrowerIsTaker,
+                matchData.lenderSettlementFee,
+                matchData.borrowerSettlementFee,
+                matchData.makerFeeAmount,
+                matchData.takerFeeAmount,
+                matchData.collateralAssets
+            );
 
         // Emit individual match event
         emit MatchSettled(
@@ -205,17 +196,26 @@ contract Settlement is
     }
 
     /// @notice Pause the contract
-    /// @dev Only callable by owner. Prevents settlement functions from executing.
-    function pause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function pause() external onlyPauser {
         _paused = true;
         emit Paused(msg.sender);
     }
 
     /// @notice Unpause the contract
-    /// @dev Only callable by owner. Allows settlement functions to execute.
-    function unpause() external onlyOwner {
+    /// @dev Only callable by the guardian (pauser) — fast, no timelock.
+    function unpause() external onlyPauser {
         _paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Rotate the guardian (pauser) address. Owner-gated (the 24h timelock in prod).
+    /// @param newPauser The new guardian address
+    function setPauser(address newPauser) external onlyOwner {
+        if (newPauser == address(0)) revert ZeroAddress();
+        address oldPauser = _pauser;
+        _pauser = newPauser;
+        emit PauserUpdated(oldPauser, newPauser);
     }
 
     // ============ View Functions ============
@@ -239,5 +239,10 @@ contract Settlement is
     /// @return True if the contract is paused
     function paused() external view returns (bool) {
         return _paused;
+    }
+
+    /// @notice The current guardian (pauser) address
+    function pauser() external view returns (address) {
+        return _pauser;
     }
 }

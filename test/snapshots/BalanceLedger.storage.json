@@ -1,0 +1,270 @@
+{
+  "storage": [
+    {
+      "astId": 8053,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_paused",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_bool"
+    },
+    {
+      "astId": 8056,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_forceWriterRegistrationEnabled",
+      "offset": 1,
+      "slot": "0",
+      "type": "t_bool"
+    },
+    {
+      "astId": 8064,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_balances",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8046_storage))"
+    },
+    {
+      "astId": 8069,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_authorizedWriters",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_address,t_bool)"
+    },
+    {
+      "astId": 8075,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_writerProposals",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_mapping(t_address,t_struct(WriterProposal)8050_storage)"
+    },
+    {
+      "astId": 8082,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_usedAsCollateral",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_bool))"
+    },
+    {
+      "astId": 8088,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_flaggedAssets",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_mapping(t_address,t_struct(AddressSet)6105_storage)"
+    },
+    {
+      "astId": 8095,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_flaggedAt",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_mapping(t_address,t_mapping(t_address,t_uint64))"
+    },
+    {
+      "astId": 8098,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "_pauser",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_address"
+    },
+    {
+      "astId": 8103,
+      "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "8",
+      "type": "t_array(t_uint256)41_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_bytes32)dyn_storage": {
+      "encoding": "dynamic_array",
+      "label": "bytes32[]",
+      "numberOfBytes": "32",
+      "base": "t_bytes32"
+    },
+    "t_array(t_uint256)41_storage": {
+      "encoding": "inplace",
+      "label": "uint256[41]",
+      "numberOfBytes": "1312",
+      "base": "t_uint256"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_bool)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => bool)",
+      "numberOfBytes": "32",
+      "value": "t_bool"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_bool))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(address => bool))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_address,t_bool)"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_struct(Balance)8046_storage))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(address => struct BalanceLedgerStorage.Balance))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_address,t_struct(Balance)8046_storage)"
+    },
+    "t_mapping(t_address,t_mapping(t_address,t_uint64))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(address => uint64))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_address,t_uint64)"
+    },
+    "t_mapping(t_address,t_struct(AddressSet)6105_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => struct EnumerableSet.AddressSet)",
+      "numberOfBytes": "32",
+      "value": "t_struct(AddressSet)6105_storage"
+    },
+    "t_mapping(t_address,t_struct(Balance)8046_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => struct BalanceLedgerStorage.Balance)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Balance)8046_storage"
+    },
+    "t_mapping(t_address,t_struct(WriterProposal)8050_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => struct BalanceLedgerStorage.WriterProposal)",
+      "numberOfBytes": "32",
+      "value": "t_struct(WriterProposal)8050_storage"
+    },
+    "t_mapping(t_address,t_uint64)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => uint64)",
+      "numberOfBytes": "32",
+      "value": "t_uint64"
+    },
+    "t_mapping(t_bytes32,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_bytes32",
+      "label": "mapping(bytes32 => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_struct(AddressSet)6105_storage": {
+      "encoding": "inplace",
+      "label": "struct EnumerableSet.AddressSet",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 6104,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "_inner",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_struct(Set)5619_storage"
+        }
+      ]
+    },
+    "t_struct(Balance)8046_storage": {
+      "encoding": "inplace",
+      "label": "struct BalanceLedgerStorage.Balance",
+      "numberOfBytes": "96",
+      "members": [
+        {
+          "astId": 8041,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "available",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 8043,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "inOrders",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 8045,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "inYieldRouter",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_struct(Set)5619_storage": {
+      "encoding": "inplace",
+      "label": "struct EnumerableSet.Set",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 5614,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "_values",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_array(t_bytes32)dyn_storage"
+        },
+        {
+          "astId": 5618,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "_positions",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_bytes32,t_uint256)"
+        }
+      ]
+    },
+    "t_struct(WriterProposal)8050_storage": {
+      "encoding": "inplace",
+      "label": "struct BalanceLedgerStorage.WriterProposal",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "astId": 8049,
+          "contract": "src/core/balance-ledger/BalanceLedger.sol:BalanceLedger",
+          "label": "proposedAt",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint256"
+        }
+      ]
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
+}

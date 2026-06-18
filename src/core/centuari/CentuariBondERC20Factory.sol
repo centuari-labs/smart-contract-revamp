@@ -72,11 +72,7 @@ contract CentuariBondERC20Factory {
     /// @param loanToken The underlying loan token address
     /// @param maturity The maturity timestamp
     /// @return bondToken The bond token address
-    function getOrCreate(address loanToken, uint256 maturity)
-        external
-        onlyCentuari
-        returns (address bondToken)
-    {
+    function getOrCreate(address loanToken, uint256 maturity) external onlyCentuari returns (address bondToken) {
         bytes32 marketId = _getMarketId(loanToken, maturity);
         bondToken = bondTokens[marketId];
 
@@ -89,11 +85,7 @@ contract CentuariBondERC20Factory {
     /// @param loanToken The underlying loan token address
     /// @param maturity The maturity timestamp
     /// @return The bond token address (address(0) if not created)
-    function getBondToken(address loanToken, uint256 maturity)
-        external
-        view
-        returns (address)
-    {
+    function getBondToken(address loanToken, uint256 maturity) external view returns (address) {
         bytes32 marketId = _getMarketId(loanToken, maturity);
         return bondTokens[marketId];
     }
@@ -102,11 +94,7 @@ contract CentuariBondERC20Factory {
     /// @param loanToken The underlying loan token address
     /// @param maturity The maturity timestamp
     /// @return The computed bond token address
-    function computeBondTokenAddress(address loanToken, uint256 maturity)
-        external
-        view
-        returns (address)
-    {
+    function computeBondTokenAddress(address loanToken, uint256 maturity) external view returns (address) {
         bytes32 marketId = _getMarketId(loanToken, maturity);
         bytes32 salt = marketId;
 
@@ -114,9 +102,7 @@ contract CentuariBondERC20Factory {
         bytes memory bytecode = _getBytecode(loanToken, maturity);
 
         // Compute CREATE2 address
-        bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(bytecode))
-        );
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(bytecode)));
         return address(uint160(uint256(hash)));
     }
 
@@ -141,14 +127,8 @@ contract CentuariBondERC20Factory {
 
         // Deploy using CREATE2 with marketId as salt
         bytes32 salt = marketId;
-        CentuariBondERC20 token = new CentuariBondERC20{salt: salt}(
-            name,
-            symbol,
-            CENTUARI,
-            loanToken,
-            maturity,
-            decimals
-        );
+        CentuariBondERC20 token =
+            new CentuariBondERC20{salt: salt}(name, symbol, CENTUARI, loanToken, maturity, decimals);
         bondToken = address(token);
         bondTokens[marketId] = bondToken;
 
@@ -159,28 +139,16 @@ contract CentuariBondERC20Factory {
     /// @param tokenSymbol The underlying token symbol
     /// @param maturity The maturity timestamp
     /// @return The generated name
-    function _generateName(string memory tokenSymbol, uint256 maturity)
-        internal
-        pure
-        returns (string memory)
-    {
-        return string(
-            abi.encodePacked("CBT ", tokenSymbol, " ", DateTime.formatDate(maturity))
-        );
+    function _generateName(string memory tokenSymbol, uint256 maturity) internal pure returns (string memory) {
+        return string(abi.encodePacked("CBT ", tokenSymbol, " ", DateTime.formatDate(maturity)));
     }
 
     /// @notice Generate token symbol (e.g., "CBT-USDC-1JAN25")
     /// @param tokenSymbol The underlying token symbol
     /// @param maturity The maturity timestamp
     /// @return The generated symbol
-    function _generateSymbol(string memory tokenSymbol, uint256 maturity)
-        internal
-        pure
-        returns (string memory)
-    {
-        return string(
-            abi.encodePacked("CBT-", tokenSymbol, "-", DateTime.formatDateSymbol(maturity))
-        );
+    function _generateSymbol(string memory tokenSymbol, uint256 maturity) internal pure returns (string memory) {
+        return string(abi.encodePacked("CBT-", tokenSymbol, "-", DateTime.formatDateSymbol(maturity)));
     }
 
     /// @notice Get the symbol of a token, with safe handling for non-contract addresses
@@ -212,19 +180,14 @@ contract CentuariBondERC20Factory {
     /// @param loanToken The underlying loan token address
     /// @param maturity The maturity timestamp
     /// @return The creation bytecode with constructor args
-    function _getBytecode(address loanToken, uint256 maturity)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _getBytecode(address loanToken, uint256 maturity) internal view returns (bytes memory) {
         string memory tokenSymbol = _getTokenSymbol(loanToken);
         string memory name = _generateName(tokenSymbol, maturity);
         string memory symbol = _generateSymbol(tokenSymbol, maturity);
         uint8 decimals = _getTokenDecimals(loanToken);
 
         return abi.encodePacked(
-            type(CentuariBondERC20).creationCode,
-            abi.encode(name, symbol, CENTUARI, loanToken, maturity, decimals)
+            type(CentuariBondERC20).creationCode, abi.encode(name, symbol, CENTUARI, loanToken, maturity, decimals)
         );
     }
 
@@ -244,4 +207,3 @@ contract CentuariBondERC20Factory {
         }
     }
 }
-

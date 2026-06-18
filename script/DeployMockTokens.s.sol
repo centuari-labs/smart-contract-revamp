@@ -6,7 +6,7 @@ import {MockToken} from "../src/mocks/MockToken.sol";
 
 /// @title DeployMockTokens
 /// @notice Deploys all mock tokens for testnet use (USDC, USDT, IDRX, XSGD, BTC, ETH, XAUT, Ondo tokenized)
-/// @dev Deploy then call Treasury.setSupportedToken(token, true) for each to use on the platform
+/// @dev Tokens are wired to Faucet and used across the platform for testnet testing
 contract DeployMockTokens is Script {
     struct TokenConfig {
         string name;
