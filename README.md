@@ -1,8 +1,8 @@
 # Centuari · Smart Contracts
 
-The on-chain core of the Centuari decentralized lending protocol — a Foundry /
-Solidity codebase of upgradeable contracts (OpenZeppelin v5, ERC1967 proxies)
-deployed to Arbitrum Sepolia. These contracts custody tokens, account balances,
+The on-chain core of the Centuari decentralized lending protocol. This
+Foundry/Solidity codebase contains upgradeable contracts (OpenZeppelin v5 and
+ERC1967 proxies) deployed to Arbitrum Sepolia. These contracts custody tokens,
 record lending/borrowing positions, settle matched orders in batches, and gate
 withdrawals on an oracle-backed health factor.
 
@@ -52,7 +52,7 @@ flowchart TD
 `BalanceLedger` is the hub: only authorized writers (`Centuari`, `Settlement`,
 `HubDepositor`, `CollateralManager`, `WithdrawalRegistry`, `HubIntentSettler`)
 may mutate it. Markets are identified by
-`bytes32 marketId = keccak256(abi.encode(loanToken, maturity))` — the same loan
+`bytes32 marketId = keccak256(abi.encode(loanToken, maturity))`. The same loan
 token at different maturities is a different market.
 
 ### Core contracts
@@ -67,7 +67,7 @@ token at different maturities is a different market.
 | **RiskModule** | Oracle-backed HF policy: `canWithdraw` / `canUnflag`, fail-closed on missing/stale price |
 | **WithdrawalRegistry** | Withdrawal state machine; first action is the `RiskModule` HF gate |
 | **HubIntentSettler** | Cross-chain credit plumbing (`confirmDeposit`); cross-chain user flows deferred in the current launch |
-| **SettlementLedger** | Solver reimbursement tracking — deferred in the current launch |
+| **SettlementLedger** | Solver reimbursement tracking; deferred in the current launch |
 | **CentuariBondERC20(Factory)** | Bond tokens minted for lenders |
 | **MockToken / Faucet** | Testnet ERC20s + drip |
 
@@ -76,8 +76,8 @@ token at different maturities is a different market.
 The `usedAsCollateral` flag is written by exactly three paths: `Settlement`
 (auto-flag at settle), `CollateralManager.unflagFor` (24h lock + `RiskModule`
 gate), and the liquidation auto-unmark on full collateral drain.
-`Centuari.repay()` deliberately does **not** touch the flag — a borrower stays
-flagged after full repayment until they explicitly unflag. There is no
+`Centuari.repay()` does **not** touch the flag. A borrower stays flagged after
+full repayment until they explicitly unflag. There is no
 user-callable toggle.
 
 ## Repository layout
@@ -206,13 +206,13 @@ proxy upgrades; ownership transfers are single-step and irreversible.
 
 ## Conventions
 
-- **Storage/logic separation** — upgradeable contracts keep all state in
+- **Storage/logic separation:** upgradeable contracts keep all state in
   `*Storage.sol` with a `uint256[N] private __gap`. Never reorder/remove storage
   variables; only append, shrinking the gap. Layout is snapshot-enforced by
   `bin/check-storage-layout.sh` in CI.
-- **Interface-first** — external surface defined in `interfaces/`; contracts
+- **Interface-first:** external surface defined in `interfaces/`; contracts
   interact through interfaces, never concrete types.
-- **Access control via modifiers** — `onlySettlement`, `onlyOperator`,
+- **Access control via modifiers:** `onlySettlement`, `onlyOperator`,
   `onlyAuthorizedWriter`, `whenNotPaused`. Never inline checks.
 - **Custom errors**, not `require` strings. **Events for every state change**
   (off-chain indexers depend on them). **SafeERC20** for all transfers.
